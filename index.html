@@ -499,27 +499,27 @@ var ROLES = {
 };
 
 var LANES = [
-  {id:'rec',label:'01 Recepcion',         cls:'l-rec'},
-  {id:'aa', label:'02a Asignado-espera',  cls:'l-aa'},
-  {id:'ab', label:'02b Trabajando',       cls:'l-ab'},
-  {id:'prb',label:'03 Prueba',            cls:'l-prb'},
-  {id:'pa', label:'03a Presup. Partes',   cls:'l-pa'},
-  {id:'pb', label:'03b Presup. M/O',      cls:'l-pb'},
-  {id:'ea', label:'03c Esp. autorizacion',cls:'l-ea'},
-  {id:'er', label:'03d Esp. repuestos',   cls:'l-er'},
-  {id:'ext',label:'EXT Trabajo externo',  cls:'l-ext'},
-  {id:'lav',label:'04 Lavado',            cls:'l-lav'},
-  {id:'lst',label:'05 Listo p/entrega',   cls:'l-lst'},
-  {id:'ent',label:'06 Entregado',         cls:'l-ent'},
-  {id:'cer',label:'07 Orden cerrada',     cls:'l-cer'},
-  {id:'det',label:'DETENIDO',               cls:'l-det'}
+  {id:'rec',label:'01 Recepcion',          cls:'l-rec'},
+  {id:'aa', label:'02a Asignado-espera',   cls:'l-aa'},
+  {id:'ab', label:'02b Trabajando',        cls:'l-ab'},
+  {id:'pa', label:'03a Presup. Partes',    cls:'l-pa'},
+  {id:'pb', label:'03b Presup. M/O',       cls:'l-pb'},
+  {id:'ea', label:'03c Esp. autorizacion', cls:'l-ea'},
+  {id:'er', label:'03d Esp. repuestos',    cls:'l-er'},
+  {id:'det',label:'DETENIDO',              cls:'l-det'},
+  {id:'ext',label:'EXT Trabajo externo',   cls:'l-ext'},
+  {id:'prb',label:'03 Prueba/Insp.Final',  cls:'l-prb'},
+  {id:'lav',label:'04 Lavado',             cls:'l-lav'},
+  {id:'lst',label:'05 Listo p/entrega',    cls:'l-lst'},
+  {id:'ent',label:'06 Entregado',          cls:'l-ent'},
+  {id:'cer',label:'07 Orden cerrada',      cls:'l-cer'}
 ];
 
 var SIGS = {
   rec:[{id:'asesor',lb:'Asesor firma',sb:false},{id:'cliente',lb:'Cliente firma',sb:false}],
   aa: [{id:'jefe',lb:'Jefe Vo.Bo. asignacion',sb:false}],
   det:[{id:'jefe',lb:'Jefe autoriza reanudar',sb:false}],
-  ab: [{id:'tecnico',lb:'Tecnico finaliza trabajo',sb:true}],
+  ab: [{id:'tecnico',lb:'Tecnico Finaliza',sb:true}],
   prb:[{id:'jefe',lb:'Jefe prueba de ruta',sb:false},{id:'tecnico',lb:'Tecnico inspeccion final',sb:true}],
   pa: [{id:'partes',lb:'Partes cotiza repuestos',sb:true},{id:'asesor',lb:'Asesor Vo.Bo. partes',sb:false}],
   pb: [{id:'asesor',lb:'Asesor cotiza M/O',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. presupuesto',sb:false}],
@@ -541,7 +541,7 @@ var NEXT = {
 };
 
 var NL = {
-  aa:'Asignado-espera',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba',lav:'Lavado',
+  aa:'Asignado-espera',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',
   pa:'Regresar a Presup. Partes',pb:'Presup. M/O',ea:'Esp. autorizacion',
   er:'Esp. repuestos',ext:'Trabajo externo',lst:'Listo p/entrega',
   ent:'Entregado',cer:'Cerrar orden'
@@ -549,7 +549,7 @@ var NL = {
 
 var TM = {
   rec:['t-rec','Recepcion'],aa:['t-aa','En espera'],ab:['t-ab','Trabajando'],
-  prb:['t-prb','En prueba'],pa:['t-pa','Presup.partes'],pb:['t-pb','Presup.MO'],
+  prb:['t-prb','Prueba/Insp.Final'],pa:['t-pa','Presup.partes'],pb:['t-pb','Presup.MO'],
   ea:['t-ea','Esp.autorizacion'],er:['t-er','Esp.repuesto'],
   ext:['t-ext','Trabajo ext'],lav:['t-lav','Lavado'],lst:['t-lst','Listo'],
   ent:['t-ent','Entregado'],cer:['tgr','Cerrada'],
