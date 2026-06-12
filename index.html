@@ -247,6 +247,7 @@ button{cursor:pointer}
 .l-det .lt,.l-det .lc{color:#FF4444}
 .t-det{background:#1a0a0a;color:#FF4444;border:1px solid #8B0000;font-weight:700}
 
+.brand-logo{display:inline-block}.brand-logo[src=""]{display:none}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
 @media(min-width:600px){
@@ -809,10 +810,7 @@ function renderBoard() {
         }
         var inner = document.createElement('div');
         inner.innerHTML =
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">' +
-            '<div class="card-pl">' + o.plate + '</div>' +
-            '<img src="' + getBrandLogo(o.model) + '" style="width:28px;height:28px;object-fit:contain;background:#fff;border-radius:4px;padding:2px" onerror="this.style.display='none'">' +
-          '</div>' +
+          '<div class="card-pl">' + o.plate + '</div>' +
           '<div class="card-ot">' + o.ot + '</div>' +
           '<div class="card-mo">' + o.model + '</div>' +
           '<div class="card-mt">' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '') + '</div>' +
@@ -859,14 +857,11 @@ function openDrw(id) {
   var hdr = document.getElementById('drw-hdr');
   var prio = o.prio !== 'normal' ? '<span class="dbg tag ' + (o.prio === 'urgente' ? 'tr' : 'tb') + '">' + o.prio.toUpperCase() + '</span>' : '';
   var spBadge = o.space ? '<span class="dbg" style="background:var(--blbg);color:var(--ac);border:1px solid var(--blbd)">Espacio ' + o.space + '</span>' : '';
-  var logoUrl = getBrandLogo(o.model);
-  var logoHtml = logoUrl ? '<img src="' + logoUrl + '" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:#fff;padding:3px;flex-shrink:0" onerror="this.style.display='none'">' : '';
   var confirmBadge = (o.pendingConfirm && role === 'jefe')
     ? '<span class="dbg" style="background:#2E1F0A;color:#F39C12;border:1px solid #6B4510">&#9888; Confirmar movimiento de ' + o.pendingConfirm.by + '</span>'
     : '';
   hdr.innerHTML =
     '<div style="display:flex;align-items:flex-start;gap:10px;width:100%">' +
-    logoHtml +
     '<div style="flex:1">' +
       '<div class="drw-pl">' + o.plate + '</div>' +
       '<div class="drw-mo">' + o.model + ' · ' + o.client + '</div>' +
@@ -1865,25 +1860,7 @@ var PHASE_COLORS = {
   'det': {bg:'#1a0a0a',color:'#FF4444',label:'DETENIDO'},
 };
 
-/* CAR BRAND LOGOS */
-function getBrandLogo(model) {
-  if (!model) return '';
-  var brand = model.trim().split(' ')[0].toLowerCase();
-  // Normalize common brands
-  var brandMap = {
-    'mercedes-benz':'mercedes', 'mercedes':'mercedes', 'vw':'volkswagen',
-    'chevy':'chevrolet', 'bmw':'bmw', 'toyota':'toyota', 'honda':'honda',
-    'ford':'ford', 'mazda':'mazda', 'nissan':'nissan', 'hyundai':'hyundai',
-    'kia':'kia', 'audi':'audi', 'volkswagen':'volkswagen', 'jeep':'jeep',
-    'chevrolet':'chevrolet', 'mitsubishi':'mitsubishi', 'suzuki':'suzuki',
-    'subaru':'subaru', 'lexus':'lexus', 'infiniti':'infiniti',
-    'acura':'acura', 'dodge':'dodge', 'ram':'ram', 'fiat':'fiat',
-    'renault':'renault', 'peugeot':'peugeot', 'volvo':'volvo',
-    'land':'land-rover', 'jac':'jac', 'chery':'chery', 'great':'great-wall'
-  };
-  var normalized = brandMap[brand] || brand;
-  return 'https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/thumb/' + normalized + '.png';
-}
+
 /* INIT */
 load();
 loadArch();
