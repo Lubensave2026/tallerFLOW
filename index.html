@@ -100,7 +100,7 @@ button{cursor:pointer}
 .card:active{transform:translateY(0)}
 .card-pl{font-size:15px;font-weight:700;font-family:var(--mo);letter-spacing:.5px}
 .card-mo{font-size:13px;font-weight:600;color:var(--tx);margin:3px 0}
-.card-ot{font-size:12px;font-weight:600;font-family:var(--mo);color:#FFFFFF;margin-bottom:1px}
+.card-ot{font-size:15px;font-weight:700;font-family:var(--mo);color:#FFFFFF;margin-bottom:2px;letter-spacing:.5px}
 .card-mt{font-size:10px;color:var(--tx3)}
 .card-sp{font-size:10px;color:var(--ac);background:var(--blbg);border:1px solid var(--blbd);padding:1px 6px;border-radius:8px;margin-top:3px;display:inline-block}
 .card-tg{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
@@ -809,7 +809,10 @@ function renderBoard() {
         }
         var inner = document.createElement('div');
         inner.innerHTML =
-          '<div class="card-pl">' + o.plate + '</div>' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">' +
+            '<div class="card-pl">' + o.plate + '</div>' +
+            '<img src="' + getBrandLogo(o.model) + '" style="width:28px;height:28px;object-fit:contain;background:#fff;border-radius:4px;padding:2px" onerror="this.style.display='none'">' +
+          '</div>' +
           '<div class="card-ot">' + o.ot + '</div>' +
           '<div class="card-mo">' + o.model + '</div>' +
           '<div class="card-mt">' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '') + '</div>' +
@@ -856,10 +859,14 @@ function openDrw(id) {
   var hdr = document.getElementById('drw-hdr');
   var prio = o.prio !== 'normal' ? '<span class="dbg tag ' + (o.prio === 'urgente' ? 'tr' : 'tb') + '">' + o.prio.toUpperCase() + '</span>' : '';
   var spBadge = o.space ? '<span class="dbg" style="background:var(--blbg);color:var(--ac);border:1px solid var(--blbd)">Espacio ' + o.space + '</span>' : '';
+  var logoUrl = getBrandLogo(o.model);
+  var logoHtml = logoUrl ? '<img src="' + logoUrl + '" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:#fff;padding:3px;flex-shrink:0" onerror="this.style.display='none'">' : '';
   var confirmBadge = (o.pendingConfirm && role === 'jefe')
     ? '<span class="dbg" style="background:#2E1F0A;color:#F39C12;border:1px solid #6B4510">&#9888; Confirmar movimiento de ' + o.pendingConfirm.by + '</span>'
     : '';
   hdr.innerHTML =
+    '<div style="display:flex;align-items:flex-start;gap:10px;width:100%">' +
+    logoHtml +
     '<div style="flex:1">' +
       '<div class="drw-pl">' + o.plate + '</div>' +
       '<div class="drw-mo">' + o.model + ' · ' + o.client + '</div>' +
@@ -869,6 +876,8 @@ function openDrw(id) {
         prio + spBadge + confirmBadge +
       '</div>' +
     '</div>' +
+    '<button class="drw-cl" onclick="closeDrw()">&#x2715;</button>' +
+    '</div>';
     '<button class="drw-cl" onclick="closeDrw()">✕</button>';
 
   /* body */
@@ -1556,6 +1565,21 @@ function mapPick(sp) {
 
 /* REPORT */
 function openRep() {
+  // Auto-refresh every 30 seconds while report is open
+  if (window._repInterval) clearInterval(window._repInterval);
+  window._repInterval = setInterval(function() {
+    var repModal = document.getElementById('m-rep');
+    if (repModal && repModal.classList.contains('on')) {
+      buildRepContent();
+    } else {
+      clearInterval(window._repInterval);
+    }
+  }, 30000);
+  buildRepContent();
+  document.getElementById('m-rep').classList.add('on');
+}
+
+function buildRepContent() {
   var today = new Date(); today.setHours(0,0,0,0);
   var todayTs = today.getTime();
 
@@ -1586,17 +1610,17 @@ function openRep() {
   // Main orders table
   html += '<div style="overflow-x:auto;margin-bottom:1rem">' +
     '<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:700px">' +
-    '<thead><tr style="background:var(--bg4);color:var(--tx2)">' +
-      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid var(--bd);white-space:nowrap">OR #</th>' +
-      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid var(--bd);white-space:nowrap">Ingreso</th>' +
-      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid var(--bd);white-space:nowrap">Estatus</th>' +
-      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid var(--bd);white-space:nowrap">Cliente</th>' +
+    '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">OR #</th>' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Ingreso</th>' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Estatus</th>' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cliente</th>' +
       
-      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid var(--bd);white-space:nowrap">Vehiculo</th>' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Vehiculo</th>' +
       
-      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid var(--bd);white-space:nowrap">Placa</th>' +
-      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid var(--bd);white-space:nowrap">Tecnico</th>' +
-      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid var(--bd);white-space:nowrap">T. fase</th>' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Placa</th>' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Tecnico</th>' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">T. fase</th>' +
     '</tr></thead><tbody>';
 
   for (var i = 0; i < sorted.length; i++) {
@@ -1638,9 +1662,8 @@ function openRep() {
   '</div>';
 
   document.getElementById('rep-body').innerHTML = html;
-  document.getElementById('m-rep').classList.add('on');
 }
-function closeRep() { document.getElementById('m-rep').classList.remove('on'); }
+function closeRep() { document.getElementById('m-rep').classList.remove('on'); if(window._repInterval) clearInterval(window._repInterval); }
 
 /* UTILS */
 function elapsed(ts) {
@@ -1841,6 +1864,26 @@ var PHASE_COLORS = {
   'cer': {bg:'#2A2A2A',color:'#888888',label:'CERRADA'},
   'det': {bg:'#1a0a0a',color:'#FF4444',label:'DETENIDO'},
 };
+
+/* CAR BRAND LOGOS */
+function getBrandLogo(model) {
+  if (!model) return '';
+  var brand = model.trim().split(' ')[0].toLowerCase();
+  // Normalize common brands
+  var brandMap = {
+    'mercedes-benz':'mercedes', 'mercedes':'mercedes', 'vw':'volkswagen',
+    'chevy':'chevrolet', 'bmw':'bmw', 'toyota':'toyota', 'honda':'honda',
+    'ford':'ford', 'mazda':'mazda', 'nissan':'nissan', 'hyundai':'hyundai',
+    'kia':'kia', 'audi':'audi', 'volkswagen':'volkswagen', 'jeep':'jeep',
+    'chevrolet':'chevrolet', 'mitsubishi':'mitsubishi', 'suzuki':'suzuki',
+    'subaru':'subaru', 'lexus':'lexus', 'infiniti':'infiniti',
+    'acura':'acura', 'dodge':'dodge', 'ram':'ram', 'fiat':'fiat',
+    'renault':'renault', 'peugeot':'peugeot', 'volvo':'volvo',
+    'land':'land-rover', 'jac':'jac', 'chery':'chery', 'great':'great-wall'
+  };
+  var normalized = brandMap[brand] || brand;
+  return 'https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/thumb/' + normalized + '.png';
+}
 /* INIT */
 load();
 loadArch();
