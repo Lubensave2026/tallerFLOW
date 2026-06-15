@@ -1021,46 +1021,6 @@ function openDrw(id) {
     phaseLogHtml += '</div>';;
   }
 
-  /* edit order */
-  var editBtn = document.getElementById('btn-edit-order');
-  if (editBtn) {
-    editBtn.addEventListener('click', function() {
-      var form = document.getElementById('edit-order-form');
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-    });
-  }
-  var cancelEditBtn = document.getElementById('btn-cancel-edit');
-  if (cancelEditBtn) {
-    cancelEditBtn.addEventListener('click', function() {
-      document.getElementById('edit-order-form').style.display = 'none';
-    });
-  }
-  var saveEditBtn = document.getElementById('btn-save-edit');
-  if (saveEditBtn) {
-    saveEditBtn.addEventListener('click', function() {
-      var newPlate  = document.getElementById('e-plate').value.trim();
-      var newOt     = document.getElementById('e-ot').value.trim();
-      var newModel  = document.getElementById('e-model').value.trim();
-      var newClient = document.getElementById('e-client').value.trim();
-      if (!newPlate || !newModel || !newClient) { toast('Placa, vehiculo y cliente son requeridos'); return; }
-      var ox = null;
-      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
-      if (!ox) return;
-      var changes = [];
-      if (ox.plate !== newPlate) changes.push('Placa: ' + ox.plate + ' -> ' + newPlate);
-      if (ox.ot !== newOt) changes.push('OT: ' + ox.ot + ' -> ' + newOt);
-      if (ox.model !== newModel) changes.push('Vehiculo: ' + ox.model + ' -> ' + newModel);
-      if (ox.client !== newClient) changes.push('Cliente: ' + ox.client + ' -> ' + newClient);
-      ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
-      if (changes.length) {
-        var who = ROLES[role] ? ROLES[role].label : role;
-        ox.msgs = ox.msgs || [];
-        ox.msgs.push({who:who, txt:'Datos editados: ' + changes.join(', '), ts:Date.now()});
-      }
-      save(); toast('Datos actualizados'); openDrw(id);
-    });
-  }
-
   /* jefe pending confirmation */
   if (role === 'jefe' && o.pendingConfirm) {
     html += '<div class="sec" style="background:var(--orbg);border:1px solid var(--orbd);border-radius:var(--r);padding:10px">' +
@@ -1120,6 +1080,46 @@ function openDrw(id) {
   /* attach events after innerHTML */
   var cb = document.getElementById('chat-box');
   if (cb) cb.scrollTop = cb.scrollHeight;
+
+  /* edit order — must be after body.innerHTML */
+  var editBtn = document.getElementById('btn-edit-order');
+  if (editBtn) {
+    editBtn.addEventListener('click', function() {
+      var form = document.getElementById('edit-order-form');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+  var cancelEditBtn = document.getElementById('btn-cancel-edit');
+  if (cancelEditBtn) {
+    cancelEditBtn.addEventListener('click', function() {
+      document.getElementById('edit-order-form').style.display = 'none';
+    });
+  }
+  var saveEditBtn = document.getElementById('btn-save-edit');
+  if (saveEditBtn) {
+    saveEditBtn.addEventListener('click', function() {
+      var newPlate  = document.getElementById('e-plate').value.trim();
+      var newOt     = document.getElementById('e-ot').value.trim();
+      var newModel  = document.getElementById('e-model').value.trim();
+      var newClient = document.getElementById('e-client').value.trim();
+      if (!newPlate || !newModel || !newClient) { toast('Placa, vehiculo y cliente son requeridos'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      var changes = [];
+      if (ox.plate !== newPlate) changes.push('Placa: ' + ox.plate + ' -> ' + newPlate);
+      if (ox.ot !== newOt) changes.push('OT: ' + ox.ot + ' -> ' + newOt);
+      if (ox.model !== newModel) changes.push('Vehiculo: ' + ox.model + ' -> ' + newModel);
+      if (ox.client !== newClient) changes.push('Cliente: ' + ox.client + ' -> ' + newClient);
+      ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
+      if (changes.length) {
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'Datos editados: ' + changes.join(', '), ts:Date.now()});
+      }
+      save(); toast('Datos actualizados'); openDrw(id);
+    });
+  }
 
   /* space cells */
   var grid = document.getElementById('sp-grid');
