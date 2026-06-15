@@ -202,7 +202,7 @@ button{cursor:pointer}
 .np-t{font-size:10px;color:var(--tx3);margin-top:2px}
 
 /* REPORT */
-.rep-modal{background:var(--bg2);border:1px solid var(--bd);width:100%;max-width:100%;padding:1.25rem;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0}
+.rep-modal{background:var(--bg2);border:1px solid var(--bd);width:100%;max-width:100%;padding:1.25rem;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;position:relative}
 .kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:1.25rem}
 .kpi{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px;text-align:center}
 .kpi-n{font-size:22px;font-weight:700;font-family:var(--mo);margin-bottom:2px}
@@ -1012,15 +1012,13 @@ function openDrw(id) {
       var fromD = pl.from ? new Date(pl.from).toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
       var toD   = pl.to   ? new Date(pl.to).toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
       var dur   = pl.minutes < 60 ? pl.minutes + ' min' : (pl.minutes/60).toFixed(1) + ' h';
-      phaseLogHtml += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:6px 9px;margin-bottom:5px">' +
-        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">' +
-          '<span style="background:' + pc3.bg + ';color:' + pc3.color + ';padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600">' + pc3.label + '</span>' +
-          '<span style="color:var(--or);font-weight:600;margin-left:auto;font-size:11px">' + dur + ' (hab.)</span>' +
-        '</div>' +
-        '<div style="font-size:10px;color:var(--tx3)">' + fromD + ' → ' + toD + '</div>' +
+      phaseLogHtml += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 10px;margin-bottom:5px;display:flex;align-items:center;gap:8px">' +
+        '<span style="background:' + pc3.bg + ';color:' + pc3.color + ';padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">' + pc3.label + '</span>' +
+        '<span style="font-size:10px;color:var(--tx3);flex:1">' + fromD + ' → ' + toD + '</span>' +
+        '<span style="color:var(--or);font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + dur + ' h.h.</span>' +
       '</div>';
     }
-    phaseLogHtml += '</div>';
+    phaseLogHtml += '</div>';;
   }
 
   /* edit order */
@@ -1676,9 +1674,9 @@ function buildRepContent() {
   '</div>';
 
   // Main orders table
-  html += '<div style="overflow-x:auto;margin-bottom:1rem">' +
+  html += '<div style="overflow-x:auto;overflow-y:visible;margin-bottom:1rem">' +
     '<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:700px">' +
-    '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
+    '<thead><tr style="background:#000000;color:#FFD700;font-weight:700;position:sticky;top:0;z-index:10">' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">OR #</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Ingreso</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Estatus</th>' +
