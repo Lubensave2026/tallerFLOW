@@ -536,12 +536,12 @@ var SIGS = {
 
 var NEXT = {
   rec:['aa'],aa:['ab'],det:['aa'],ab:['prb','lav','pa','er','ext','det'],
-  prb:['lav','ab'],pa:['pb','ab'],pb:['ea','pa'],ea:['aa'],er:['aa'],
+  prb:['lav','lst','ab','reproceso'],pa:['pb','ab'],pb:['ea','pa'],ea:['aa'],er:['aa'],
   ext:['ab','prb'],lav:['lst'],lst:['ent'],ent:['cer'],cer:[]
 };
 
 var NL = {
-  aa:'Asignado-espera',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',
+  aa:'Asignado-espera',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',reproceso:'REPROCESO (regresa a Trabajando)',
   pa:'Regresar a Presup. Partes',pb:'Presup. M/O',ea:'Esp. autorizacion',
   er:'Esp. repuestos',ext:'Trabajo externo',lst:'Listo p/entrega',
   ent:'Entregado',cer:'Cerrar orden'
@@ -800,6 +800,7 @@ function renderBoard() {
         var needsConfirm = o.pending_confirm && role === 'jefe';
         var spHtml = o.space ? '<div class="card-sp">Esp.' + o.space + '</div>' : '';
         var prioHtml = o.prio !== 'normal' ? '<span class="tag ' + (o.prio === 'urgente' ? 'tr' : 'tb') + '">' + o.prio.toUpperCase() + '</span>' : '';
+        var repHtml = o.reprocesos ? '<span class="tag" style="background:#1a0a0a;color:#FF6B6B;border:1px solid #8B0000">&#9851; Reproceso x' + o.reprocesos + '</span>' : '';
 
         var card = document.createElement('div');
         card.className = 'card' + (o.prio === 'urgente' ? ' urg' : '') + (needsConfirm ? ' needs-confirm' : '');
@@ -816,7 +817,7 @@ function renderBoard() {
           '<div class="card-mt">' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '') + '</div>' +
           (o.timestamps && o.timestamps[o.phase] ? '<div style="font-size:10px;color:var(--tx3)">&#9201; ' + businessHours(o.timestamps[o.phase], Date.now()) + '</div>' : '') +
           spHtml +
-          '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + '</div>' +
+          '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + repHtml + '</div>' +
           motivoHtml +
           '<div class="card-sg">' + sigHtml + '</div>';
         card.appendChild(inner);
@@ -885,12 +886,34 @@ function openDrw(id) {
   if (o.timestamps && o.timestamps[o.phase]) {
     timeInPhase = businessHours(o.timestamps[o.phase], Date.now()) + ' (horas habiles)';
   }
+  var canEdit = (role === 'jefe' || role === 'asesor');
+  if (canEdit) {
+    html += '<div class="sec">' +
+      '<div class="sec-l" style="display:flex;justify-content:space-between;align-items:center">' +
+        '<span>Informacion</span>' +
+        '<button id="btn-edit-order" class="btn-s" style="font-size:10px;padding:4px 10px">&#9999; Editar</button>' +
+      '</div>' +
+      '<div id="edit-order-form" style="display:none;margin-bottom:8px">' +
+        '<div class="fr2" style="margin-bottom:6px">' +
+          '<div class="fg"><label class="fl">Placa</label><input class="fi" id="e-plate" value="' + (o.plate||'') + '"></div>' +
+          '<div class="fg"><label class="fl">No. OT</label><input class="fi" id="e-ot" value="' + (o.ot||'') + '"></div>' +
+        '</div>' +
+        '<div class="fg" style="margin-bottom:6px"><label class="fl">Vehiculo</label><input class="fi" id="e-model" value="' + (o.model||'') + '"></div>' +
+        '<div class="fg" style="margin-bottom:6px"><label class="fl">Cliente</label><input class="fi" id="e-client" value="' + (o.client||'') + '"></div>' +
+        '<div style="display:flex;gap:8px">' +
+          '<button id="btn-save-edit" class="btn-sg" style="flex:1;padding:8px">Guardar cambios</button>' +
+          '<button id="btn-cancel-edit" class="btn-s" style="flex:1;padding:8px">Cancelar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
   html += '<div class="sec"><div class="sec-l">Informacion</div>' +
     '<div class="irow"><span class="ik">Tecnico</span><span>' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : '') + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + (o.loc || '—') + '</span></div>' +
     (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + o.detMotivo + '</span></div>' : '') +
     '<div class="irow"><span class="ik">Espacio</span><span>' + (o.space ? 'Espacio ' + o.space : 'Sin asignar') + '</span></div>' +
     '<div class="irow"><span class="ik">Tiempo en esta fase</span><span style="color:var(--or)">' + (timeInPhase || 'Recien ingresado') + '</span></div>' +
+    (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     (o.phaseStart ? '<div class="irow"><span class="ik">Tiempo en fase</span><span style="color:var(--or)">' + elapsed(o.phaseStart) + '</span></div>' : '') +
     (o.motivo_detenido ? '<div class="irow"><span class="ik">Motivo detenido</span><span style="color:#FF8C00">' + o.motivo_detenido + '</span></div>' : '') +
   '</div>';
@@ -962,8 +985,11 @@ function openDrw(id) {
     var phBtns = '';
     for (var i = 0; i < nexts.length; i++) {
       var n = nexts[i];
-      phBtns += '<button class="ph-btn ' + (allOk ? 'go' : 'lk') + '" data-phase="' + n + '" data-oid="' + id + '">' +
-        '<span>' + (NL[n] || n) + '</span><span>' + (allOk ? '→' : '🔒') + '</span></button>';
+      var isRepBtn = (n === 'reproceso');
+      var btnCls = isRepBtn ? (allOk ? 'go' : 'lk') + ' rep-btn' : (allOk ? 'go' : 'lk');
+      var btnStyle = isRepBtn ? ' style="border-color:#8B0000;color:#FF6B6B;background:#1a0a0a"' : '';
+      phBtns += '<button class="ph-btn ' + btnCls + '"' + btnStyle + ' data-phase="' + n + '" data-oid="' + id + '">' +
+        '<span>' + (isRepBtn ? '&#9851; ' : '') + (NL[n] || n) + '</span><span>' + (allOk ? '→' : '🔒') + '</span></button>';
     }
     html += '<div class="sec"><div class="sec-l">Avanzar a fase</div>' + phBtns + '</div>';
   }
@@ -995,6 +1021,46 @@ function openDrw(id) {
       '</div>';
     }
     phaseLogHtml += '</div>';
+  }
+
+  /* edit order */
+  var editBtn = document.getElementById('btn-edit-order');
+  if (editBtn) {
+    editBtn.addEventListener('click', function() {
+      var form = document.getElementById('edit-order-form');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+  var cancelEditBtn = document.getElementById('btn-cancel-edit');
+  if (cancelEditBtn) {
+    cancelEditBtn.addEventListener('click', function() {
+      document.getElementById('edit-order-form').style.display = 'none';
+    });
+  }
+  var saveEditBtn = document.getElementById('btn-save-edit');
+  if (saveEditBtn) {
+    saveEditBtn.addEventListener('click', function() {
+      var newPlate  = document.getElementById('e-plate').value.trim();
+      var newOt     = document.getElementById('e-ot').value.trim();
+      var newModel  = document.getElementById('e-model').value.trim();
+      var newClient = document.getElementById('e-client').value.trim();
+      if (!newPlate || !newModel || !newClient) { toast('Placa, vehiculo y cliente son requeridos'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      var changes = [];
+      if (ox.plate !== newPlate) changes.push('Placa: ' + ox.plate + ' -> ' + newPlate);
+      if (ox.ot !== newOt) changes.push('OT: ' + ox.ot + ' -> ' + newOt);
+      if (ox.model !== newModel) changes.push('Vehiculo: ' + ox.model + ' -> ' + newModel);
+      if (ox.client !== newClient) changes.push('Cliente: ' + ox.client + ' -> ' + newClient);
+      ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
+      if (changes.length) {
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'Datos editados: ' + changes.join(', '), ts:Date.now()});
+      }
+      save(); toast('Datos actualizados'); openDrw(id);
+    });
   }
 
   /* jefe pending confirmation */
@@ -1273,6 +1339,8 @@ function doSign(id, sigId) {
 }
 
 function advance(id, newPhase) {
+  var isReproceso = (newPhase === 'reproceso');
+  if (isReproceso) newPhase = 'ab';
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   // Check: tech can only work one vehicle at a time
@@ -1317,9 +1385,14 @@ function advance(id, newPhase) {
   o.sigs = {};
   if (!o.timestamps) o.timestamps = {};
   o.timestamps[newPhase] = Date.now();
+  if (isReproceso) {
+    o.reprocesos = (o.reprocesos || 0) + 1;
+    if (!o.reprocesoLog) o.reprocesoLog = [];
+    o.reprocesoLog.push({tech: o.tech, ts: Date.now(), motivo: ''});
+  }
   o.phaseStart = Date.now();
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'Avance: ' + oldLbl + ' → ' + newLbl, ts:Date.now()});
+  o.msgs.push({who:who, txt: isReproceso ? ('&#9851; REPROCESO — Regresa a Trabajando (' + o.tech + ')') : ('Avance: ' + oldLbl + ' → ' + newLbl), ts:Date.now()});
   // If tech made the change, flag it for jefe confirmation
   if (r && r.tec) {
     o.pendingConfirm = {by: who, phase: newPhase, label: newLbl, ts: Date.now()};
@@ -1847,7 +1920,7 @@ var PHASE_COLORS = {
   'rec': {bg:'#000000',color:'#FFFFFF',label:'RECEPCION'},
   'aa': {bg:'#3A3A3A',color:'#FFFFFF',label:'ASIGNADO-ESPERA'},
   'ab': {bg:'#1A4A1A',color:'#FFFFFF',label:'EN PROCESO'},
-  'prb': {bg:'#6A0DAD',color:'#FFFFFF',label:'PRUEBA'},
+  'prb': {bg:'#6A0DAD',color:'#FFFFFF',label:'PRUEBA/INSP.FINAL'},
   'pa': {bg:'#E67E22',color:'#CC0000',label:'PRESUPUESTO PARTES'},
   'pb': {bg:'#E67E22',color:'#FFD700',label:'PRESUPUESTO M/O'},
   'ea': {bg:'#FFFACD',color:'#000000',label:'ESP. AUTORIZACION'},
