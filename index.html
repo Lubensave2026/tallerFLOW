@@ -801,6 +801,8 @@ function renderBoard() {
         var spHtml = o.space ? '<div class="card-sp">Esp.' + o.space + '</div>' : '';
         var prioHtml = o.prio !== 'normal' ? '<span class="tag ' + (o.prio === 'urgente' ? 'tr' : 'tb') + '">' + o.prio.toUpperCase() + '</span>' : '';
         var repHtml = o.reprocesos ? '<span class="tag" style="background:#1a0a0a;color:#FF6B6B;border:1px solid #8B0000">&#9851; Reproceso x' + o.reprocesos + '</span>' : '';
+        var pendRep = (o.repuestos || []).filter(function(r){return !r.ck3;}).length;
+        var repuestoHtml = pendRep > 0 ? '<span class="tag" style="background:var(--orbg);color:var(--or);border:1px solid var(--orbd)">&#128230; ' + pendRep + ' repuesto(s)</span>' : '';
 
         var card = document.createElement('div');
         card.className = 'card' + (o.prio === 'urgente' ? ' urg' : '') + (needsConfirm ? ' needs-confirm' : '');
@@ -817,7 +819,7 @@ function renderBoard() {
           '<div class="card-mt">' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '') + '</div>' +
           (o.timestamps && o.timestamps[o.phase] ? '<div style="font-size:10px;color:var(--tx3)">&#9201; ' + businessHours(o.timestamps[o.phase], Date.now()) + '</div>' : '') +
           spHtml +
-          '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + repHtml + '</div>' +
+          '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + repHtml + repuestoHtml + '</div>' +
           motivoHtml +
           '<div class="card-sg">' + sigHtml + '</div>';
         card.appendChild(inner);
@@ -1005,23 +1007,35 @@ function openDrw(id) {
   /* phase log in drawer */
   var phaseLogHtml = '';
   if (o.phaseLog && o.phaseLog.length) {
-    phaseLogHtml = '<div class="sec"><div class="sec-l">Bitacora de tiempos por fase</div>';
+    // Consolidate: sum minutes for repeated phases
+    var consolidated = {};
+    var order = [];
     for (var pli = 0; pli < o.phaseLog.length; pli++) {
       var pl = o.phaseLog[pli];
-      var pc3 = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[pl.phase]) ? PHASE_COLORS[pl.phase] : {bg:'#333',color:'#fff',label:pl.phase};
-      var fromD = pl.from ? new Date(pl.from).toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
-      var toD   = pl.to   ? new Date(pl.to).toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
-      var dur   = pl.minutes < 60 ? pl.minutes + ' min' : (pl.minutes/60).toFixed(1) + ' h';
+      if (!consolidated[pl.phase]) {
+        consolidated[pl.phase] = {phase:pl.phase, label:pl.label, minutes:0, count:0, firstFrom:pl.from, lastTo:pl.to};
+        order.push(pl.phase);
+      }
+      consolidated[pl.phase].minutes += pl.minutes || 0;
+      consolidated[pl.phase].count++;
+      if (pl.to > consolidated[pl.phase].lastTo) consolidated[pl.phase].lastTo = pl.to;
+    }
+    phaseLogHtml = '<div class="sec"><div class="sec-l">Bitacora de tiempos por fase</div>';
+    for (var oi2 = 0; oi2 < order.length; oi2++) {
+      var ph = consolidated[order[oi2]];
+      var pc3 = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[ph.phase]) ? PHASE_COLORS[ph.phase] : {bg:'#333',color:'#fff',label:ph.phase};
+      var dur = ph.minutes < 60 ? Math.round(ph.minutes) + ' min' : (ph.minutes/60).toFixed(1) + ' h';
+      var countBadge = ph.count > 1 ? ' <span style="font-size:9px;opacity:.7">(' + ph.count + ' veces)</span>' : '';
       phaseLogHtml += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 10px;margin-bottom:5px;display:flex;align-items:center;gap:8px">' +
         '<span style="background:' + pc3.bg + ';color:' + pc3.color + ';padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">' + pc3.label + '</span>' +
-        '<span style="font-size:10px;color:var(--tx3);flex:1">' + fromD + ' → ' + toD + '</span>' +
+        '<span style="font-size:10px;color:var(--tx3);flex:1">' + countBadge + '</span>' +
         '<span style="color:var(--or);font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + dur + ' h.h.</span>' +
       '</div>';
     }
-    phaseLogHtml += '</div>';;
+    phaseLogHtml += '</div>';
   }
 
-  /* jefe pending confirmation */
+/* jefe pending confirmation */
   if (role === 'jefe' && o.pendingConfirm) {
     html += '<div class="sec" style="background:var(--orbg);border:1px solid var(--orbd);border-radius:var(--r);padding:10px">' +
       '<div style="font-size:12px;font-weight:600;color:var(--or);margin-bottom:6px">&#9888; Movimiento pendiente de confirmacion</div>' +
@@ -1058,6 +1072,38 @@ function openDrw(id) {
   }
 
   /* phase log html already built above */
+
+  /* repuestos pendientes */
+  var repuestosHtml = '';
+  var canAddRep = (role === 'jefe' || role === 'asesor' || (ROLES[role] && ROLES[role].tec));
+  var repList = o.repuestos || [];
+  repuestosHtml += '<div class="sec"><div class="sec-l" style="display:flex;justify-content:space-between;align-items:center">' +
+    '<span style="color:var(--or)">&#128230; Repuestos pendientes</span>' +
+    '<span style="font-size:10px;color:var(--tx3)">' + repList.filter(function(r){return !r.ck3;}).length + ' pendiente(s)</span>' +
+  '</div>';
+  if (repList.length === 0) {
+    repuestosHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Sin repuestos registrados</div>';
+  }
+  for (var ri = 0; ri < repList.length; ri++) {
+    var rep = repList[ri];
+    var isDone = rep.ck3;
+    repuestosHtml += '<div style="background:var(--bg3);border:1px solid ' + (isDone ? 'var(--gnbd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (isDone ? 'opacity:.5' : '') + '">' +
+      '<div style="font-size:12px;font-weight:500;margin-bottom:6px' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck1" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
+        '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck2" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck2 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck2 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck2 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</button>' +
+        '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck3" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck3 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck3 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck3 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</button>' +
+      '</div>' +
+    '</div>';
+  }
+  if (canAddRep) {
+    repuestosHtml += '<div style="display:flex;gap:6px;margin-top:6px">' +
+      '<input id="rep-inp" class="cin" placeholder="Descripcion del repuesto..." style="flex:1">' +
+      '<button id="btn-add-rep" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
+    '</div>';
+  }
+  repuestosHtml += '</div>';
+
   /* chat */
   var msgsHtml = '';
   if (o.msgs && o.msgs.length) {
@@ -1075,12 +1121,58 @@ function openDrw(id) {
       '<button class="btn-snd" id="btn-snd" data-oid="' + id + '">&#10148;</button>' +
     '</div></div>';
 
+  html += repuestosHtml;
   html += phaseLogHtml;
   body.innerHTML = html;
 
   /* attach events after innerHTML */
   var cb = document.getElementById('chat-box');
   if (cb) cb.scrollTop = cb.scrollHeight;
+
+  /* repuestos pendientes events */
+  var repCks = body.querySelectorAll('.btn-rep-ck');
+  for (var rci = 0; rci < repCks.length; rci++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        var ri2 = parseInt(this.getAttribute('data-ri'));
+        var ck = this.getAttribute('data-ck');
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.repuestos || !ox.repuestos[ri2]) return;
+        // ck3 (Instalado) only for jefe or tecnico
+        if (ck === 'ck3' && role !== 'jefe' && !(ROLES[role] && ROLES[role].tec)) { toast('Solo el tecnico o jefe puede confirmar instalacion'); return; }
+        // ck1 only for mensajero or jefe
+        if (ck === 'ck1' && role !== 'jefe' && role !== 'mensajero') { toast('Solo el mensajero puede confirmar este paso'); return; }
+        // ck2 only for partes or jefe
+        if (ck === 'ck2' && role !== 'jefe' && role !== 'partes') { toast('Solo el asesor de partes puede confirmar este paso'); return; }
+        ox.repuestos[ri2][ck] = !ox.repuestos[ri2][ck];
+        var who = ROLES[role] ? ROLES[role].label : role;
+        var ckLabel = ck === 'ck1' ? 'Mensajero' : ck === 'ck2' ? 'Partes' : 'Instalado';
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'Repuesto "' + ox.repuestos[ri2].desc + '" — ' + ckLabel + ': ' + (ox.repuestos[ri2][ck] ? '&#10003;' : 'desmarcado'), ts:Date.now()});
+        save(); toast('Actualizado'); openDrw(id);
+      });
+    })(repCks[rci]);
+  }
+  var addRepBtn = document.getElementById('btn-add-rep');
+  if (addRepBtn) {
+    addRepBtn.addEventListener('click', function() {
+      var inp = document.getElementById('rep-inp');
+      var desc = inp ? inp.value.trim() : '';
+      if (!desc) { toast('Escribe la descripcion del repuesto'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      ox.repuestos = ox.repuestos || [];
+      ox.repuestos.push({desc:desc, ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now()});
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado: ' + desc, ts:Date.now()});
+      addNotif('Repuesto pendiente en ' + ox.plate + ': ' + desc, id);
+      save(); toast('Repuesto agregado'); openDrw(id);
+    });
+    var repInp = document.getElementById('rep-inp');
+    if (repInp) repInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addRepBtn.click(); });
+  }
 
   /* edit order — must be after body.innerHTML */
   var editBtn = document.getElementById('btn-edit-order');
