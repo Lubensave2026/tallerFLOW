@@ -334,6 +334,7 @@ button{cursor:pointer}
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
     <button class="btn-map" onclick="openMap()">🗺 Mapa</button>
+    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; Repuestos</button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
 
     <input class="srch" id="srch" placeholder="Buscar placa, vehiculo, No. OT o tecnico..." oninput="renderBoard()">
@@ -521,10 +522,10 @@ var SIGS = {
   det:[{id:'jefe',lb:'Jefe autoriza reanudar',sb:false}],
   ab: [{id:'tecnico',lb:'Tecnico Finaliza',sb:true}],
   prb:[{id:'jefe',lb:'Jefe prueba de ruta',sb:false},{id:'tecnico',lb:'Tecnico inspeccion final',sb:true}],
-  pa: [{id:'partes',lb:'Partes cotiza repuestos',sb:true},{id:'asesor',lb:'Asesor Vo.Bo. partes',sb:false}],
+  pa: [{id:'partes',lb:'Partes cotiza repuestos',sb:true,seq:1},{id:'asesor',lb:'Asesor Vo.Bo. partes',sb:false,seq:2}],
   pb: [{id:'asesor',lb:'Asesor cotiza M/O',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. presupuesto',sb:false}],
   ea: [{id:'cliente',lb:'Cliente autoriza',sb:false},{id:'asesor',lb:'Asesor confirma',sb:true}],
-  er: [{id:'mensajero',lb:'Mensajero abastece',sb:true},{id:'partes',lb:'Partes confirma',sb:true},{id:'tecnico',lb:'Tecnico Vo.Bo.',sb:false}],
+  er: [{id:'mensajero',lb:'Mensajero abastece',sb:true,seq:1},{id:'partes',lb:'Partes confirma',sb:true,seq:2},{id:'tecnico',lb:'Tecnico Vo.Bo.',sb:false,seq:3}],
   ext:[{id:'asesor',lb:'Asesor envia externo',sb:false},{id:'partes',lb:'Partes coordina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo.',sb:false}],
   lav:[{id:'lavador',lb:'Lavador termina',sb:true},{id:'asesor',lb:'Asesor Vo.Bo.',sb:false}],
   lst:[{id:'asesor',lb:'Asesor confirma entrega',sb:false}],
@@ -674,6 +675,9 @@ function doLogin(rk) {
   document.getElementById('hdr-role').textContent = (r ? r.ico + ' ' + r.label : rk);
   document.getElementById('btn-new').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
+  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe') ? 'inline-flex' : 'none';
+  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe') ? 'inline-flex' : 'none';
+  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe') ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = rk === 'jefe' ? 'inline-flex' : 'none';
   showSc('ap');
   // Ensure screen is visible then render
@@ -688,6 +692,7 @@ function logout() {
   role = null; openId = null;
   try { localStorage.removeItem('taller_session'); } catch(e) {}
   document.getElementById('btn-arch').style.display = 'none';
+  document.getElementById('btn-reps').style.display = 'none';
   closeDrw(); closeNO(); closeRep(); closeMap();
   if (window._ri) clearInterval(window._ri);
   showSc('lg');
@@ -1007,11 +1012,19 @@ function openDrw(id) {
   /* phase log in drawer */
   var phaseLogHtml = '';
   if (o.phaseLog && o.phaseLog.length) {
+    // Filter phases by role
+    var visiblePhases = null; // null = all
+    if (role === 'mensajero') visiblePhases = ['er'];
+    else if (role === 'lavador') visiblePhases = ['lav'];
+    else if (ROLES[role] && ROLES[role].tec) visiblePhases = ['aa','ab','er','ea','det','ext','prb','lav'];
+    // jefe, asesor, partes see all
+
     // Consolidate: sum minutes for repeated phases
     var consolidated = {};
     var order = [];
     for (var pli = 0; pli < o.phaseLog.length; pli++) {
       var pl = o.phaseLog[pli];
+      if (visiblePhases && visiblePhases.indexOf(pl.phase) < 0) continue;
       if (!consolidated[pl.phase]) {
         consolidated[pl.phase] = {phase:pl.phase, label:pl.label, minutes:0, count:0, firstFrom:pl.from, lastTo:pl.to};
         order.push(pl.phase);
@@ -1403,6 +1416,17 @@ function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
+  // Sequential signature check
+  var phaseSigs = SIGS[o.phase] || [];
+  for (var si2 = 0; si2 < phaseSigs.length; si2++) {
+    if (phaseSigs[si2].id === sigId && phaseSigs[si2].seq > 1) {
+      for (var sj2 = 0; sj2 < phaseSigs.length; sj2++) {
+        if (phaseSigs[sj2].seq === phaseSigs[si2].seq - 1 && !o.sigs[phaseSigs[sj2].id]) {
+          toast('Primero debe firmarse: ' + phaseSigs[sj2].lb); return;
+        }
+      }
+    }
+  }
   // Rule 04: technician can only work one vehicle at a time
   if (sigId === 'tecnico' && o.phase === 'ab') {
     var r = ROLES[role];
@@ -2053,6 +2077,113 @@ var PHASE_COLORS = {
 
 
 
+
+/* REPUESTOS PANEL */
+function openReps() {
+  buildRepsContent();
+  document.getElementById('m-reps').classList.add('on');
+  if (window._repsInt) clearInterval(window._repsInt);
+  window._repsInt = setInterval(function() {
+    var m = document.getElementById('m-reps');
+    if (m && m.classList.contains('on')) buildRepsContent();
+    else clearInterval(window._repsInt);
+  }, 15000);
+}
+
+function closeReps() {
+  document.getElementById('m-reps').classList.remove('on');
+  if (window._repsInt) clearInterval(window._repsInt);
+}
+
+function buildRepsContent() {
+  var html = '';
+  var found = 0;
+
+  // Collect all orders with pending repuestos
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.phase === 'cer') continue;
+    var repList = o.repuestos || [];
+    var pending = repList.filter(function(r) { return !r.ck3; });
+    if (!pending.length) continue;
+    found++;
+
+    var pc = PHASE_COLORS[o.phase] || {bg:'#333',color:'#fff',label:o.phase};
+    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px;margin-bottom:10px">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+        '<span style="font-size:14px;font-weight:700;font-family:var(--mo)">' + o.plate + '</span>' +
+        '<span style="font-size:11px;color:var(--tx2)">' + o.model + '</span>' +
+        '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:1px 8px;border-radius:8px;font-size:10px;font-weight:600;margin-left:auto">' + pc.label + '</span>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--tx3);margin-bottom:8px">' + (o.tech || 'Sin tecnico') + ' · ' + o.ot + '</div>';
+
+    for (var ri = 0; ri < repList.length; ri++) {
+      var rep = repList[ri];
+      if (rep.ck3) continue;
+      var canCk1 = (role === 'mensajero' || role === 'jefe');
+      var canCk2 = (role === 'partes' || role === 'jefe') && rep.ck1;
+      var canCk3 = (role === 'jefe' || (ROLES[role] && ROLES[role].tec)) && rep.ck2;
+
+      html += '<div style="background:var(--bg2);border:1px solid var(--orbd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
+        '<div style="font-size:12px;font-weight:500;margin-bottom:7px">' + rep.desc + '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<button class="btn-reps-ck" data-oid="' + o.id + '" data-ri="' + ri + '" data-ck="ck1"' +
+            ' style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : (canCk1 ? 'var(--tx2)' : 'var(--tx3)')) + ';cursor:' + (canCk1 ? 'pointer' : 'not-allowed') + '">' +
+            (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
+          '<button class="btn-reps-ck" data-oid="' + o.id + '" data-ri="' + ri + '" data-ck="ck2"' +
+            ' style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid ' + (rep.ck2 ? 'var(--gnbd)' : (rep.ck1 ? 'var(--bd)' : 'var(--bd)')) + ';background:' + (rep.ck2 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck2 ? 'var(--gn)' : (canCk2 ? 'var(--tx2)' : 'var(--tx3)')) + ';cursor:' + (canCk2 ? 'pointer' : 'not-allowed') + '">' +
+            (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</button>' +
+          '<button class="btn-reps-ck" data-oid="' + o.id + '" data-ri="' + ri + '" data-ck="ck3"' +
+            ' style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid ' + (rep.ck3 ? 'var(--gnbd)' : (rep.ck2 ? 'var(--bd)' : 'var(--bd)')) + ';background:' + (rep.ck3 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck3 ? 'var(--gn)' : (canCk3 ? 'var(--tx2)' : 'var(--tx3)')) + ';cursor:' + (canCk3 ? 'pointer' : 'not-allowed') + '">' +
+            (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</button>' +
+        '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+
+  if (!found) {
+    html = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Sin repuestos pendientes</div>';
+  }
+
+  var body = document.getElementById('reps-body');
+  body.innerHTML = html;
+
+  // Attach events
+  var cks = body.querySelectorAll('.btn-reps-ck');
+  for (var ci = 0; ci < cks.length; ci++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        var oid = parseInt(this.getAttribute('data-oid'));
+        var ri2 = parseInt(this.getAttribute('data-ri'));
+        var ck = this.getAttribute('data-ck');
+        var ox = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oid) { ox = orders[j]; break; } }
+        if (!ox || !ox.repuestos || !ox.repuestos[ri2]) return;
+        var rep2 = ox.repuestos[ri2];
+        // Sequential check
+        if (ck === 'ck1' && role !== 'mensajero' && role !== 'jefe') { toast('Solo el mensajero puede confirmar este paso'); return; }
+        if (ck === 'ck2') {
+          if (role !== 'partes' && role !== 'jefe') { toast('Solo el asesor de partes puede confirmar este paso'); return; }
+          if (!rep2.ck1) { toast('El mensajero debe confirmar primero'); return; }
+        }
+        if (ck === 'ck3') {
+          if (role !== 'jefe' && !(ROLES[role] && ROLES[role].tec)) { toast('Solo el tecnico o jefe puede confirmar instalacion'); return; }
+          if (!rep2.ck2) { toast('El asesor de partes debe confirmar primero'); return; }
+        }
+        rep2[ck] = !rep2[ck];
+        var who = ROLES[role] ? ROLES[role].label : role;
+        var ckLabel = ck === 'ck1' ? 'Mensajero confirma' : ck === 'ck2' ? 'Partes confirma' : 'Tecnico confirma instalacion';
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'Repuesto "' + rep2.desc + '" — ' + ckLabel, ts:Date.now()});
+        save();
+        toast('Actualizado');
+        buildRepsContent();
+      });
+    })(cks[ci]);
+  }
+}
+
 /* REPORT FILTERS */
 function repApplyFilters() {
   var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
@@ -2103,6 +2234,16 @@ try {
       <button class="btn-s" id="btn-arch-now" style="font-size:12px;padding:6px 12px;border-color:var(--orbd);color:var(--or);background:var(--orbg)">Archivar cerradas antiguas</button>
     </div>
     <div id="hist-list" style="max-height:50vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- REPUESTOS MODAL -->
+<div class="mwrap" id="m-reps">
+  <div class="rep-modal">
+    <div class="modal-t">&#128230; Repuestos pendientes
+      <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeReps()">&#x2715;</button>
+    </div>
+    <div id="reps-body"></div>
   </div>
 </div>
 </body>
