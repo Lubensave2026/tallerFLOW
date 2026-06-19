@@ -454,19 +454,27 @@ function initFirebase() {
     // Listen for real-time changes
     db.ref('taller/orders').on('value', function(snap) {
       var data = snap.val();
-      if (data) {
-        if (data.orders !== undefined) {
-          orders = data.orders || [];
-          // Normalize: ensure every order has sigs object
-          for (var i = 0; i < orders.length; i++) {
-            if (!orders[i].sigs) orders[i].sigs = {};
-            if (!orders[i].msgs) orders[i].msgs = [];
-          }
-        }
-        if (data.notifs !== undefined) notifs = data.notifs || [];
-        if (data.nxtId  !== undefined) nxtId  = data.nxtId;
-        if (data.archived !== undefined) archived = data.archived || [];
+      if (!data) return;
+      // If this snapshot is exactly what we just sent ourselves, it's our
+      // own echo coming back — skip re-processing it (but don't block
+      // genuinely new changes from other devices).
+      var incomingSignature = JSON.stringify(data);
+      if (_lastSentSignature !== null && incomingSignature === _lastSentSignature) {
+        return;
       }
+      if (data.orders !== undefined) {
+        orders = data.orders || [];
+        // Normalize: ensure every order has sigs object
+        for (var i = 0; i < orders.length; i++) {
+          if (!orders[i].sigs) orders[i].sigs = {};
+          if (!orders[i].msgs) orders[i].msgs = [];
+        }
+      }
+      if (data.notifs !== undefined) notifs = data.notifs || [];
+      if (data.nxtId  !== undefined) nxtId  = data.nxtId;
+      if (data.archived !== undefined) archived = data.archived || [];
+      // Keep local backup in sync with what we just received
+      try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
       if (role) {
         renderBoard();
         updateNDot();
@@ -574,19 +582,31 @@ function load() {
     } else { seed(); }
   } catch(e) { seed(); }
 }
+var _lastSentSignature = null;
+
 function save() {
   // Always save locally as backup
   try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
   // Save to Firebase if connected
   if (fbReady && db) {
     try {
-      db.ref('taller/orders').set({
+      var payload = {
         orders:   orders,
         notifs:   notifs,
         nxtId:    nxtId,
         archived: archived
+      };
+      // Remember a signature of what we're sending so we can recognize
+      // our own echo when it comes back through the listener, without
+      // blocking real changes from other devices that may arrive around
+      // the same time.
+      _lastSentSignature = JSON.stringify(payload);
+      db.ref('taller/orders').set(payload).catch(function(e) {
+        console.log("Firebase save error:", e);
       });
-    } catch(e) { console.log("Firebase save error:", e); }
+    } catch(e) {
+      console.log("Firebase save error:", e);
+    }
   }
 }
 function seed() {
