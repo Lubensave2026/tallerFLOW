@@ -870,6 +870,18 @@ function openDrw(id) {
   o._lr = Date.now();
   save();
 
+  if (window._drwRepInt) clearInterval(window._drwRepInt);
+  window._drwRepInt = setInterval(function() {
+    var drwEl = document.getElementById('drw');
+    if (!drwEl || !drwEl.classList.contains('on')) { clearInterval(window._drwRepInt); return; }
+    var badges = document.querySelectorAll('[data-rep-ts]');
+    for (var bi = 0; bi < badges.length; bi++) {
+      var b = badges[bi];
+      var ts = parseInt(b.getAttribute('data-rep-ts'));
+      b.outerHTML = elapsedRepBadge(ts);
+    }
+  }, 30000);
+
   var lane = null;
   for (var i = 0; i < LANES.length; i++) { if (LANES[i].id === o.phase) { lane = LANES[i]; break; } }
   var tc = (TM[o.phase] || ['tgr', '?'])[0];
@@ -1121,7 +1133,10 @@ function openDrw(id) {
     var rep = repList[ri];
     var isDone = rep.ck3;
     repuestosHtml += '<div style="background:var(--bg3);border:1px solid ' + (isDone ? 'var(--gnbd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (isDone ? 'opacity:.5' : '') + '">' +
-      '<div style="font-size:12px;font-weight:500;margin-bottom:6px' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
+        '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
+        (isDone ? '' : elapsedRepBadge(rep.ts)) +
+      '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
         '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck1" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
         '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck2" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck2 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck2 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck2 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</button>' +
@@ -1409,6 +1424,7 @@ function openDrw(id) {
 function closeDrw() {
   document.getElementById('ov').classList.remove('on');
   document.getElementById('drw').classList.remove('on');
+  if (window._drwRepInt) { clearInterval(window._drwRepInt); window._drwRepInt = null; }
   openId = null;
   renderBoard();
 }
@@ -1913,6 +1929,21 @@ function ago(ts) {
   if (d < 86400000) return 'hace ' + Math.floor(d/3600000) + ' h';
   return 'hace ' + Math.floor(d/86400000) + ' d';
 }
+
+function elapsedRepBadge(ts) {
+  // Builds a small colored "time waiting" pill for a repuesto request.
+  // Green under 30 min, orange 30min-2h, red over 2h — so mensajero/partes
+  // can spot stale requests at a glance. Carries data-rep-ts so a live
+  // refresh loop can find and update it without re-rendering everything.
+  if (!ts) return '';
+  var d = Date.now() - ts;
+  var mins = Math.floor(d / 60000);
+  var txt = mins < 60 ? mins + ' min' : (Math.floor(mins/60)) + 'h ' + (mins%60) + 'min';
+  var bg = 'var(--gnbg)', fg = 'var(--gn)', bd = 'var(--gnbd)';
+  if (mins >= 120) { bg = 'var(--rdbg)'; fg = 'var(--rd)'; bd = 'var(--rdbd)'; }
+  else if (mins >= 30) { bg = 'var(--orbg)'; fg = 'var(--or)'; bd = 'var(--orbd)'; }
+  return '<span data-rep-ts="' + ts + '" style="background:' + bg + ';color:' + fg + ';border:1px solid ' + bd + ';padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">&#9201; ' + txt + ' esperando</span>';
+}
 var _tt;
 function toast(msg) {
   var t = document.getElementById('toast');
@@ -2145,7 +2176,10 @@ function buildRepsContent() {
       var canCk3 = (role === 'jefe' || (ROLES[role] && ROLES[role].tec)) && rep.ck2;
 
       html += '<div style="background:var(--bg2);border:1px solid var(--orbd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
-        '<div style="font-size:12px;font-weight:500;margin-bottom:7px">' + rep.desc + '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px">' +
+          '<div style="font-size:12px;font-weight:500">' + rep.desc + '</div>' +
+          elapsedRepBadge(rep.ts) +
+        '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
           '<button class="btn-reps-ck" data-oid="' + o.id + '" data-ri="' + ri + '" data-ck="ck1"' +
             ' style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : (canCk1 ? 'var(--tx2)' : 'var(--tx3)')) + ';cursor:' + (canCk1 ? 'pointer' : 'not-allowed') + '">' +
