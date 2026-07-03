@@ -496,17 +496,14 @@ function initFirebase() {
       // 1. Our own echo (same version) — ignored
       // 2. Stale data from a slow device — ignored
       // 3. Real change from another device (different version) — applied
+      // Only skip our own echo — never block updates from other devices
       var incomingVersion = data._v || 0;
       if (incomingVersion > 0 && incomingVersion === _lastSentVersion) {
-        // This is the echo of our own most recent save — skip it
+        // Exact match: this is the echo of our own most recent save
         return;
       }
-      // If incoming is older than what we already have locally, skip it
-      // (prevents a slow device from overwriting newer local changes)
-      if (incomingVersion > 0 && incomingVersion < _lastSentVersion) {
-        return;
-      }
-      // Update our local version tracker to match what we received
+      // Accept all other updates — whether from other devices or
+      // older/newer versions — to avoid blocking legitimate changes
       if (incomingVersion > 0) _lastSentVersion = incomingVersion;
       if (data.orders !== undefined) {
         orders = data.orders || [];
@@ -581,7 +578,7 @@ var SIGS = {
   ea: [{id:'asesor',lb:'Asesor confirma autorizacion',sb:false},{id:'jefe',lb:'Jefe Vo.Bo. autorizacion',sb:false}],
   er: [{id:'mensajero',lb:'Mensajero abastece',sb:true,seq:1},{id:'partes',lb:'Partes confirma',sb:true,seq:2},{id:'tecnico',lb:'Tecnico Vo.Bo.',sb:false,seq:3}],
   ext:[{id:'asesor',lb:'Asesor envia externo',sb:false},{id:'partes',lb:'Partes coordina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo.',sb:false}],
-  lav:[{id:'lavador',lb:'Lavador termina',sb:true},{id:'asesor',lb:'Asesor Vo.Bo.',sb:false}],
+  lav:[{id:'lavador',lb:'Lavador termina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. lavado',sb:false}],
   lst:[{id:'asesor',lb:'Asesor confirma entrega',sb:false}],
   ent:[{id:'jefe',lb:'Jefe verifica facturacion',sb:false}],
   cer:[],
@@ -1638,7 +1635,7 @@ function doSign(id, sigId) {
   var phaseSigsAuto = SIGS[o.phase] || [];
   var allSignedAuto = phaseSigsAuto.every(function(s) { return o.sigs[s.id]; });
   if (allSignedAuto) {
-    var autoNext = {pa:'pb', pb:'ea', ea:'aa'};
+    var autoNext = {pa:'pb', pb:'ea', ea:'aa', lav:'lst'};
     if (autoNext[o.phase]) {
       // Small delay so user sees confirmation toast before advance
       var autoPhase = autoNext[o.phase];
