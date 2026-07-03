@@ -1038,6 +1038,12 @@ function openDrw(id) {
     (o.numFisico ? '<div class="irow"><span class="ik">No. orden fisica</span><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + (o.colorFisico === 'azul' ? '#1565C0' : o.colorFisico === 'amarillo' ? '#F9A825' : o.colorFisico === 'verde' ? '#2E7D32' : '#555') + ';color:#fff;font-size:12px;font-weight:700">' + o.numFisico + '</span><span style="color:var(--tx2);font-size:11px">' + (o.colorFisico || '') + '</span></span></div>' : '') +
     '<div class="irow"><span class="ik">Tiempo en esta fase</span><span style="color:var(--or)">' + (timeInPhase || 'Recien ingresado') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
+    ((role === 'jefe' || role === 'asesor') ?
+      '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
+      '<div class="irow"><span class="ik">Total autorizado (Q)</span><input class="fi" id="m-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '" style="max-width:140px;padding:4px 8px;font-size:12px"></div>' +
+      '<div class="irow" style="margin-top:6px"><span class="ik">Mano de obra (Q)</span><input class="fi" id="m-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="max-width:140px;padding:4px 8px;font-size:12px"></div>' +
+      '<button id="btn-save-montos" class="btn-sg" style="margin-top:8px;padding:5px 14px;font-size:11px">Guardar montos</button>'
+    : '') +
     (o.phaseStart ? '<div class="irow"><span class="ik">Tiempo en fase</span><span style="color:var(--or)">' + elapsed(o.phaseStart) + '</span></div>' : '') +
     (o.motivo_detenido ? '<div class="irow"><span class="ik">Motivo detenido</span><span style="color:#FF8C00">' + o.motivo_detenido + '</span></div>' : '') +
   '</div>';
@@ -1338,6 +1344,25 @@ function openDrw(id) {
     });
     var repInp = document.getElementById('rep-inp');
     if (repInp) repInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addRepBtn.click(); });
+  }
+
+  /* save montos */
+  var btnSaveMontos = document.getElementById('btn-save-montos');
+  if (btnSaveMontos) {
+    btnSaveMontos.addEventListener('click', function() {
+      var tVal = parseFloat(document.getElementById('m-total').value) || 0;
+      var mVal = parseFloat(document.getElementById('m-mo').value) || 0;
+      if (mVal > tVal && tVal > 0) { toast('La M.O. no puede superar el total'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      ox.montoTotal = tVal || null;
+      ox.montoMO = mVal || null;
+      var who = ROLES[role] ? ROLES[role].label : role;
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:who, txt:'&#128181; Montos actualizados — Total: Q.' + (tVal||0).toFixed(2) + ' / M.O.: Q.' + (mVal||0).toFixed(2), ts:Date.now()});
+      save(); toast('Montos guardados'); openDrw(id);
+    });
   }
 
   /* edit order — must be after body.innerHTML */
@@ -1992,6 +2017,24 @@ function buildRepContent() {
     '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + urg + '</div><div class="kpi-l">Urgentes</div></div>' +
     '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + orders.filter(function(o){return o.phase==='det';}).length + '</div><div class="kpi-l">Detenidas</div></div>' +
   '</div>';
+
+  // Facturacion potencial (solo jefe)
+  if (role === 'jefe') {
+    var potTotal = 0, potMO = 0, conMonto = 0;
+    for (var ki=0; ki<orders.length; ki++) {
+      var ko = orders[ki];
+      if (ko.phase === 'cer') continue;
+      if (ko.montoTotal) { potTotal += ko.montoTotal; potMO += (ko.montoMO||0); conMonto++; }
+    }
+    if (conMonto > 0) {
+      var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap">' +
+        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;width:100%;margin-bottom:4px">&#128181; Facturacion potencial (' + conMonto + ' ordenes con monto)</div>' +
+        '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
+        '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+      '</div>';
+    }
+  }
 
   // Filter controls
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem">' +
@@ -2716,6 +2759,12 @@ function openHistDetail(o) {
     '<div class="irow"><span class="ik">Fecha ingreso</span><span>' + fecha + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + (o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
+    ((role === 'jefe' || role === 'asesor') ?
+      '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
+      '<div class="irow"><span class="ik">Total autorizado (Q)</span><input class="fi" id="m-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '" style="max-width:140px;padding:4px 8px;font-size:12px"></div>' +
+      '<div class="irow" style="margin-top:6px"><span class="ik">Mano de obra (Q)</span><input class="fi" id="m-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="max-width:140px;padding:4px 8px;font-size:12px"></div>' +
+      '<button id="btn-save-montos" class="btn-sg" style="margin-top:8px;padding:5px 14px;font-size:11px">Guardar montos</button>'
+    : '') +
   '</div>';
 
   // ── Descripcion ──
@@ -2819,12 +2868,33 @@ var SEM_KEY = 'lubensave_sem_jul2026';
 var META_TOTAL = 400000;
 var META_MO = 200000;
 
+var _semData = null; // in-memory cache
+
 function semLoad() {
-  try { return JSON.parse(localStorage.getItem(SEM_KEY)) || {dias:[]}; }
-  catch(e) { return {dias:[]}; }
+  return _semData || {dias:[]};
 }
 function semSave(data) {
+  _semData = data;
+  // Also keep local backup
   try { localStorage.setItem(SEM_KEY, JSON.stringify(data)); } catch(e) {}
+  // Sync to Firebase
+  if (fbReady && db) {
+    db.ref('taller/semaforo/jul2026').set(data).catch(function(e) {
+      console.log('Sem save error:', e);
+    });
+  }
+}
+function semInitFirebase() {
+  if (!fbReady || !db) return;
+  db.ref('taller/semaforo/jul2026').on('value', function(snap) {
+    var data = snap.val();
+    if (data) {
+      _semData = data;
+      // Refresh panel if open
+      var m = document.getElementById('m-sem');
+      if (m && m.classList.contains('on')) buildSemContent();
+    }
+  });
 }
 
 function openSem() {
@@ -3025,5 +3095,3 @@ try {
 </div>
 </body>
 </html>
-
- 
