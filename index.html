@@ -466,6 +466,19 @@ var FB_CONFIG = {
 
 var db = null;
 var fbReady = false;
+// Guarda de seguridad: nxtId SIEMPRE debe crecer (solo aumenta al crear
+// ordenes, nunca baja en uso normal). Si un dispositivo con datos viejos
+// en memoria intenta guardar con un nxtId menor al maximo ya visto en
+// Firebase, se bloquea ese guardado en vez de sobreescribir a todos.
+var HWM_KEY = 'taller_hwm_nxtid';
+var _hwmNxtId = 0;
+try { _hwmNxtId = parseInt(localStorage.getItem(HWM_KEY) || '0') || 0; } catch(e) {}
+function _updateHwm(n) {
+  if (n > _hwmNxtId) {
+    _hwmNxtId = n;
+    try { localStorage.setItem(HWM_KEY, String(_hwmNxtId)); } catch(e) {}
+  }
+}
 
 function initFirebase() {
   try {
@@ -496,16 +509,15 @@ function initFirebase() {
       // 1. Our own echo (same version) — ignored
       // 2. Stale data from a slow device — ignored
       // 3. Real change from another device (different version) — applied
-      // Firebase ALWAYS wins over localStorage.
-      // The only snapshot we skip is the exact echo of our own
-      // most recent save — identified by matching _v timestamp.
-      // Everything else (other devices, reconnections, page reloads)
-      // always gets applied immediately.
+      // Only skip our own echo — never block updates from other devices
       var incomingVersion = data._v || 0;
       if (incomingVersion > 0 && incomingVersion === _lastSentVersion) {
-        return; // skip our own echo only
+        // Exact match: this is the echo of our own most recent save
+        return;
       }
-      _lastSentVersion = incomingVersion;
+      // Accept all other updates — whether from other devices or
+      // older/newer versions — to avoid blocking legitimate changes
+      if (incomingVersion > 0) _lastSentVersion = incomingVersion;
       if (data.orders !== undefined) {
         orders = data.orders || [];
         // Normalize: ensure every order has sigs object
@@ -515,7 +527,7 @@ function initFirebase() {
         }
       }
       if (data.notifs !== undefined) notifs = data.notifs || [];
-      if (data.nxtId  !== undefined) nxtId  = data.nxtId;
+      if (data.nxtId  !== undefined) { nxtId  = data.nxtId; _updateHwm(nxtId); }
       if (data.archived !== undefined) archived = data.archived || [];
       // Keep local backup in sync with what we just received
       try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
@@ -634,6 +646,21 @@ function save() {
   try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
   // Save to Firebase if connected
   if (fbReady && db) {
+    // GUARDA ANTI-SOBRESCRITURA: si este dispositivo tiene un nxtId menor
+    // al mas alto ya conocido, sus datos en memoria estan desactualizados
+    // (por ejemplo una pestana abierta hace dias). Bloquear el guardado a
+    // Firebase para no pisar el trabajo de todo el equipo, y avisar.
+    if (_hwmNxtId > 0 && nxtId < _hwmNxtId) {
+      console.log('BLOQUEADO: nxtId local ('+nxtId+') menor al conocido ('+_hwmNxtId+'). Datos locales desactualizados.');
+      try {
+        if (typeof toast === 'function') {
+          toast('⚠️ Datos desactualizados. Recarga la pagina (Ctrl+Shift+R) antes de seguir.');
+        } else {
+          alert('Tus datos estan desactualizados. Por favor recarga la pagina (Ctrl+Shift+R) antes de continuar, o tus cambios NO se guardaran para el equipo.');
+        }
+      } catch(e2) {}
+      return; // no se envia a Firebase — evita repetir la perdida de datos
+    }
     try {
       _localVersion = Date.now(); // use timestamp as version — always increases
       _lastSentVersion = _localVersion;
