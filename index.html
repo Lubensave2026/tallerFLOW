@@ -496,15 +496,16 @@ function initFirebase() {
       // 1. Our own echo (same version) — ignored
       // 2. Stale data from a slow device — ignored
       // 3. Real change from another device (different version) — applied
-      // Only skip our own echo — never block updates from other devices
+      // Firebase ALWAYS wins over localStorage.
+      // The only snapshot we skip is the exact echo of our own
+      // most recent save — identified by matching _v timestamp.
+      // Everything else (other devices, reconnections, page reloads)
+      // always gets applied immediately.
       var incomingVersion = data._v || 0;
       if (incomingVersion > 0 && incomingVersion === _lastSentVersion) {
-        // Exact match: this is the echo of our own most recent save
-        return;
+        return; // skip our own echo only
       }
-      // Accept all other updates — whether from other devices or
-      // older/newer versions — to avoid blocking legitimate changes
-      if (incomingVersion > 0) _lastSentVersion = incomingVersion;
+      _lastSentVersion = incomingVersion;
       if (data.orders !== undefined) {
         orders = data.orders || [];
         // Normalize: ensure every order has sigs object
