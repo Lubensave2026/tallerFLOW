@@ -480,6 +480,34 @@ function _updateHwm(n) {
   }
 }
 
+// RESPALDO DIARIO AUTOMATICO: al primer dato real recibido de Firebase cada
+// dia, si todavia no existe un respaldo para la fecha de hoy, se guarda una
+// copia del estado en taller/backups/YYYY-MM-DD (sin tocar taller/orders).
+// Esto da un punto de restauracion por dia sin necesitar plan de pago.
+var _backupCheckedToday = false;
+function _todayKey() {
+  var d = new Date();
+  var mm = String(d.getMonth()+1).padStart(2,'0');
+  var dd = String(d.getDate()).padStart(2,'0');
+  return d.getFullYear() + '-' + mm + '-' + dd;
+}
+function maybeDailyBackup(currentData) {
+  if (_backupCheckedToday || !fbReady || !db) return;
+  _backupCheckedToday = true;
+  var key = _todayKey();
+  var ref = db.ref('taller/backups/' + key);
+  ref.once('value').then(function(snap) {
+    if (snap.exists()) return; // ya hay respaldo de hoy, no tocar
+    ref.set({
+      orders:   currentData.orders   || [],
+      notifs:   currentData.notifs   || [],
+      nxtId:    currentData.nxtId    || 0,
+      archived: currentData.archived || [],
+      _backupTs: Date.now()
+    }).catch(function(e){ console.log('Backup diario error:', e); });
+  }).catch(function(e){ console.log('Backup diario check error:', e); });
+}
+
 function initFirebase() {
   try {
     if (typeof firebase === 'undefined') {
@@ -531,6 +559,7 @@ function initFirebase() {
       if (data.archived !== undefined) archived = data.archived || [];
       // Keep local backup in sync with what we just received
       try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
+      maybeDailyBackup({orders:orders, notifs:notifs, nxtId:nxtId, archived:archived});
       if (role) {
         renderBoard();
         updateNDot();
