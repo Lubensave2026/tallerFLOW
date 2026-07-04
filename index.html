@@ -1047,6 +1047,12 @@ function openDrw(id) {
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Vehiculo</label><input class="fi" id="e-model" value="' + (o.model||'') + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Cliente</label><input class="fi" id="e-client" value="' + (o.client||'') + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Tiempo estimado (hrs) — opcional</label><input class="fi" id="e-hrs" type="number" min="0.5" step="0.5" value="' + (o.hrsEstimado||'') + '"></div>' +
+        ((role === 'jefe' || role === 'asesor') ?
+          '<div class="fr2" style="margin-bottom:6px">' +
+            '<div class="fg"><label class="fl">Total autorizado (Q)</label><input class="fi" id="e-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '"></div>' +
+            '<div class="fg"><label class="fl">Mano de obra (Q)</label><input class="fi" id="e-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '"></div>' +
+          '</div>'
+        : '') +
         '<div style="display:flex;gap:8px">' +
           '<button id="btn-save-edit" class="btn-sg" style="flex:1;padding:8px">Guardar cambios</button>' +
           '<button id="btn-cancel-edit" class="btn-s" style="flex:1;padding:8px">Cancelar</button>' +
@@ -1065,9 +1071,9 @@ function openDrw(id) {
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
-      '<div class="irow"><span class="ik">Total autorizado (Q)</span><input class="fi" id="m-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '" style="max-width:140px;padding:4px 8px;font-size:12px"></div>' +
-      '<div class="irow" style="margin-top:6px"><span class="ik">Mano de obra (Q)</span><input class="fi" id="m-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="max-width:140px;padding:4px 8px;font-size:12px"></div>' +
-      '<button id="btn-save-montos" class="btn-sg" style="margin-top:8px;padding:5px 14px;font-size:11px">Guardar montos</button>'
+      '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+      '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Editar montos desde el boton &#9999; Editar arriba</div>'
     : '') +
     (o.phaseStart ? '<div class="irow"><span class="ik">Tiempo en fase</span><span style="color:var(--or)">' + elapsed(o.phaseStart) + '</span></div>' : '') +
     (o.motivo_detenido ? '<div class="irow"><span class="ik">Motivo detenido</span><span style="color:#FF8C00">' + o.motivo_detenido + '</span></div>' : '') +
@@ -1371,24 +1377,7 @@ function openDrw(id) {
     if (repInp) repInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addRepBtn.click(); });
   }
 
-  /* save montos */
-  var btnSaveMontos = document.getElementById('btn-save-montos');
-  if (btnSaveMontos) {
-    btnSaveMontos.addEventListener('click', function() {
-      var tVal = parseFloat(document.getElementById('m-total').value) || 0;
-      var mVal = parseFloat(document.getElementById('m-mo').value) || 0;
-      if (mVal > tVal && tVal > 0) { toast('La M.O. no puede superar el total'); return; }
-      var ox = null;
-      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
-      if (!ox) return;
-      ox.montoTotal = tVal || null;
-      ox.montoMO = mVal || null;
-      var who = ROLES[role] ? ROLES[role].label : role;
-      ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:who, txt:'&#128181; Montos actualizados — Total: Q.' + (tVal||0).toFixed(2) + ' / M.O.: Q.' + (mVal||0).toFixed(2), ts:Date.now()});
-      save(); toast('Montos guardados'); openDrw(id);
-    });
-  }
+  /* montos ahora se editan junto con "Editar" — ver btn-save-edit */
 
   /* edit order — must be after body.innerHTML */
   var editBtn = document.getElementById('btn-edit-order');
@@ -1413,6 +1402,11 @@ function openDrw(id) {
       var newClient = document.getElementById('e-client').value.trim();
       var newNum    = document.getElementById('e-num') ? document.getElementById('e-num').value : '';
       var newColor  = document.getElementById('e-col') ? document.getElementById('e-col').value : '';
+      var eTotalEl  = document.getElementById('e-total');
+      var eMoEl     = document.getElementById('e-mo');
+      var newTotal  = eTotalEl ? (parseFloat(eTotalEl.value) || 0) : null;
+      var newMO     = eMoEl ? (parseFloat(eMoEl.value) || 0) : null;
+      if (eTotalEl && eMoEl && newMO > newTotal && newTotal > 0) { toast('La M.O. no puede superar el total'); return; }
       if (!newPlate || !newModel || !newClient) { toast('Placa, vehiculo y cliente son requeridos'); return; }
       var ox = null;
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
@@ -1422,8 +1416,11 @@ function openDrw(id) {
       if (ox.ot !== newOt) changes.push('OT: ' + ox.ot + ' -> ' + newOt);
       if (ox.model !== newModel) changes.push('Vehiculo: ' + ox.model + ' -> ' + newModel);
       if (ox.client !== newClient) changes.push('Cliente: ' + ox.client + ' -> ' + newClient);
+      if (eTotalEl && eMoEl && (ox.montoTotal||0) !== newTotal) changes.push('Montos actualizados');
       ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
       ox.numFisico = newNum; ox.colorFisico = newColor;
+      if (eTotalEl) ox.montoTotal = newTotal || null;
+      if (eMoEl) ox.montoMO = newMO || null;
       var hrsEl = document.getElementById('e-hrs');
       ox.hrsEstimado = hrsEl && hrsEl.value ? parseFloat(hrsEl.value) : null;
       if (changes.length) {
@@ -2043,7 +2040,7 @@ function buildRepContent() {
     '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + orders.filter(function(o){return o.phase==='det';}).length + '</div><div class="kpi-l">Detenidas</div></div>' +
   '</div>';
 
-  // Facturacion potencial (solo jefe)
+  // Facturacion potencial (solo jefe) — siempre visible, aunque este en Q.0.00
   if (role === 'jefe') {
     var potTotal = 0, potMO = 0, conMonto = 0;
     for (var ki=0; ki<orders.length; ki++) {
@@ -2051,14 +2048,12 @@ function buildRepContent() {
       if (ko.phase === 'cer') continue;
       if (ko.montoTotal) { potTotal += ko.montoTotal; potMO += (ko.montoMO||0); conMonto++; }
     }
-    if (conMonto > 0) {
-      var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap">' +
-        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;width:100%;margin-bottom:4px">&#128181; Facturacion potencial (' + conMonto + ' ordenes con monto)</div>' +
-        '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
-        '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
-      '</div>';
-    }
+    var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap">' +
+      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;width:100%;margin-bottom:4px">&#128181; Facturacion potencial (' + conMonto + ' de ' + active + ' ordenes activas con monto)</div>' +
+      '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
+      '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+    '</div>';
   }
 
   // Filter controls
@@ -2103,6 +2098,7 @@ function buildRepContent() {
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Placa</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Tecnico</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">T. fase</th>' +
+      (role === 'jefe' ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Fact. potencial</th>' : '') +
     '</tr></thead><tbody>';
 
   for (var i = 0; i < sorted.length; i++) {
@@ -2136,6 +2132,7 @@ function buildRepContent() {
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + (o.plate||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.tech||'Sin asignar') + (o.tech2?' + '+o.tech2.split(' ')[0]:'') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>' +
+      (role === 'jefe' ? '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</td>' : '') +
     '</tr>';
   }
   html += '</tbody></table></div></div>';
@@ -2786,9 +2783,8 @@ function openHistDetail(o) {
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
-      '<div class="irow"><span class="ik">Total autorizado (Q)</span><input class="fi" id="m-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '" style="max-width:140px;padding:4px 8px;font-size:12px"></div>' +
-      '<div class="irow" style="margin-top:6px"><span class="ik">Mano de obra (Q)</span><input class="fi" id="m-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="max-width:140px;padding:4px 8px;font-size:12px"></div>' +
-      '<button id="btn-save-montos" class="btn-sg" style="margin-top:8px;padding:5px 14px;font-size:11px">Guardar montos</button>'
+      '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+      '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>'
     : '') +
   '</div>';
 
@@ -2963,15 +2959,17 @@ function buildSemContent() {
     '</div>' +
   '</div>';
 
-  // Input for today
+  // Input — selector de fecha (permite registrar hoy o rellenar dias anteriores)
   var hoy = new Date().toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',year:'numeric'});
-  var existing = dias.find(function(d){return d.fecha===hoy;});
+  var hoyISO = new Date().toISOString().slice(0,10);
   html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
-    '<div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:10px">&#43; Ingresar datos de hoy ('+hoy+')</div>' +
+    '<div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:10px">&#43; Ingresar / editar dia</div>' +
+    '<div class="fg" style="margin-bottom:8px"><label class="fl">Fecha</label><input class="fi" id="sem-fecha" type="date" value="'+hoyISO+'" max="'+hoyISO+'"></div>' +
     '<div class="fr2" style="gap:8px;margin-bottom:8px">' +
-      '<div class="fg"><label class="fl">Total facturado (Q)</label><input class="fi" id="sem-total" type="number" placeholder="0.00" value="'+(existing?existing.total:'')+'"></div>' +
-      '<div class="fg"><label class="fl">Mano de obra (Q)</label><input class="fi" id="sem-mo" type="number" placeholder="0.00" value="'+(existing?existing.mo:'')+'"></div>' +
+      '<div class="fg"><label class="fl">Total facturado (Q)</label><input class="fi" id="sem-total" type="number" placeholder="0.00"></div>' +
+      '<div class="fg"><label class="fl">Mano de obra (Q)</label><input class="fi" id="sem-mo" type="number" placeholder="0.00"></div>' +
     '</div>' +
+    '<div style="font-size:10px;color:var(--tx3);margin-bottom:8px">Si un dia no tiene registro, ingresa aca el monto de ESE dia (no acumulado). Si ya existe un registro para la fecha elegida, se reemplaza.</div>' +
     '<button id="btn-sem-save" class="btn-sg" style="width:100%;padding:8px">Guardar dia</button>' +
   '</div>';
 
@@ -3001,15 +2999,30 @@ function buildSemContent() {
   document.getElementById('sem-body').innerHTML = html;
 
   // Events
+  document.getElementById('sem-fecha').addEventListener('change', function() {
+    var fechaISO = this.value;
+    if (!fechaISO) return;
+    var parts = fechaISO.split('-');
+    var fechaFmt = parts[2] + '/' + parts[1] + '/' + parts[0];
+    var dt0 = semLoad();
+    var found = dt0.dias.find(function(d){return d.fecha===fechaFmt;});
+    document.getElementById('sem-total').value = found ? found.total : '';
+    document.getElementById('sem-mo').value = found ? found.mo : '';
+  });
   document.getElementById('btn-sem-save').addEventListener('click', function() {
+    var fechaISO = document.getElementById('sem-fecha').value;
+    if (!fechaISO) { toast('Elige una fecha'); return; }
+    // Convertir de YYYY-MM-DD a DD/MM/YYYY (formato usado en el historial)
+    var parts = fechaISO.split('-');
+    var fechaFmt = parts[2] + '/' + parts[1] + '/' + parts[0];
     var tv = parseFloat(document.getElementById('sem-total').value);
     var mv = parseFloat(document.getElementById('sem-mo').value);
     if (isNaN(tv) || isNaN(mv) || tv < 0 || mv < 0) { toast('Ingresa valores validos'); return; }
     if (mv > tv) { toast('La mano de obra no puede superar el total'); return; }
     var dt = semLoad();
-    var idx2 = dt.dias.findIndex(function(d){return d.fecha===hoy;});
-    if (idx2 >= 0) { dt.dias[idx2] = {fecha:hoy, total:tv, mo:mv}; }
-    else { dt.dias.push({fecha:hoy, total:tv, mo:mv}); }
+    var idx2 = dt.dias.findIndex(function(d){return d.fecha===fechaFmt;});
+    if (idx2 >= 0) { dt.dias[idx2] = {fecha:fechaFmt, total:tv, mo:mv}; }
+    else { dt.dias.push({fecha:fechaFmt, total:tv, mo:mv}); }
     semSave(dt);
     toast('Guardado');
     buildSemContent();
