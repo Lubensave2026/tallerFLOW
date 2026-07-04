@@ -3098,6 +3098,7 @@ function repClearFilters() {
 load();
 loadArch();
 initFirebase();
+semInitFirebase();
 // Auto-login if session exists
 try {
   var savedSession = localStorage.getItem('taller_session');
