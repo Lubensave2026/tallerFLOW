@@ -798,7 +798,7 @@ function doLogin(rk) {
   document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe') ? 'inline-flex' : 'none';
   document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe') ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = rk === 'jefe' ? 'inline-flex' : 'none';
-  document.getElementById('btn-sem').style.display = rk === 'jefe' ? 'inline-flex' : 'none';
+  document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
   showSc('ap');
   // Ensure screen is visible then render
@@ -2078,10 +2078,22 @@ function buildRepContent() {
       if (ko.montoTotal) { potTotal += ko.montoTotal; potMO += (ko.montoMO||0); conMonto++; }
     }
     var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap">' +
-      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;width:100%;margin-bottom:4px">&#128181; Facturacion potencial (' + conMonto + ' de ' + active + ' ordenes activas con monto)</div>' +
-      '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
-      '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+    var semData = semComputeFromOrders();
+    html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">' +
+      '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
+        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#128181; Facturacion potencial (' + conMonto + ' de ' + active + ' ordenes activas con monto)</div>' +
+        '<div style="display:flex;gap:16px">' +
+          '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
+          '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
+        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#9989; Ya cerrado este mes (' + semData.countCerradas + ' ordenes)</div>' +
+        '<div style="display:flex;gap:16px">' +
+          '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(semData.totalFact) + '</div><div style="font-size:10px;color:var(--tx3)">Total general</div></div>' +
+          '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(semData.totalMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+        '</div>' +
+      '</div>' +
     '</div>';
   }
 
@@ -2913,28 +2925,45 @@ function advanceReproceso(id, causa) {
 }
 
 
-/* SEMAFORO FINANCIERO */
-var SEM_KEY = 'lubensave_sem_jul2026';
+/* SEMAFORO FINANCIERO — automatico, calculado desde las ordenes
+   cerradas del mes (montoTotal/montoMO al momento de cerrar). Ya no
+   requiere captura manual: el asesor/jefe mantiene el monto de cada
+   orden actualizado para que coincida con lo facturado en SAP antes
+   de moverla a CERRADA, y el semaforo se alimenta solo de eso. */
 var META_TOTAL = 400000;
 var META_MO = 200000;
 
-var _semData = null; // in-memory cache
-try { _semData = JSON.parse(localStorage.getItem(SEM_KEY) || 'null'); } catch(e) { _semData = null; }
-
-function semLoad() {
-  return _semData || {dias:[]};
-}
-function semSave(data) {
-  _semData = data;
-  // Guardado SOLO local por dispositivo (a proposito, sin Firebase):
-  // sincronizar entre dispositivos exponia al mismo riesgo que causo la
-  // perdida de datos de ordenes — un dispositivo con historial incompleto
-  // podia sobreescribir el historial completo del otro. Cada dispositivo
-  // mantiene su propio registro de forma confiable.
-  try { localStorage.setItem(SEM_KEY, JSON.stringify(data)); } catch(e) {}
-}
-function semInitFirebase() {
-  // Desactivado a proposito — ver nota en semSave().
+function semComputeFromOrders() {
+  var now = new Date();
+  var y = now.getFullYear(), m = now.getMonth();
+  var byDay = {};
+  var totalFact = 0, totalMO = 0, countCerradas = 0;
+  var potTotal = 0, potMO = 0, countPotencial = 0;
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.phase === 'cer') {
+      var ts = o.timestamps && o.timestamps['cer'];
+      if (!ts) continue;
+      var d = new Date(ts);
+      if (d.getFullYear() !== y || d.getMonth() !== m) continue; // solo mes actual
+      var key = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+      if (!byDay[key]) byDay[key] = {total:0, mo:0, count:0};
+      var t = o.montoTotal || 0, mo = o.montoMO || 0;
+      byDay[key].total += t; byDay[key].mo += mo; byDay[key].count++;
+      totalFact += t; totalMO += mo; countCerradas++;
+    } else if (o.montoTotal) {
+      potTotal += o.montoTotal; potMO += (o.montoMO || 0); countPotencial++;
+    }
+  }
+  var dias = Object.keys(byDay).map(function(k) {
+    return {fecha:k, total:byDay[k].total, mo:byDay[k].mo, count:byDay[k].count};
+  });
+  function toTs(f) { var p = f.split('/'); return new Date(p[2],p[1]-1,p[0]).getTime(); }
+  dias.sort(function(a,b) { return toTs(b.fecha) - toTs(a.fecha); });
+  return {
+    dias: dias, totalFact: totalFact, totalMO: totalMO, countCerradas: countCerradas,
+    potTotal: potTotal, potMO: potMO, countPotencial: countPotencial
+  };
 }
 
 function openSem() {
@@ -2946,12 +2975,9 @@ function closeSem() {
 }
 
 function buildSemContent() {
-  var data = semLoad();
-  var dias = data.dias || [];
-
-  // Totals
-  var totalFact = 0, totalMO = 0;
-  for (var i=0; i<dias.length; i++) { totalFact += dias[i].total||0; totalMO += dias[i].mo||0; }
+  var data = semComputeFromOrders();
+  var dias = data.dias;
+  var totalFact = data.totalFact, totalMO = data.totalMO;
 
   var pctTotal = Math.min(100, (totalFact/META_TOTAL)*100);
   var pctMO    = Math.min(100, (totalMO/META_MO)*100);
@@ -2966,96 +2992,55 @@ function buildSemContent() {
 
   var html = '';
 
-  // KPI bars
+  // KPI bars — meta del mes vs cerrado
   html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
-    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Total facturado</span><span style="color:'+colTotal+';font-weight:700">'+fmt(totalFact)+' / '+fmt(META_TOTAL)+'</span></div>' +
+    '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128200; Meta del mes (ya cerrado / facturado)</div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Total general</span><span style="color:'+colTotal+';font-weight:700">'+fmt(totalFact)+' / '+fmt(META_TOTAL)+'</span></div>' +
     bar(pctTotal, colTotal) +
     '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Mano de obra</span><span style="color:'+colMO+';font-weight:700">'+fmt(totalMO)+' / '+fmt(META_MO)+'</span></div>' +
     bar(pctMO, colMO) +
     '<div style="display:flex;gap:16px;font-size:10px;color:var(--tx3);margin-top:6px">' +
-      '<span>Dias registrados: <strong style="color:var(--tx)">'+dias.length+'/23</strong></span>' +
+      '<span>Ordenes cerradas: <strong style="color:var(--tx)">'+data.countCerradas+'</strong></span>' +
+      '<span>Dias con cierre: <strong style="color:var(--tx)">'+dias.length+'</strong></span>' +
       '<span>Prom. diario: <strong style="color:var(--tx)">'+(dias.length ? fmt(totalFact/dias.length) : 'Q.0')+'</strong></span>' +
     '</div>' +
   '</div>';
 
-  // Input — selector de fecha (permite registrar hoy o rellenar dias anteriores)
-  var hoy = new Date().toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',year:'numeric'});
-  var hoyISO = new Date().toISOString().slice(0,10);
+  // Proyectado (potencial, ordenes activas con monto autorizado)
   html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
-    '<div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:10px">&#43; Ingresar / editar dia</div>' +
-    '<div class="fg" style="margin-bottom:8px"><label class="fl">Fecha</label><input class="fi" id="sem-fecha" type="date" value="'+hoyISO+'" max="'+hoyISO+'"></div>' +
-    '<div class="fr2" style="gap:8px;margin-bottom:8px">' +
-      '<div class="fg"><label class="fl">Total facturado (Q)</label><input class="fi" id="sem-total" type="number" placeholder="0.00"></div>' +
-      '<div class="fg"><label class="fl">Mano de obra (Q)</label><input class="fi" id="sem-mo" type="number" placeholder="0.00"></div>' +
+    '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128181; Proyectado (activas con monto autorizado, aun no cerradas)</div>' +
+    '<div style="display:flex;gap:24px">' +
+      '<div><div style="font-size:17px;font-weight:700;color:var(--gn)">'+fmt(data.potTotal)+'</div><div style="font-size:10px;color:var(--tx3)">Total general — '+data.countPotencial+' ordenes</div></div>' +
+      '<div><div style="font-size:17px;font-weight:700;color:var(--ac)">'+fmt(data.potMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
     '</div>' +
-    '<div style="font-size:10px;color:var(--tx3);margin-bottom:8px">Si un dia no tiene registro, ingresa aca el monto de ESE dia (no acumulado). Si ya existe un registro para la fecha elegida, se reemplaza.</div>' +
-    '<button id="btn-sem-save" class="btn-sg" style="width:100%;padding:8px">Guardar dia</button>' +
   '</div>';
 
-  // History table
+  // History table — dias con cierre, calculado automaticamente
   if (dias.length) {
-    html += '<div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--tx3);margin-bottom:6px">Historial del mes</div>' +
-      '<div style="overflow-y:auto;max-height:200px">' +
+    html += '<div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--tx3);margin-bottom:6px">Historial del mes (ordenes cerradas por dia)</div>' +
+      '<div style="overflow-y:auto;max-height:220px">' +
       '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
       '<thead><tr style="background:var(--bg3);color:var(--tx3)">' +
         '<th style="padding:5px 8px;text-align:left">Fecha</th>' +
         '<th style="padding:5px 8px;text-align:right">Total</th>' +
         '<th style="padding:5px 8px;text-align:right">M.O.</th>' +
-        '<th style="padding:5px 8px;text-align:center">Acc.</th>' +
+        '<th style="padding:5px 8px;text-align:center">Ordenes</th>' +
       '</tr></thead><tbody>';
-    for (var j=dias.length-1; j>=0; j--) {
+    for (var j = 0; j < dias.length; j++) {
       var d = dias[j];
       html += '<tr style="border-bottom:1px solid var(--bd)">' +
         '<td style="padding:5px 8px">'+d.fecha+'</td>' +
         '<td style="padding:5px 8px;text-align:right;color:var(--gn)">'+fmt(d.total)+'</td>' +
         '<td style="padding:5px 8px;text-align:right;color:var(--ac)">'+fmt(d.mo)+'</td>' +
-        '<td style="padding:5px 8px;text-align:center"><button class="btn-sem-del" data-idx="'+j+'" style="font-size:10px;padding:2px 7px;border-radius:6px;border:1px solid var(--rd);background:transparent;color:var(--rd);cursor:pointer">&#x2715;</button></td>' +
+        '<td style="padding:5px 8px;text-align:center;color:var(--tx3)">'+d.count+'</td>' +
       '</tr>';
     }
     html += '</tbody></table></div>';
+  } else {
+    html += '<div style="font-size:11px;color:var(--tx3);text-align:center;padding:10px">Aun no se ha cerrado ninguna orden este mes.</div>';
   }
 
   document.getElementById('sem-body').innerHTML = html;
-
-  // Events
-  document.getElementById('sem-fecha').addEventListener('change', function() {
-    var fechaISO = this.value;
-    if (!fechaISO) return;
-    var parts = fechaISO.split('-');
-    var fechaFmt = parts[2] + '/' + parts[1] + '/' + parts[0];
-    var dt0 = semLoad();
-    var found = dt0.dias.find(function(d){return d.fecha===fechaFmt;});
-    document.getElementById('sem-total').value = found ? found.total : '';
-    document.getElementById('sem-mo').value = found ? found.mo : '';
-  });
-  document.getElementById('btn-sem-save').addEventListener('click', function() {
-    var fechaISO = document.getElementById('sem-fecha').value;
-    if (!fechaISO) { toast('Elige una fecha'); return; }
-    // Convertir de YYYY-MM-DD a DD/MM/YYYY (formato usado en el historial)
-    var parts = fechaISO.split('-');
-    var fechaFmt = parts[2] + '/' + parts[1] + '/' + parts[0];
-    var tv = parseFloat(document.getElementById('sem-total').value);
-    var mv = parseFloat(document.getElementById('sem-mo').value);
-    if (isNaN(tv) || isNaN(mv) || tv < 0 || mv < 0) { toast('Ingresa valores validos'); return; }
-    if (mv > tv) { toast('La mano de obra no puede superar el total'); return; }
-    var dt = semLoad();
-    var idx2 = dt.dias.findIndex(function(d){return d.fecha===fechaFmt;});
-    if (idx2 >= 0) { dt.dias[idx2] = {fecha:fechaFmt, total:tv, mo:mv}; }
-    else { dt.dias.push({fecha:fechaFmt, total:tv, mo:mv}); }
-    semSave(dt);
-    toast('Guardado');
-    buildSemContent();
-  });
-
-  document.querySelectorAll('.btn-sem-del').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var idx3 = parseInt(this.getAttribute('data-idx'));
-      var dt2 = semLoad();
-      dt2.dias.splice(idx3, 1);
-      semSave(dt2);
-      buildSemContent();
-    });
-  });
 }
 
 /* REPORT FILTERS */
@@ -3088,7 +3073,6 @@ function repClearFilters() {
 load();
 loadArch();
 initFirebase();
-semInitFirebase();
 // Auto-login if session exists
 try {
   var savedSession = localStorage.getItem('taller_session');
