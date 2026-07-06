@@ -2919,32 +2919,22 @@ var META_TOTAL = 400000;
 var META_MO = 200000;
 
 var _semData = null; // in-memory cache
+try { _semData = JSON.parse(localStorage.getItem(SEM_KEY) || 'null'); } catch(e) { _semData = null; }
 
 function semLoad() {
   return _semData || {dias:[]};
 }
 function semSave(data) {
   _semData = data;
-  // Also keep local backup
+  // Guardado SOLO local por dispositivo (a proposito, sin Firebase):
+  // sincronizar entre dispositivos exponia al mismo riesgo que causo la
+  // perdida de datos de ordenes — un dispositivo con historial incompleto
+  // podia sobreescribir el historial completo del otro. Cada dispositivo
+  // mantiene su propio registro de forma confiable.
   try { localStorage.setItem(SEM_KEY, JSON.stringify(data)); } catch(e) {}
-  // Sync to Firebase
-  if (fbReady && db) {
-    db.ref('taller/semaforo/jul2026').set(data).catch(function(e) {
-      console.log('Sem save error:', e);
-    });
-  }
 }
 function semInitFirebase() {
-  if (!fbReady || !db) return;
-  db.ref('taller/semaforo/jul2026').on('value', function(snap) {
-    var data = snap.val();
-    if (data) {
-      _semData = data;
-      // Refresh panel if open
-      var m = document.getElementById('m-sem');
-      if (m && m.classList.contains('on')) buildSemContent();
-    }
-  });
+  // Desactivado a proposito — ver nota en semSave().
 }
 
 function openSem() {
