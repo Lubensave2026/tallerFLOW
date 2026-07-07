@@ -389,7 +389,7 @@ button{cursor:pointer}
           <option>Gabriel Rodas</option><option>Pablo Jolon</option><option>Luis Caceres</option>
         </select></div>
       <div class="fg"><label class="fl">Prioridad</label>
-        <select class="fi" id="f-pr"><option value="normal">Normal</option><option value="urgente">Urgente</option><option value="vip">VIP</option></select></div>
+        <select class="fi" id="f-pr"><option value="normal">Normal</option><option value="urgente">Urgente</option><option value="vip">VIP</option><option value="garantia">Garantia</option><option value="interna">Interna</option><option value="endpint">End. y Pint.</option></select></div>
     </div>
     <div class="fr2">
       <div class="fg"><label class="fl">Ubicacion</label>
@@ -629,9 +629,13 @@ var SIGS = {
 };
 
 var NEXT = {
-  rec:['aa'],aa:['ab'],det:['aa'],ab:['prb','lav','pa','er','ext','det'],
-  prb:['lav','lst','ab','reproceso'],pa:['pb','ab'],pb:['ea','pa'],ea:['aa'],er:['aa'],
+  rec:['aa'],aa:['ab'],det:['aa'],ab:['prb','lav','pa','er','ext','det','lst'],
+  prb:['lav','lst','ab','reproceso'],pa:['pb','ab'],pb:['ea','pa'],ea:['aa','lav','lst'],er:['aa'],
   ext:['ab','prb'],lav:['lst'],lst:['ent'],ent:['cer'],cer:[]
+};
+
+var PRIO_LABELS = {
+  urgente:'URGENTE', vip:'VIP', garantia:'GARANTIA', interna:'INTERNA', endpint:'END. Y PINT.'
 };
 
 var NL = {
@@ -932,7 +936,7 @@ function renderBoard() {
         var numHtml = o.numFisico
           ? '<div style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:' + numColor + ';color:#fff;font-size:13px;font-weight:700;font-family:var(--mo);margin-top:4px;box-shadow:0 1px 4px rgba(0,0,0,.4)">' + o.numFisico + '</div>'
           : '';
-        var prioHtml = o.prio !== 'normal' ? '<span class="tag ' + (o.prio === 'urgente' ? 'tr' : 'tb') + '">' + o.prio.toUpperCase() + '</span>' : '';
+        var prioHtml = o.prio !== 'normal' ? '<span class="tag ' + (o.prio === 'urgente' ? 'tr' : 'tb') + '">' + (PRIO_LABELS[o.prio] || o.prio.toUpperCase()) + '</span>' : '';
         // Stagnation alert: check time in current phase
         var STAG_LIMITS = {rec:2, aa:4, ab:null, pa:8, pb:8, ea:48, er:48, det:4, ext:null, prb:4, lav:2, lst:24, ent:24};
         var stagHtml = '';
@@ -1025,7 +1029,7 @@ function openDrw(id) {
 
   /* header */
   var hdr = document.getElementById('drw-hdr');
-  var prio = o.prio !== 'normal' ? '<span class="dbg tag ' + (o.prio === 'urgente' ? 'tr' : 'tb') + '">' + o.prio.toUpperCase() + '</span>' : '';
+  var prio = o.prio !== 'normal' ? '<span class="dbg tag ' + (o.prio === 'urgente' ? 'tr' : 'tb') + '">' + (PRIO_LABELS[o.prio] || o.prio.toUpperCase()) + '</span>' : '';
   var spBadge = o.space ? '<span class="dbg" style="background:var(--blbg);color:var(--ac);border:1px solid var(--blbd)">Espacio ' + o.space + '</span>' : '';
   var confirmBadge = (o.pendingConfirm && role === 'jefe')
     ? '<span class="dbg" style="background:#2E1F0A;color:#F39C12;border:1px solid #6B4510">&#9888; Confirmar movimiento de ' + o.pendingConfirm.by + '</span>'
@@ -1081,6 +1085,21 @@ function openDrw(id) {
             '<div class="fg"><label class="fl">Total autorizado (Q)</label><input class="fi" id="e-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '"></div>' +
             '<div class="fg"><label class="fl">Mano de obra (Q)</label><input class="fi" id="e-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '"></div>' +
           '</div>'
+        : '') +
+        (role === 'jefe' ?
+          (function() {
+            var tecNamesE = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Luis Caceres'];
+            var t1o = '<option value="">Sin asignar</option>';
+            var t2o = '<option value="">Ninguno</option>';
+            for (var ti = 0; ti < tecNamesE.length; ti++) {
+              t1o += '<option value="' + tecNamesE[ti] + '"' + (o.tech === tecNamesE[ti] ? ' selected' : '') + '>' + tecNamesE[ti] + '</option>';
+              t2o += '<option value="' + tecNamesE[ti] + '"' + (o.tech2 === tecNamesE[ti] ? ' selected' : '') + '>' + tecNamesE[ti] + '</option>';
+            }
+            return '<div class="fr2" style="margin-bottom:6px">' +
+              '<div class="fg"><label class="fl">Tecnico principal</label><select class="fi" id="e-tech1">' + t1o + '</select></div>' +
+              '<div class="fg"><label class="fl">Segundo tecnico</label><select class="fi" id="e-tech2">' + t2o + '</select></div>' +
+            '</div>';
+          })()
         : '') +
         '<div style="display:flex;gap:8px">' +
           '<button id="btn-save-edit" class="btn-sg" style="flex:1;padding:8px">Guardar cambios</button>' +
@@ -1435,6 +1454,11 @@ function openDrw(id) {
       var eMoEl     = document.getElementById('e-mo');
       var newTotal  = eTotalEl ? (parseFloat(eTotalEl.value) || 0) : null;
       var newMO     = eMoEl ? (parseFloat(eMoEl.value) || 0) : null;
+      var eTech1El  = document.getElementById('e-tech1');
+      var eTech2El  = document.getElementById('e-tech2');
+      var newTech1  = eTech1El ? eTech1El.value : null;
+      var newTech2  = eTech2El ? eTech2El.value : null;
+      if (eTech1El && eTech2El && newTech2 && newTech2 === newTech1) { toast('No puedes asignar el mismo tecnico dos veces'); return; }
       if (eTotalEl && eMoEl && newMO > newTotal && newTotal > 0) { toast('La M.O. no puede superar el total'); return; }
       if (!newPlate || !newModel || !newClient) { toast('Placa, vehiculo y cliente son requeridos'); return; }
       var ox = null;
@@ -1446,10 +1470,13 @@ function openDrw(id) {
       if (ox.model !== newModel) changes.push('Vehiculo: ' + ox.model + ' -> ' + newModel);
       if (ox.client !== newClient) changes.push('Cliente: ' + ox.client + ' -> ' + newClient);
       if (eTotalEl && eMoEl && (ox.montoTotal||0) !== newTotal) changes.push('Montos actualizados');
+      if (eTech1El && (ox.tech||'') !== (newTech1||'')) changes.push('Tecnico: ' + (ox.tech||'Sin asignar') + ' -> ' + (newTech1||'Sin asignar'));
       ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
       ox.numFisico = newNum; ox.colorFisico = newColor;
       if (eTotalEl) ox.montoTotal = newTotal || null;
       if (eMoEl) ox.montoMO = newMO || null;
+      if (eTech1El) ox.tech = newTech1 || null;
+      if (eTech2El) ox.tech2 = newTech2 || null;
       var hrsEl = document.getElementById('e-hrs');
       ox.hrsEstimado = hrsEl && hrsEl.value ? parseFloat(hrsEl.value) : null;
       if (changes.length) {
