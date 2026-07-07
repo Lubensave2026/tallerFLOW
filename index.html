@@ -1357,7 +1357,7 @@ function openDrw(id) {
   if (o.msgs && o.msgs.length) {
     for (var i = 0; i < o.msgs.length; i++) {
       var m = o.msgs[i];
-      msgsHtml += '<div class="cmsg"><div class="cw">' + m.who + '</div><div class="ct">' + m.txt + '</div><div class="cts">' + ago(m.ts) + '</div></div>';
+      msgsHtml += '<div class="cmsg"><div class="cw">' + m.who + '</div><div class="ct">' + m.txt + '</div><div class="cts">' + msgTs(m.ts) + '</div></div>';
     }
   } else {
     msgsHtml = '<div class="cemp">Sin mensajes</div>';
@@ -1838,7 +1838,7 @@ function sendMsg(id) {
     var html = '';
     for (var i = 0; i < o.msgs.length; i++) {
       var m = o.msgs[i];
-      html += '<div class="cmsg"><div class="cw">' + m.who + '</div><div class="ct">' + m.txt + '</div><div class="cts">' + ago(m.ts) + '</div></div>';
+      html += '<div class="cmsg"><div class="cw">' + m.who + '</div><div class="ct">' + m.txt + '</div><div class="cts">' + msgTs(m.ts) + '</div></div>';
     }
     cb.innerHTML = html;
     cb.scrollTop = cb.scrollHeight;
@@ -2286,6 +2286,20 @@ function ago(ts) {
   if (d < 3600000) return 'hace ' + Math.floor(d/60000) + ' min';
   if (d < 86400000) return 'hace ' + Math.floor(d/3600000) + ' h';
   return 'hace ' + Math.floor(d/86400000) + ' d';
+}
+
+// Hora/fecha para mensajes internos (bitacora de chat): solo hora si es de
+// hoy, fecha + hora si es de otro dia. No afecta bitacora de tiempos por
+// fase (elapsed) ni bitacora de repuestos (elapsedRepBadge) — son funciones
+// independientes.
+function msgTs(ts) {
+  var dt = new Date(ts);
+  var now = new Date();
+  var hh = String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
+  var esHoy = dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth() && dt.getDate() === now.getDate();
+  if (esHoy) return hh;
+  var dd = String(dt.getDate()).padStart(2,'0') + '/' + String(dt.getMonth()+1).padStart(2,'0');
+  return dd + ' ' + hh;
 }
 
 function elapsedRepBadge(ts) {
@@ -2906,7 +2920,7 @@ function openHistDetail(o) {
     html += '<div class="sec"><div class="sec-l">Mensajes internos</div><div class="chat-box">';
     for (var mi = 0; mi < o.msgs.length; mi++) {
       var msg = o.msgs[mi];
-      html += '<div class="cmsg"><div class="cw">' + msg.who + '</div><div class="ct">' + msg.txt + '</div><div class="cts">' + ago(msg.ts) + '</div></div>';
+      html += '<div class="cmsg"><div class="cw">' + msg.who + '</div><div class="ct">' + msg.txt + '</div><div class="cts">' + msgTs(msg.ts) + '</div></div>';
     }
     html += '</div></div>';
   }
