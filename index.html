@@ -508,6 +508,75 @@ function maybeDailyBackup(currentData) {
   }).catch(function(e){ console.log('Backup diario check error:', e); });
 }
 
+// ARQUITECTURA DE SINCRONIZACION (v2 — escritura granular por orden)
+// Antes: cada guardado mandaba TODO el arreglo de ordenes a Firebase, y
+// cada cliente recibia TODO el arreglo en cada cambio de cualquiera. Con
+// pocas personas el riesgo de colision era bajo; con 11 personas tocando
+// la app a la vez, dos guardados casi simultaneos podian pisarse entre si
+// aunque fueran ordenes distintas.
+// Ahora: cada orden vive en su propio path (taller/orders_by_id/{id}).
+// save() solo escribe las ordenes que realmente cambiaron, cada una en su
+// propio path — Firebase aplica cada path de forma independiente, asi que
+// dos personas editando ordenes distintas al mismo tiempo NUNCA se pisan.
+var _lastSyncedOrders = {}; // id -> JSON string de la ultima version sincronizada
+var _lastSyncedMeta = '';   // JSON string de {notifs,nxtId,archived} sincronizado
+var _renderDebounce = null;
+
+function _scheduleRender() {
+  if (_renderDebounce) clearTimeout(_renderDebounce);
+  _renderDebounce = setTimeout(function() {
+    _renderDebounce = null;
+    if (role) { renderBoard(); updateNDot(); }
+  }, 150);
+}
+
+function _upsertLocalOrder(o) {
+  if (!o.sigs) o.sigs = {};
+  if (!o.msgs) o.msgs = [];
+  var idx = -1;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === o.id) { idx = i; break; } }
+  if (idx >= 0) orders[idx] = o; else orders.push(o);
+  _lastSyncedOrders[o.id] = JSON.stringify(o);
+  try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
+}
+function _removeLocalOrder(idKey) {
+  var idNum = parseInt(idKey);
+  orders = orders.filter(function(o){ return o.id !== idNum; });
+  delete _lastSyncedOrders[idKey];
+  try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
+}
+
+// Migracion unica de la estructura vieja (taller/orders = arreglo completo)
+// a la nueva (taller/orders_by_id/{id}). Protegida con transaction para que,
+// aunque varios dispositivos carguen a la vez, solo uno ejecute la migracion.
+function _migrateIfNeeded(cb) {
+  db.ref('taller/migration_v2_done').transaction(function(cur) {
+    if (cur) return; // ya migrado (o alguien mas ya esta migrando) — abortar
+    return true;
+  }, function(err, committed) {
+    if (err) { console.log('Migracion: error de transaction', err); cb(); return; }
+    if (!committed) { cb(); return; } // otro dispositivo ya migro o esta migrando
+    db.ref('taller/orders').once('value').then(function(snap) {
+      var old = snap.val();
+      if (!old || !old.orders || !old.orders.length) { cb(); return; }
+      var updates = {};
+      for (var i = 0; i < old.orders.length; i++) {
+        updates['taller/orders_by_id/' + old.orders[i].id] = old.orders[i];
+      }
+      updates['taller/meta'] = {
+        notifs:   old.notifs   || [],
+        nxtId:    old.nxtId    || 300,
+        archived: old.archived || [],
+        _v: Date.now()
+      };
+      db.ref().update(updates).then(function() {
+        console.log('Migracion v2 completada: ' + old.orders.length + ' ordenes.');
+        cb();
+      }).catch(function(e) { console.log('Migracion: error al escribir', e); cb(); });
+    }).catch(function(e) { console.log('Migracion: error al leer datos viejos', e); cb(); });
+  });
+}
+
 function initFirebase() {
   try {
     if (typeof firebase === 'undefined') {
@@ -528,42 +597,43 @@ function initFirebase() {
 
     console.log("Firebase conectado OK");
     fbReady = true;
-    // Listen for real-time changes
-    db.ref('taller/orders').on('value', function(snap) {
-      var data = snap.val();
-      if (!data) return;
-      // Version-based sync: only apply if incoming version is newer
-      // than what we last sent ourselves. This correctly handles:
-      // 1. Our own echo (same version) — ignored
-      // 2. Stale data from a slow device — ignored
-      // 3. Real change from another device (different version) — applied
-      // Only skip our own echo — never block updates from other devices
-      var incomingVersion = data._v || 0;
-      if (incomingVersion > 0 && incomingVersion === _lastSentVersion) {
-        // Exact match: this is the echo of our own most recent save
-        return;
-      }
-      // Accept all other updates — whether from other devices or
-      // older/newer versions — to avoid blocking legitimate changes
-      if (incomingVersion > 0) _lastSentVersion = incomingVersion;
-      if (data.orders !== undefined) {
-        orders = data.orders || [];
-        // Normalize: ensure every order has sigs object
-        for (var i = 0; i < orders.length; i++) {
-          if (!orders[i].sigs) orders[i].sigs = {};
-          if (!orders[i].msgs) orders[i].msgs = [];
-        }
-      }
-      if (data.notifs !== undefined) notifs = data.notifs || [];
-      if (data.nxtId  !== undefined) { nxtId  = data.nxtId; _updateHwm(nxtId); }
-      if (data.archived !== undefined) archived = data.archived || [];
-      // Keep local backup in sync with what we just received
-      try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
-      maybeDailyBackup({orders:orders, notifs:notifs, nxtId:nxtId, archived:archived});
-      if (role) {
-        renderBoard();
-        updateNDot();
-      }
+
+    _migrateIfNeeded(function() {
+      // Meta: notifs, nxtId, archived — sigue siendo un solo objeto (bajo
+      // riesgo de colision, son pocos cambios comparado con las ordenes)
+      db.ref('taller/meta').on('value', function(snap) {
+        var data = snap.val();
+        if (!data) return;
+        if (data.notifs   !== undefined) notifs   = data.notifs   || [];
+        if (data.nxtId    !== undefined) { nxtId = data.nxtId; _updateHwm(nxtId); }
+        if (data.archived !== undefined) archived = data.archived || [];
+        _lastSyncedMeta = JSON.stringify({notifs:notifs, nxtId:nxtId, archived:archived});
+        try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
+        maybeDailyBackup({orders:orders, notifs:notifs, nxtId:nxtId, archived:archived});
+        _scheduleRender();
+      });
+
+      // Ordenes: cada una en su propio path — listeners incrementales
+      db.ref('taller/orders_by_id').on('child_added', function(snap) {
+        var o = snap.val();
+        if (!o) return;
+        // Evitar reprocesar el eco de lo que este mismo dispositivo acaba
+        // de escribir (ya esta reflejado localmente con el mismo contenido)
+        if (_lastSyncedOrders[o.id] === JSON.stringify(o)) return;
+        _upsertLocalOrder(o);
+        _scheduleRender();
+      });
+      db.ref('taller/orders_by_id').on('child_changed', function(snap) {
+        var o = snap.val();
+        if (!o) return;
+        if (_lastSyncedOrders[o.id] === JSON.stringify(o)) return;
+        _upsertLocalOrder(o);
+        _scheduleRender();
+      });
+      db.ref('taller/orders_by_id').on('child_removed', function(snap) {
+        _removeLocalOrder(snap.key);
+        _scheduleRender();
+      });
     });
   } catch(e) {
     console.log("Firebase error:", e);
@@ -671,8 +741,6 @@ function load() {
     } else { seed(); }
   } catch(e) { seed(); }
 }
-var _localVersion = 0;      // increments on every local save
-var _lastSentVersion = 0;   // version of last payload sent to Firebase
 
 function save() {
   // Always save locally as backup
@@ -695,16 +763,38 @@ function save() {
       return; // no se envia a Firebase — evita repetir la perdida de datos
     }
     try {
-      _localVersion = Date.now(); // use timestamp as version — always increases
-      _lastSentVersion = _localVersion;
-      var payload = {
-        orders:   orders,
-        notifs:   notifs,
-        nxtId:    nxtId,
-        archived: archived,
-        _v:       _localVersion  // version tag travels with the data
-      };
-      db.ref('taller/orders').set(payload).catch(function(e) {
+      var updates = {};
+      var seen = {};
+      var changedCount = 0;
+      // Solo escribir las ordenes que realmente cambiaron desde la ultima
+      // sincronizacion — cada una en su propio path, para que dos personas
+      // editando ordenes distintas al mismo tiempo nunca se pisen.
+      for (var i = 0; i < orders.length; i++) {
+        var o = orders[i];
+        seen[o.id] = true;
+        var json = JSON.stringify(o);
+        if (_lastSyncedOrders[o.id] !== json) {
+          updates['taller/orders_by_id/' + o.id] = o;
+          _lastSyncedOrders[o.id] = json;
+          changedCount++;
+        }
+      }
+      // Ordenes que ya no estan en el arreglo local (archivadas) — quitarlas
+      for (var key in _lastSyncedOrders) {
+        if (!seen[key]) {
+          updates['taller/orders_by_id/' + key] = null;
+          delete _lastSyncedOrders[key];
+          changedCount++;
+        }
+      }
+      var metaJson = JSON.stringify({notifs:notifs, nxtId:nxtId, archived:archived});
+      if (metaJson !== _lastSyncedMeta) {
+        updates['taller/meta'] = {notifs:notifs, nxtId:nxtId, archived:archived, _v:Date.now()};
+        _lastSyncedMeta = metaJson;
+        changedCount++;
+      }
+      if (changedCount === 0) return; // nada cambio realmente, no gastar escritura
+      db.ref().update(updates).catch(function(e) {
         console.log("Firebase save error:", e);
       });
     } catch(e) {
@@ -1853,7 +1943,7 @@ function saveNO() {
   var model = document.getElementById('f-mo').value.trim();
   var client = document.getElementById('f-cl').value.trim();
   if (!plate || !model || !client) { toast('Placa, vehiculo y cliente son requeridos'); return; }
-  var ot = document.getElementById('f-ot').value.trim() || ('OT-' + nxtId);
+  var otInput = document.getElementById('f-ot').value.trim();
   var tech = document.getElementById('f-tc').value;
   var prio = document.getElementById('f-pr').value;
   var loc = document.getElementById('f-ub').value;
@@ -1863,11 +1953,38 @@ function saveNO() {
   var desc = document.getElementById('f-dc').value;
   var who = ROLES[role] ? ROLES[role].label : role;
   var hrsEst = parseFloat(document.getElementById('f-hrs').value) || 0;
-  var no = {id:nxtId++,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
-  orders.push(no);
-  addNotif('Nueva orden: ' + plate + ' - ' + model, no.id);
-  save(); closeNO(); toast('Orden creada'); renderBoard();
-  ['f-pl','f-ot','f-mo','f-cl','f-dc','f-num','f-col','f-hrs'].forEach(function(fid) { var el = document.getElementById(fid); if (el) el.value = ''; });
+
+  function createWithId(assignedId) {
+    var ot = otInput || ('OT-' + assignedId);
+    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
+    orders.push(no);
+    addNotif('Nueva orden: ' + plate + ' - ' + model, no.id);
+    save(); closeNO(); toast('Orden creada'); renderBoard();
+    ['f-pl','f-ot','f-mo','f-cl','f-dc','f-num','f-col','f-hrs'].forEach(function(fid) { var el = document.getElementById(fid); if (el) el.value = ''; });
+  }
+
+  if (fbReady && db) {
+    // Asignacion atomica del numero de orden: si dos personas crean una
+    // orden al mismo tiempo, la transaction de Firebase garantiza que cada
+    // una reciba un numero distinto (reintenta automaticamente si choca).
+    db.ref('taller/meta/nxtId').transaction(function(cur) {
+      var base = (cur !== null && cur !== undefined) ? cur : nxtId;
+      return base + 1;
+    }, function(err, committed, snap) {
+      if (err || !committed) {
+        var idFallback = nxtId++;
+        createWithId(idFallback);
+        return;
+      }
+      var newNxt = snap.val();
+      var assignedId = newNxt - 1;
+      nxtId = newNxt;
+      _updateHwm(nxtId);
+      createWithId(assignedId);
+    });
+  } else {
+    createWithId(nxtId++);
+  }
 }
 
 /* NOTIFS */
