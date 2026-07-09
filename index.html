@@ -2309,8 +2309,8 @@ function buildRepContent() {
       '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
         '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#128181; Facturacion potencial (' + conMonto + ' de ' + active + ' ordenes activas con monto)</div>' +
         '<div style="display:flex;gap:16px">' +
-          '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
-          '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+          '<div><div style="font-size:18px;font-weight:700;color:var(--tx2)">' + fmtQ2(potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
+          '<div><div style="font-size:18px;font-weight:700;color:var(--tx2)">' + fmtQ2(potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
         '</div>' +
       '</div>' +
       '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
@@ -2399,7 +2399,7 @@ function buildRepContent() {
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + (o.plate||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.tech||'Sin asignar') + (o.tech2?' + '+o.tech2.split(' ')[0]:'') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>' +
-      ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</td>' : '') +
+      ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx2)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</td>' : '') +
     '</tr>';
   }
   html += '</tbody></table></div></div>';
