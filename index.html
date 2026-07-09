@@ -422,6 +422,14 @@ button{cursor:pointer}
     </div>
     <div class="fg"><label class="fl">Trabajo solicitado</label><textarea class="fi dta" id="f-dc" placeholder="Descripcion..."></textarea></div>
     <div class="fg"><label class="fl">Tiempo estimado de trabajo (hrs) <span style="color:var(--tx3);font-weight:400">— opcional, solo para reparaciones</span></label><input class="fi" id="f-hrs" type="number" min="0.5" max="999" step="0.5" placeholder="Ej: 4.5"></div>
+    <div class="fg">
+      <label class="fl">&#128230; Repuestos necesarios <span style="color:var(--tx3);font-weight:400">— opcional, quedan visibles para Partes desde ya</span></label>
+      <div id="no-rep-list" style="margin-bottom:6px"></div>
+      <div style="display:flex;gap:6px">
+        <input class="fi" id="f-rep-new" placeholder="Ej: Pastillas de freno delanteras" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addNoRep();}">
+        <button type="button" id="btn-rep-add" class="btn-s" style="padding:8px 14px;white-space:nowrap" onclick="addNoRep()">+ Agregar</button>
+      </div>
+    </div>
     <div class="mact">
       <button class="btn-p" onclick="saveNO()">Crear orden</button>
       <button class="btn-s" onclick="closeNO()">Cancelar</button>
@@ -1279,7 +1287,10 @@ function openDrw(id) {
       var canSign = (sRole === s.id || role === 'jefe');
       var isSub = s.sb && !signed && role === 'jefe' && s.id !== 'jefe';
       var btn = '';
-      if (signed) btn = '<span class="sg-ok">✓ Firmado</span>';
+      if (signed) {
+        btn = '<span class="sg-ok">✓ Firmado</span>' +
+          (role === 'jefe' ? '<button class="btn-del-sig" data-sid="' + s.id + '" data-oid="' + id + '" title="Eliminar firma" style="margin-left:6px;background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer">&#x2715;</button>' : '');
+      }
       else if (canSign) btn = '<button class="btn-sg" data-sid="' + s.id + '" data-oid="' + id + '">Firmar</button>';
       else if (isSub) btn = '<button class="btn-sb" data-sid="' + s.id + '" data-oid="' + id + '">Jefe sub.</button>';
       else btn = '<span style="font-size:10px;color:var(--tx3)">Pendiente</span>';
@@ -1702,6 +1713,16 @@ function openDrw(id) {
     });
   }
 
+  /* delete signature buttons (solo jefe) */
+  var delSigBtns = body.querySelectorAll('.btn-del-sig');
+  for (var i = 0; i < delSigBtns.length; i++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        delSig(parseInt(this.getAttribute('data-oid')), this.getAttribute('data-sid'));
+      });
+    })(delSigBtns[i]);
+  }
+
   /* sign buttons */
   var sgBtns = body.querySelectorAll('.btn-sg, .btn-sb');
   for (var i = 0; i < sgBtns.length; i++) {
@@ -1764,6 +1785,23 @@ function setSpace(id, sp) {
   save(); toast('Espacio ' + sp + ' asignado'); openDrw(id);
 }
 
+function delSig(id, sigId) {
+  if (role !== 'jefe') { toast('Solo el jefe de taller puede eliminar firmas'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || !o.sigs || !o.sigs[sigId]) return;
+  var sigsDef = SIGS[o.phase] || [];
+  var lb = sigId;
+  for (var j = 0; j < sigsDef.length; j++) { if (sigsDef[j].id === sigId) { lb = sigsDef[j].lb; break; } }
+  if (!confirm('¿Eliminar la firma "' + lb + '"? El espacio quedara disponible para volver a firmar.')) return;
+  delete o.sigs[sigId];
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#x2715; Firma eliminada: ' + lb, ts:Date.now()});
+  save();
+  toast('Firma eliminada');
+  openDrw(id);
+}
 function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
@@ -1936,8 +1974,44 @@ function sendMsg(id) {
 }
 
 /* NEW ORDER */
-function openNO() { document.getElementById('m-no').classList.add('on'); }
-function closeNO() { document.getElementById('m-no').classList.remove('on'); }
+var _noRepDraft = []; // repuestos capturados en el modal de Nueva Orden, antes de crear la orden
+function openNO() {
+  _noRepDraft = [];
+  renderNoRepList();
+  document.getElementById('m-no').classList.add('on');
+}
+function closeNO() {
+  _noRepDraft = [];
+  document.getElementById('m-no').classList.remove('on');
+}
+function addNoRep() {
+  var inp = document.getElementById('f-rep-new');
+  var val = inp.value.trim();
+  if (!val) return;
+  _noRepDraft.push(val);
+  inp.value = '';
+  renderNoRepList();
+  inp.focus();
+}
+function renderNoRepList() {
+  var el = document.getElementById('no-rep-list');
+  if (!el) return;
+  if (!_noRepDraft.length) { el.innerHTML = ''; return; }
+  var h = '';
+  for (var i = 0; i < _noRepDraft.length; i++) {
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;margin-bottom:5px;font-size:12px">' +
+      '<span>&#128230; ' + _noRepDraft[i] + '</span>' +
+      '<button type="button" class="btn-no-rep-del" data-i="' + i + '" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px">&#x2715;</button>' +
+    '</div>';
+  }
+  el.innerHTML = h;
+  el.querySelectorAll('.btn-no-rep-del').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      _noRepDraft.splice(parseInt(this.getAttribute('data-i')), 1);
+      renderNoRepList();
+    });
+  });
+}
 function saveNO() {
   var plate = document.getElementById('f-pl').value.trim();
   var model = document.getElementById('f-mo').value.trim();
@@ -1957,8 +2031,15 @@ function saveNO() {
   function createWithId(assignedId) {
     var ot = otInput || ('OT-' + assignedId);
     var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
+    if (_noRepDraft.length) {
+      no.repuestos = _noRepDraft.map(function(desc0) {
+        return {desc:desc0, ck1:false, ck2:false, ck3:false, by:who, ts:Date.now()};
+      });
+      no.msgs.push({who:who, txt:'&#128230; ' + _noRepDraft.length + ' repuesto(s) solicitado(s) desde Recepcion', ts:Date.now()});
+    }
     orders.push(no);
     addNotif('Nueva orden: ' + plate + ' - ' + model, no.id);
+    _noRepDraft = [];
     save(); closeNO(); toast('Orden creada'); renderBoard();
     ['f-pl','f-ot','f-mo','f-cl','f-dc','f-num','f-col','f-hrs'].forEach(function(fid) { var el = document.getElementById(fid); if (el) el.value = ''; });
   }
@@ -2213,8 +2294,9 @@ function buildRepContent() {
     '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + orders.filter(function(o){return o.phase==='det';}).length + '</div><div class="kpi-l">Detenidas</div></div>' +
   '</div>';
 
-  // Facturacion potencial (solo jefe) — siempre visible, aunque este en Q.0.00
-  if (role === 'jefe') {
+  // Facturacion potencial + ya cerrado (jefe, asesor de servicio y encargado
+  // de repuestos — REQ002: ambos perfiles ven exactamente los mismos indicadores)
+  if (role === 'jefe' || role === 'asesor' || role === 'partes') {
     var potTotal = 0, potMO = 0, conMonto = 0;
     for (var ki=0; ki<orders.length; ki++) {
       var ko = orders[ki];
@@ -2283,7 +2365,7 @@ function buildRepContent() {
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Placa</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Tecnico</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">T. fase</th>' +
-      (role === 'jefe' ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Fact. potencial</th>' : '') +
+      ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Fact. potencial</th>' : '') +
     '</tr></thead><tbody>';
 
   for (var i = 0; i < sorted.length; i++) {
@@ -2317,7 +2399,7 @@ function buildRepContent() {
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + (o.plate||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.tech||'Sin asignar') + (o.tech2?' + '+o.tech2.split(' ')[0]:'') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>' +
-      (role === 'jefe' ? '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</td>' : '') +
+      ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</td>' : '') +
     '</tr>';
   }
   html += '</tbody></table></div></div>';
@@ -3093,10 +3175,11 @@ var META_MO = 200000;
 
 function semComputeFromOrders() {
   var now = new Date();
-  var y = now.getFullYear(), m = now.getMonth();
+  var y = now.getFullYear(), m = now.getMonth(), dToday = now.getDate();
   var byDay = {};
   var totalFact = 0, totalMO = 0, countCerradas = 0;
   var potTotal = 0, potMO = 0, countPotencial = 0;
+  var hoyTotal = 0, hoyMO = 0, hoyCount = 0;
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.phase === 'cer') {
@@ -3109,18 +3192,21 @@ function semComputeFromOrders() {
       var t = o.montoTotal || 0, mo = o.montoMO || 0;
       byDay[key].total += t; byDay[key].mo += mo; byDay[key].count++;
       totalFact += t; totalMO += mo; countCerradas++;
+      if (d.getDate() === dToday) { hoyTotal += t; hoyMO += mo; hoyCount++; }
     } else if (o.montoTotal) {
       potTotal += o.montoTotal; potMO += (o.montoMO || 0); countPotencial++;
     }
   }
   var dias = Object.keys(byDay).map(function(k) {
-    return {fecha:k, total:byDay[k].total, mo:byDay[k].mo, count:byDay[k].count};
+    return {fecha:k, total:byDay[k].total, mo:byDay[k].mo, rep:byDay[k].total - byDay[k].mo, count:byDay[k].count};
   });
   function toTs(f) { var p = f.split('/'); return new Date(p[2],p[1]-1,p[0]).getTime(); }
   dias.sort(function(a,b) { return toTs(b.fecha) - toTs(a.fecha); });
   return {
-    dias: dias, totalFact: totalFact, totalMO: totalMO, countCerradas: countCerradas,
-    potTotal: potTotal, potMO: potMO, countPotencial: countPotencial
+    dias: dias,
+    totalFact: totalFact, totalMO: totalMO, totalRep: totalFact - totalMO, countCerradas: countCerradas,
+    potTotal: potTotal, potMO: potMO, potRep: potTotal - potMO, countPotencial: countPotencial,
+    hoyTotal: hoyTotal, hoyMO: hoyMO, hoyRep: hoyTotal - hoyMO, hoyCount: hoyCount
   };
 }
 
@@ -3150,6 +3236,18 @@ function buildSemContent() {
 
   var html = '';
 
+  // HOY — vista diaria real (REQ004): solo lo cerrado en la fecha de hoy,
+  // usando la fecha de cierre de la orden, no la de creacion
+  var hoyStr = now.toLocaleDateString('es-GT', {day:'2-digit', month:'2-digit', year:'numeric'});
+  html += '<div style="background:var(--bg3);border:1px solid var(--ac);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+    '<div style="font-size:10px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128197; Hoy (' + hoyStr + ') — ' + data.hoyCount + ' orden(es) cerrada(s)</div>' +
+    '<div style="display:flex;gap:20px;flex-wrap:wrap">' +
+      '<div><div style="font-size:17px;font-weight:700;color:var(--gn)">'+fmt(data.hoyTotal)+'</div><div style="font-size:10px;color:var(--tx3)">Total</div></div>' +
+      '<div><div style="font-size:17px;font-weight:700;color:var(--ac)">'+fmt(data.hoyMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+      '<div><div style="font-size:17px;font-weight:700;color:#F39C12">'+fmt(data.hoyRep)+'</div><div style="font-size:10px;color:var(--tx3)">Repuestos</div></div>' +
+    '</div>' +
+  '</div>';
+
   // KPI bars — meta del mes vs cerrado
   html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
     '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128200; Meta del mes (ya cerrado / facturado)</div>' +
@@ -3167,9 +3265,10 @@ function buildSemContent() {
   // Proyectado (potencial, ordenes activas con monto autorizado)
   html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
     '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128181; Proyectado (activas con monto autorizado, aun no cerradas)</div>' +
-    '<div style="display:flex;gap:24px">' +
-      '<div><div style="font-size:17px;font-weight:700;color:var(--gn)">'+fmt(data.potTotal)+'</div><div style="font-size:10px;color:var(--tx3)">Total general — '+data.countPotencial+' ordenes</div></div>' +
+    '<div style="display:flex;gap:20px;flex-wrap:wrap">' +
+      '<div><div style="font-size:17px;font-weight:700;color:var(--gn)">'+fmt(data.potTotal)+'</div><div style="font-size:10px;color:var(--tx3)">Total — '+data.countPotencial+' ordenes</div></div>' +
       '<div><div style="font-size:17px;font-weight:700;color:var(--ac)">'+fmt(data.potMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+      '<div><div style="font-size:17px;font-weight:700;color:#F39C12">'+fmt(data.potRep)+'</div><div style="font-size:10px;color:var(--tx3)">Repuestos</div></div>' +
     '</div>' +
   '</div>';
 
@@ -3182,6 +3281,7 @@ function buildSemContent() {
         '<th style="padding:5px 8px;text-align:left">Fecha</th>' +
         '<th style="padding:5px 8px;text-align:right">Total</th>' +
         '<th style="padding:5px 8px;text-align:right">M.O.</th>' +
+        '<th style="padding:5px 8px;text-align:right">Repuestos</th>' +
         '<th style="padding:5px 8px;text-align:center">Ordenes</th>' +
       '</tr></thead><tbody>';
     for (var j = 0; j < dias.length; j++) {
@@ -3190,6 +3290,7 @@ function buildSemContent() {
         '<td style="padding:5px 8px">'+d.fecha+'</td>' +
         '<td style="padding:5px 8px;text-align:right;color:var(--gn)">'+fmt(d.total)+'</td>' +
         '<td style="padding:5px 8px;text-align:right;color:var(--ac)">'+fmt(d.mo)+'</td>' +
+        '<td style="padding:5px 8px;text-align:right;color:#F39C12">'+fmt(d.rep)+'</td>' +
         '<td style="padding:5px 8px;text-align:center;color:var(--tx3)">'+d.count+'</td>' +
       '</tr>';
     }
