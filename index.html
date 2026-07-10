@@ -1270,13 +1270,21 @@ function openDrw(id) {
   '</div>';
 
   /* sigs */
-  // ea phase: show warning if no repuestos added yet
+  // ea phase: show warning if no repuestos added yet — con opcion de marcar
+  // que el cliente no autorizo nada (desbloquea la firma sin crear un
+  // repuesto falso que confundiria a Partes)
   var eaRepBlock = '';
   if (o.phase === 'ea') {
     var eaReps = (o.repuestos || []).filter(function(r){ return !r.ck3; });
-    if (eaReps.length === 0) {
+    if (eaReps.length === 0 && !o.noAutorizado) {
       eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--orbd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--or)">'+
-        '&#128230; Antes de firmar, agrega los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo.</div>';
+        '&#128230; Antes de firmar, agrega los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo, o si el cliente no autorizo nada:</div>' +
+        '<button id="btn-no-aut" style="width:100%;margin-bottom:4px;padding:8px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;cursor:pointer">&#x2715; Cliente NO autorizo nada</button>';
+    } else if (o.noAutorizado && eaReps.length === 0) {
+      eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--rd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--rd);display:flex;justify-content:space-between;align-items:center">'+
+        '<span>&#x2715; Cliente no autorizo nada — registrado' + (o.noAutorizadoBy ? ' por ' + o.noAutorizadoBy : '') + '</span>' +
+        (role === 'jefe' ? '<button id="btn-undo-no-aut" style="background:none;border:none;color:var(--tx3);font-size:11px;text-decoration:underline;cursor:pointer">deshacer</button>' : '') +
+      '</div>';
     }
   }
   if (sigs.length) {
@@ -1723,6 +1731,19 @@ function openDrw(id) {
     })(delSigBtns[i]);
   }
 
+  /* cliente no autorizo nada (fase ea) */
+  var btnNoAut = body.querySelector('#btn-no-aut');
+  if (btnNoAut) {
+    btnNoAut.addEventListener('click', function() {
+      if (!confirm('¿Confirmas que el cliente NO autorizo ningun repuesto ni trabajo en esta orden?')) return;
+      marcarNoAut(id);
+    });
+  }
+  var btnUndoNoAut = body.querySelector('#btn-undo-no-aut');
+  if (btnUndoNoAut) {
+    btnUndoNoAut.addEventListener('click', function() { deshacerNoAut(id); });
+  }
+
   /* sign buttons */
   var sgBtns = body.querySelectorAll('.btn-sg, .btn-sb');
   for (var i = 0; i < sgBtns.length; i++) {
@@ -1785,6 +1806,33 @@ function setSpace(id, sp) {
   save(); toast('Espacio ' + sp + ' asignado'); openDrw(id);
 }
 
+function marcarNoAut(id) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.noAutorizado = true;
+  o.noAutorizadoBy = who;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#x2715; Cliente NO autorizo nada — puede continuar sin repuestos', ts:Date.now()});
+  save();
+  toast('Registrado: cliente no autorizo nada');
+  openDrw(id);
+}
+function deshacerNoAut(id) {
+  if (role !== 'jefe') { toast('Solo el jefe de taller puede deshacer esto'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  delete o.noAutorizado;
+  delete o.noAutorizadoBy;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'Se deshizo el marcado de "cliente no autorizo nada"', ts:Date.now()});
+  save();
+  toast('Deshecho');
+  openDrw(id);
+}
 function delSig(id, sigId) {
   if (role !== 'jefe') { toast('Solo el jefe de taller puede eliminar firmas'); return; }
   var o = null;
@@ -1806,11 +1854,12 @@ function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
-  // ea phase: block sign if no repuestos added
+  // ea phase: block sign if no repuestos added (a menos que se haya
+  // marcado explicitamente que el cliente no autorizo nada)
   if (o.phase === 'ea') {
     var eaR = (o.repuestos || []).filter(function(r){ return !r.ck3; });
-    if (eaR.length === 0) {
-      toast('Agrega los repuestos necesarios antes de firmar'); return;
+    if (eaR.length === 0 && !o.noAutorizado) {
+      toast('Agrega los repuestos necesarios antes de firmar, o marca "Cliente NO autorizo nada"'); return;
     }
   }
   // Sequential signature check
