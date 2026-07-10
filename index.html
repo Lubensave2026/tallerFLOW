@@ -99,10 +99,12 @@ button{cursor:pointer}
 .card{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:9px 10px;cursor:pointer;transition:border-color .15s,transform .1s;position:relative}
 .card:hover{border-color:var(--bd2);transform:translateY(-1px)}
 .card:active{transform:translateY(0)}
+.card-cl{font-size:11px;font-weight:600;color:var(--tx2);text-align:right;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
 .card-pl{font-size:15px;font-weight:700;font-family:var(--mo);letter-spacing:.5px}
 .card-mo{font-size:13px;font-weight:600;color:var(--tx);margin:3px 0}
-.card-ot{font-size:15px;font-weight:700;font-family:var(--mo);color:#FFFFFF;margin-bottom:2px;letter-spacing:.5px}
-.card-mt{font-size:10px;color:var(--tx3)}
+.card-ot{font-size:16px;font-weight:800;font-family:var(--mo);color:var(--ac);margin-bottom:2px;letter-spacing:.5px}
+.card-mt{font-size:11px;color:var(--tx2);font-weight:600}
+.card-tm{font-size:10px;color:var(--tx2)}
 .card-sp{font-size:10px;color:var(--ac);background:var(--blbg);border:1px solid var(--blbd);padding:1px 6px;border-radius:8px;margin-top:3px;display:inline-block}
 .card-tg{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
 .tag{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:500}
@@ -115,10 +117,10 @@ button{cursor:pointer}
 .t-aa{background:#3A3A3A;color:#fff;border:1px solid #555}
 .t-ab{background:#1A4A1A;color:#fff;border:1px solid #2ECC71}
 .t-prb{background:#6A0DAD;color:#fff;border:1px solid #9B59B6}
-.t-pa{background:#E67E22;color:#CC0000;border:1px solid #D35400}
-.t-pb{background:#E67E22;color:#FFD700;border:1px solid #D35400}
-.t-ea{background:#FFFACD;color:#000;border:1px solid #F0E000}
-.t-er{background:#FFFACD;color:#CC0000;border:1px solid #F0E000}
+.t-pa{background:#7A3B00;color:#fff;border:1px solid #FF9800}
+.t-pb{background:#6B4B00;color:#fff;border:1px solid #FFC107}
+.t-ea{background:#5C5000;color:#fff;border:1px solid #FFEB3B}
+.t-er{background:#5C2400;color:#fff;border:1px solid #FF5722}
 .t-ext{background:#00897B;color:#000;border:1px solid #00695C}
 .t-lav{background:#1565C0;color:#CC0000;border:1px solid #0D47A1}
 .t-lst{background:#1565C0;color:#fff;border:1px solid #0D47A1}
@@ -695,7 +697,7 @@ var SIGS = {
   prb:[{id:'jefe',lb:'Jefe prueba de ruta',sb:false},{id:'tecnico',lb:'Tecnico inspeccion final',sb:true}],
   pa: [{id:'partes',lb:'Partes cotiza repuestos',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. partes',sb:false}],
   pb: [{id:'asesor',lb:'Asesor cotiza M/O',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. M/O',sb:false}],
-  ea: [{id:'asesor',lb:'Asesor confirma autorizacion',sb:false},{id:'jefe',lb:'Jefe Vo.Bo. autorizacion',sb:false}],
+  ea: [{id:'asesor',lb:'Asesor confirma autorizacion',sb:false}],
   er: [{id:'mensajero',lb:'Mensajero abastece',sb:true,seq:1},{id:'partes',lb:'Partes confirma',sb:true,seq:2},{id:'tecnico',lb:'Tecnico Vo.Bo.',sb:false,seq:3}],
   ext:[{id:'asesor',lb:'Asesor envia externo',sb:false},{id:'partes',lb:'Partes coordina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo.',sb:false}],
   lav:[{id:'lavador',lb:'Lavador termina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. lavado',sb:false}],
@@ -1070,11 +1072,15 @@ function renderBoard() {
         }
         var inner = document.createElement('div');
         inner.innerHTML =
-          '<div class="card-pl">' + o.plate + '</div>' +
-          '<div class="card-ot">' + o.ot + '</div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
+            '<div><div class="card-pl">' + o.plate + '</div><div class="card-ot">' + o.ot + '</div></div>' +
+            '<div class="card-cl">' + (o.client || '') + '</div>' +
+          '</div>' +
           '<div class="card-mo">' + o.model + '</div>' +
-          '<div class="card-mt">' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '') + '</div>' +
-          (o.timestamps && o.timestamps[o.phase] ? '<div style="font-size:10px;color:var(--tx3)">&#9201; ' + businessHours(o.timestamps[o.phase], Date.now()) + '</div>' : '') +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">' +
+            '<div class="card-mt">' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '') + '</div>' +
+            (o.timestamps && o.timestamps[o.phase] ? '<div class="card-tm">&#9201; ' + businessHours(o.timestamps[o.phase], Date.now()) + '</div>' : '') +
+          '</div>' +
           spHtml + numHtml +
           '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + '</div>' +
           motivoHtml +
@@ -1760,6 +1766,7 @@ function openDrw(id) {
     (function(btn) {
       btn.addEventListener('click', function() {
         if (this.classList.contains('lk')) { toast('Completa las firmas primero'); return; }
+        if (Date.now() - _recentSignAt < 900) { toast('Un momento... confirma de nuevo si es lo que querias hacer'); return; }
         advance(parseInt(this.getAttribute('data-oid')), this.getAttribute('data-phase'));
       });
     })(phBtns2[i]);
@@ -1850,6 +1857,7 @@ function delSig(id, sigId) {
   toast('Firma eliminada');
   openDrw(id);
 }
+var _recentSignAt = 0; // evita que un toque justo despues de firmar caiga sobre un boton de avance recien desbloqueado
 function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
@@ -1893,7 +1901,7 @@ function doSign(id, sigId) {
   var phaseSigsAuto = SIGS[o.phase] || [];
   var allSignedAuto = phaseSigsAuto.every(function(s) { return o.sigs[s.id]; });
   if (allSignedAuto) {
-    var autoNext = {pa:'pb', pb:'ea', ea:'aa', lav:'lst'};
+    var autoNext = {pa:'pb', pb:'ea', lav:'lst'};
     if (autoNext[o.phase]) {
       // Small delay so user sees confirmation toast before advance
       var autoPhase = autoNext[o.phase];
@@ -1908,6 +1916,7 @@ function doSign(id, sigId) {
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt:'Firma: ' + lb, ts:Date.now()});
   addNotif(who + ' firmo en ' + o.plate, id);
+  _recentSignAt = Date.now();
   save(); toast('Firma registrada'); openDrw(id);
 }
 
