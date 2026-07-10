@@ -3238,6 +3238,7 @@ function buildSemContent() {
 
   // HOY — vista diaria real (REQ004): solo lo cerrado en la fecha de hoy,
   // usando la fecha de cierre de la orden, no la de creacion
+  var now = new Date();
   var hoyStr = now.toLocaleDateString('es-GT', {day:'2-digit', month:'2-digit', year:'numeric'});
   html += '<div style="background:var(--bg3);border:1px solid var(--ac);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
     '<div style="font-size:10px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128197; Hoy (' + hoyStr + ') — ' + data.hoyCount + ' orden(es) cerrada(s)</div>' +
