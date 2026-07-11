@@ -2419,11 +2419,13 @@ function buildRepContent() {
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">OR #</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Ingreso</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Estatus</th>' +
+      '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cliente</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Vehiculo</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">No.</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Placa</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Tecnico</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">T. fase</th>' +
+      ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Fact. potencial</th>' : '') +
     '</tr></thead><tbody>';
 
   for (var i = 0; i < sorted.length; i++) {
@@ -2449,6 +2451,7 @@ function buildRepContent() {
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' +
         '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">' + pc.label + '</span>' +
       '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.client||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.model||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:center">' +
         (o.numFisico ? '<div style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:' + (o.colorFisico==='azul'?'#1565C0':o.colorFisico==='amarillo'?'#F9A825':o.colorFisico==='verde'?'#2E7D32':'#555') + ';color:#fff;font-size:11px;font-weight:700">' + o.numFisico + '</div>' : '<span style="color:var(--tx3);font-size:10px">—</span>') +
@@ -2456,6 +2459,7 @@ function buildRepContent() {
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + (o.plate||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.tech||'Sin asignar') + (o.tech2?' + '+o.tech2.split(' ')[0]:'') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>' +
+      ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx2)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</td>' : '') +
     '</tr>';
   }
   html += '</tbody></table></div></div>';
