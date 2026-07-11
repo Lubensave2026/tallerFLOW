@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Lube N Save — Flujo de Ordenes</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -1214,6 +1214,7 @@ function openDrw(id) {
     '</div>';
   }
   html += '<div class="sec"><div class="sec-l">Informacion</div>' +
+    (o.ot ? '<div class="irow"><span class="ik">&#128193; Expediente</span><a href="https://drive.google.com/drive/search?q=OR%20' + encodeURIComponent(o.ot) + '" target="_blank" rel="noopener" style="color:var(--ac);text-decoration:underline;font-size:12px">Buscar carpeta &ldquo;OR ' + o.ot + '&rdquo; en Drive &#8599;</a></div>' : '') +
     '<div class="irow"><span class="ik">Tecnico</span><span>' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : '') + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + (o.loc || '—') + '</span></div>' +
     (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + o.detMotivo + '</span></div>' : '') +
@@ -2444,7 +2445,7 @@ function buildRepContent() {
       ? businessHours(o.timestamps[o.phase], Date.now())
       : '—';
     var rowBg = i % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
-    html += '<tr style="background:' + rowBg + '" data-tec="' + (o.tech||'') + '" data-phase="' + (o.phase||'') + '">' +
+    html += '<tr style="background:' + rowBg + ';cursor:pointer" data-tec="' + (o.tech||'') + '" data-phase="' + (o.phase||'') + '" data-oid="' + o.id + '" class="rep-row">' +
       '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + (o.ot||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap">' + fecha + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' +
@@ -2524,6 +2525,13 @@ function buildRepContent() {
   '</div>';
 
   document.getElementById('rep-body').innerHTML = html;
+  document.querySelectorAll('.rep-row').forEach(function(row) {
+    row.addEventListener('click', function() {
+      var oid = parseInt(this.getAttribute('data-oid'));
+      closeRep();
+      openDrw(oid);
+    });
+  });
 }
 function closeRep() { document.getElementById('m-rep').classList.remove('on'); if(window._repInterval) clearInterval(window._repInterval); }
 
