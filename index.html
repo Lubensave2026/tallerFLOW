@@ -3239,8 +3239,16 @@ function semComputeFromOrders() {
   var totalFact = 0, totalMO = 0, countCerradas = 0;
   var potTotal = 0, potMO = 0, countPotencial = 0;
   var hoyTotal = 0, hoyMO = 0, hoyCount = 0;
-  for (var i = 0; i < orders.length; i++) {
-    var o = orders[i];
+  // Incluir tambien las ordenes ya archivadas (archiveOld() las saca de
+  // 'orders' a los 7 dias de cerradas, pero siguen siendo facturacion real
+  // del mes y deben seguir contando en el semaforo/reporte). Se evita
+  // contar doble por id, por si acaso.
+  var seenIds = {};
+  var allClosedSource = orders.concat(archived || []);
+  for (var i = 0; i < allClosedSource.length; i++) {
+    var o = allClosedSource[i];
+    if (seenIds[o.id]) continue;
+    seenIds[o.id] = true;
     if (o.phase === 'cer') {
       var ts = o.timestamps && o.timestamps['cer'];
       if (!ts) continue;
