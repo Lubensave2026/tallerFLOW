@@ -500,6 +500,12 @@ var fbReady = false;
 // Firebase, se bloquea ese guardado en vez de sobreescribir a todos.
 var HWM_KEY = 'taller_hwm_nxtid';
 var _hwmNxtId = 0;
+// Evita que la app escriba a Firebase ANTES de haber recibido al menos una
+// respuesta real de la base de datos compartida. Sin esto, un dispositivo
+// nuevo (localStorage vacio) podria cargar datos de muestra locales y
+// empujarlos a Firebase antes de que llegue la data real — exactamente lo
+// que causo que aparecieran ordenes falsas el 14 de julio.
+var _hasReceivedFirebaseData = false;
 try { _hwmNxtId = parseInt(localStorage.getItem(HWM_KEY) || '0') || 0; } catch(e) {}
 function _updateHwm(n) {
   if (n > _hwmNxtId) {
@@ -630,6 +636,7 @@ function initFirebase() {
       // Meta: notifs, nxtId, archived — sigue siendo un solo objeto (bajo
       // riesgo de colision, son pocos cambios comparado con las ordenes)
       db.ref('taller/meta').on('value', function(snap) {
+        _hasReceivedFirebaseData = true; // ya se confirmo conexion + primera respuesta real
         var data = snap.val();
         if (!data) return;
         if (data.notifs   !== undefined) notifs   = data.notifs   || [];
@@ -775,6 +782,14 @@ function save() {
   try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
   // Save to Firebase if connected
   if (fbReady && db) {
+    // Seguro adicional: no escribir nada a Firebase hasta haber recibido al
+    // menos una respuesta real de la base de datos compartida (evita que
+    // datos locales prematuros, como los de muestra, se empujen antes de
+    // que llegue la data real).
+    if (!_hasReceivedFirebaseData) {
+      console.log('BLOQUEADO: aun no se ha recibido la primera respuesta real de Firebase.');
+      return;
+    }
     // GUARDA ANTI-SOBRESCRITURA: si este dispositivo tiene un nxtId menor
     // al mas alto ya conocido, sus datos en memoria estan desactualizados
     // (por ejemplo una pestana abierta hace dias). Bloquear el guardado a
@@ -839,7 +854,12 @@ function seed() {
     {id:5,plate:'S-321PPP',model:'Honda CR-V 2021',client:'Sofia Perez',tech:'Pablo Jolon',ot:'OT-4325',phase:'rec',prio:'normal',loc:'Z10',space:'',sigs:{},desc:'Ruido suspension',msgs:[],cat:Date.now()-3600000},
     {id:6,plate:'M-777GGG',model:'VW Tiguan 2020',client:'Eduardo Mendez',tech:'Gabriel Rodas',ot:'OT-4328',phase:'pa',prio:'normal',loc:'AGUILARB',space:'4',sigs:{},desc:'Cotizacion direccion hidraulica',msgs:[{who:'Gabriel Rodas',txt:'Requiere cotizacion cremallera',ts:Date.now()-10800000}],cat:Date.now()-172800000}
   ];
-  notifs = []; nxtId = 400; save();
+  notifs = []; nxtId = 400;
+  // NUNCA guardar los datos de muestra a Firebase — son solo un placeholder
+  // local para cuando un dispositivo no tiene nada en localStorage todavia.
+  // Guardarlos automaticamente fue lo que causo que aparecieran ordenes
+  // falsas (Mario Lopez, Ana Garcia, etc.) en la base de datos compartida.
+  try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
 }
 
 /* SCREENS */
