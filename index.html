@@ -1150,6 +1150,20 @@ function openDrw(id) {
   var r = ROLES[role] || {};
   var sRole = r.tec ? 'tecnico' : role;
 
+  // Caso especial: fase Prueba/Insp.Final. La firma del jefe desbloquea las
+  // 4 opciones SOLO para el jefe; el tecnico no hereda ese desbloqueo — para
+  // el tecnico, las opciones se reducen a Lavado/Listo p/entrega, y solo se
+  // desbloquean con SU PROPIA firma de "Inspeccion final".
+  var prbGateOverride = null; // null = se usa allOk normal (resto de fases, sin cambios)
+  if (o.phase === 'prb') {
+    if (r.tec) {
+      nexts = ['lav', 'lst'];
+      prbGateOverride = !!o.sigs['tecnico'];
+    } else {
+      prbGateOverride = !!o.sigs['jefe'];
+    }
+  }
+
   /* header */
   var hdr = document.getElementById('drw-hdr');
   var prio = o.prio !== 'normal' ? '<span class="dbg tag ' + (o.prio === 'urgente' ? 'tr' : o.prio === 'garantia' ? 'tw' : 'tb') + '">' + (PRIO_LABELS[o.prio] || o.prio.toUpperCase()) + '</span>' : '';
@@ -1333,14 +1347,15 @@ function openDrw(id) {
 
   /* phase btns */
   if (nexts.length) {
+    var effectiveOk = (prbGateOverride !== null) ? prbGateOverride : allOk;
     var phBtns = '';
     for (var i = 0; i < nexts.length; i++) {
       var n = nexts[i];
       var isRepBtn = (n === 'reproceso');
-      var btnCls = isRepBtn ? (allOk ? 'go' : 'lk') + ' rep-btn' : (allOk ? 'go' : 'lk');
+      var btnCls = isRepBtn ? (effectiveOk ? 'go' : 'lk') + ' rep-btn' : (effectiveOk ? 'go' : 'lk');
       var btnStyle = isRepBtn ? ' style="border-color:#8B0000;color:#FF6B6B;background:#1a0a0a"' : '';
       phBtns += '<button class="ph-btn ' + btnCls + '"' + btnStyle + ' data-phase="' + n + '" data-oid="' + id + '">' +
-        '<span>' + (isRepBtn ? '&#9851; ' : '') + (NL[n] || n) + '</span><span>' + (allOk ? '→' : '🔒') + '</span></button>';
+        '<span>' + (isRepBtn ? '&#9851; ' : '') + (NL[n] || n) + '</span><span>' + (effectiveOk ? '→' : '🔒') + '</span></button>';
     }
     html += '<div class="sec"><div class="sec-l">Avanzar a fase</div>' + phBtns + '</div>';
   }
