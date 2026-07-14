@@ -712,7 +712,7 @@ var SIGS = {
   aa: [{id:'jefe',lb:'Jefe Vo.Bo. asignacion',sb:false}],
   det:[{id:'jefe',lb:'Jefe autoriza reanudar',sb:false}],
   ab: [{id:'tecnico',lb:'Tecnico Finaliza',sb:true}],
-  prb:[{id:'jefe',lb:'Jefe prueba de ruta',sb:false}],
+  prb:[{id:'jefe',lb:'Jefe prueba de ruta',sb:false},{id:'tecnico',lb:'Tecnico inspeccion final',sb:false,required:false}],
   pa: [{id:'partes',lb:'Partes cotiza repuestos',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. partes',sb:false}],
   pb: [{id:'asesor',lb:'Asesor cotiza M/O',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. M/O',sb:false}],
   ea: [{id:'asesor',lb:'Asesor confirma autorizacion',sb:false}],
@@ -1145,7 +1145,7 @@ function openDrw(id) {
   var sigs = SIGS[o.phase] || [];
   if (!o.sigs) o.sigs = {};
   var allOk = true;
-  for (var i = 0; i < sigs.length; i++) { if (!o.sigs[sigs[i].id]) { allOk = false; break; } }
+  for (var i = 0; i < sigs.length; i++) { if (sigs[i].required !== false && !o.sigs[sigs[i].id]) { allOk = false; break; } }
   var nexts = NEXT[o.phase] || [];
   var r = ROLES[role] || {};
   var sRole = r.tec ? 'tecnico' : role;
