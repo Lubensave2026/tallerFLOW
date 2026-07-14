@@ -16,6 +16,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <style>
+/* Scrollbars mas anchas y visibles (Chrome/Edge/Safari) — mejora usabilidad
+   en computadora sin afectar layout ni funcionalidad */
+::-webkit-scrollbar{width:14px;height:14px}
+::-webkit-scrollbar-track{background:#181B24}
+::-webkit-scrollbar-thumb{background:#3A4060;border-radius:8px;border:3px solid #181B24}
+::-webkit-scrollbar-thumb:hover{background:#3D7EFF}
+/* Firefox */
+*{scrollbar-width:auto;scrollbar-color:#3A4060 #181B24}
 :root{
   --bg:#0F1117;--bg2:#181B24;--bg3:#1E2230;--bg4:#252A3A;
   --bd:#2E3447;--bd2:#3A4060;
@@ -704,7 +712,7 @@ var SIGS = {
   aa: [{id:'jefe',lb:'Jefe Vo.Bo. asignacion',sb:false}],
   det:[{id:'jefe',lb:'Jefe autoriza reanudar',sb:false}],
   ab: [{id:'tecnico',lb:'Tecnico Finaliza',sb:true}],
-  prb:[{id:'jefe',lb:'Jefe prueba de ruta',sb:false},{id:'tecnico',lb:'Tecnico inspeccion final',sb:true}],
+  prb:[{id:'jefe',lb:'Jefe prueba de ruta',sb:false}],
   pa: [{id:'partes',lb:'Partes cotiza repuestos',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. partes',sb:false}],
   pb: [{id:'asesor',lb:'Asesor cotiza M/O',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. M/O',sb:false}],
   ea: [{id:'asesor',lb:'Asesor confirma autorizacion',sb:false}],
@@ -2480,7 +2488,7 @@ function buildRepContent() {
       ? businessHours(o.timestamps[o.phase], Date.now())
       : '—';
     var rowBg = i % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
-    html += '<tr style="background:' + rowBg + '" data-tec="' + (o.tech||'') + '" data-phase="' + (o.phase||'') + '">' +
+    html += '<tr style="background:' + rowBg + ';cursor:pointer" data-tec="' + (o.tech||'') + '" data-phase="' + (o.phase||'') + '" data-oid="' + o.id + '" class="rep-row-clickable">' +
       '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + (o.ot||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap">' + fecha + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' +
@@ -2560,6 +2568,13 @@ function buildRepContent() {
   '</div>';
 
   document.getElementById('rep-body').innerHTML = html;
+  document.querySelectorAll('.rep-row-clickable').forEach(function(row) {
+    row.addEventListener('click', function() {
+      var oid = parseInt(this.getAttribute('data-oid'));
+      closeRep();
+      openDrw(oid);
+    });
+  });
 }
 function closeRep() { document.getElementById('m-rep').classList.remove('on'); if(window._repInterval) clearInterval(window._repInterval); }
 
