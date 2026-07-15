@@ -648,26 +648,51 @@ function initFirebase() {
         _scheduleRender();
       });
 
-      // Ordenes: cada una en su propio path — listeners incrementales
-      db.ref('taller/orders_by_id').on('child_added', function(snap) {
-        var o = snap.val();
-        if (!o) return;
-        // Evitar reprocesar el eco de lo que este mismo dispositivo acaba
-        // de escribir (ya esta reflejado localmente con el mismo contenido)
-        if (_lastSyncedOrders[o.id] === JSON.stringify(o)) return;
-        _upsertLocalOrder(o);
+      // Ordenes: primero un snapshot COMPLETO una sola vez, para reconciliar
+      // (eliminar del dispositivo cualquier orden vieja que quedo en su
+      // localStorage pero que YA NO EXISTE en el servidor — esto es lo que
+      // causaba que un dispositivo se quedara viendo ordenes ya borradas
+      // si no estaba conectado en el momento exacto del borrado). Despues
+      // de reconciliar, se activan los listeners incrementales normales.
+      var attachIncrementalOrderListeners = function() {
+        db.ref('taller/orders_by_id').on('child_added', function(snap) {
+          var o = snap.val();
+          if (!o) return;
+          if (_lastSyncedOrders[o.id] === JSON.stringify(o)) return;
+          _upsertLocalOrder(o);
+          _scheduleRender();
+        });
+        db.ref('taller/orders_by_id').on('child_changed', function(snap) {
+          var o = snap.val();
+          if (!o) return;
+          if (_lastSyncedOrders[o.id] === JSON.stringify(o)) return;
+          _upsertLocalOrder(o);
+          _scheduleRender();
+        });
+        db.ref('taller/orders_by_id').on('child_removed', function(snap) {
+          _removeLocalOrder(snap.key);
+          _scheduleRender();
+        });
+      };
+
+      db.ref('taller/orders_by_id').once('value').then(function(snap) {
+        var serverData = snap.val() || {};
+        var serverIds = {};
+        Object.keys(serverData).forEach(function(key) {
+          var o = serverData[key];
+          if (o) { _upsertLocalOrder(o); serverIds[o.id] = true; }
+        });
+        var beforeCount = orders.length;
+        orders = orders.filter(function(o) { return serverIds[o.id]; });
+        if (orders.length !== beforeCount) {
+          console.log('Reconciliacion inicial: se quitaron ' + (beforeCount - orders.length) + ' orden(es) local(es) obsoleta(s) que ya no existen en el servidor.');
+          try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
+        }
         _scheduleRender();
-      });
-      db.ref('taller/orders_by_id').on('child_changed', function(snap) {
-        var o = snap.val();
-        if (!o) return;
-        if (_lastSyncedOrders[o.id] === JSON.stringify(o)) return;
-        _upsertLocalOrder(o);
-        _scheduleRender();
-      });
-      db.ref('taller/orders_by_id').on('child_removed', function(snap) {
-        _removeLocalOrder(snap.key);
-        _scheduleRender();
+        attachIncrementalOrderListeners();
+      }).catch(function(e) {
+        console.log('Error en snapshot inicial de ordenes, se activan listeners de todas formas:', e);
+        attachIncrementalOrderListeners();
       });
     });
   } catch(e) {
