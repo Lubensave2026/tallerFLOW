@@ -80,8 +80,9 @@ button{cursor:pointer}
 .hdr{background:var(--bg2);border-bottom:1px solid var(--bd);height:52px;padding:0 1rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:40;gap:8px;flex-shrink:0}
 .hdr-l{display:flex;align-items:center;gap:8px;min-width:0}
 .hdr-t{font-size:13px;font-weight:600;white-space:nowrap}
-.hdr-r{display:flex;align-items:center;gap:6px;flex-shrink:0}
-.hdr-role{font-size:11px;color:var(--tx2);background:var(--bg3);border:1px solid var(--bd);padding:2px 9px;border-radius:20px;font-family:var(--mo);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hdr-r{display:flex;align-items:center;gap:5px;flex-shrink:1;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;max-width:56%}
+.hdr-r::-webkit-scrollbar{display:none}
+.hdr-role{font-size:11px;color:var(--tx2);background:var(--bg3);border:1px solid var(--bd);padding:2px 9px;border-radius:20px;font-family:var(--mo);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .btn-nb{position:relative;width:34px;height:34px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);font-size:16px;display:flex;align-items:center;justify-content:center}
 .nb-dot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--rd);display:none}
 .nb-dot.on{display:block}
@@ -357,7 +358,6 @@ button{cursor:pointer}
       <button class="btn-nb" id="btn-nb" onclick="toggleNP()">🔔<span class="nb-dot" id="nb-dot"></span></button>
       <button class="btn-nb" id="btn-sigs" onclick="openSigs()" style="display:none;position:relative">✍️<span class="nb-dot" id="sig-dot" style="background:var(--or)"></span></button>
       <button class="btn-rpt" id="btn-rpt" onclick="openRep()" style="display:none">📊</button>
-      <button class="btn-rpt" id="btn-repparts" onclick="openRepParts()" style="display:none">📦</button>
       <button class="btn-out" onclick="logout()">Salir</button>
     </div>
   </div>
@@ -367,6 +367,7 @@ button{cursor:pointer}
     <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; Repuestos</button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
+    <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Reporte Repuestos</button>
 
     <input class="srch" id="srch" placeholder="Buscar placa, vehiculo, No. OT o tecnico..." oninput="renderBoard()">
     <select class="srch" id="srch-tec" style="max-width:140px;flex:0 0 auto" onchange="renderBoard()">
