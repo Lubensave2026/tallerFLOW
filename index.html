@@ -814,6 +814,10 @@ function save() {
       // editando ordenes distintas al mismo tiempo nunca se pisen.
       for (var i = 0; i < orders.length; i++) {
         var o = orders[i];
+        // Blindaje extra: los IDs reales de ordenes siempre son >= 300
+        // (nxtId arranca en 300). Cualquier ID menor es sospechoso de ser
+        // dato de muestra local (seed) — nunca se escribe a Firebase.
+        if (o.id < 300) { continue; }
         seen[o.id] = true;
         var json = JSON.stringify(o);
         if (_lastSyncedOrders[o.id] !== json) {
@@ -2991,10 +2995,15 @@ function getSigId() {
 function getMyPendingSigs() {
   var sigId = getSigId();
   if (!sigId) return [];
+  var rMe = ROLES[role] || {};
   var pending = [];
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.phase === 'cer') continue;
+    // Un tecnico solo debe ver firmas pendientes de ORDENES QUE TIENE
+    // ASIGNADAS (o.tech / o.tech2) — no las de otros tecnicos, aunque el
+    // id de firma ('tecnico') sea el mismo para todos.
+    if (rMe.tec && o.tech !== rMe.tn && o.tech2 !== rMe.tn) continue;
     var sigs = SIGS[o.phase] || [];
     for (var si = 0; si < sigs.length; si++) {
       var s = sigs[si];
