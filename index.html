@@ -1610,9 +1610,10 @@ function openDrw(id) {
       }
     }
     var origen = rep.origen || 'local'; // repuestos viejos sin origen se asumen locales
+    var origenBadgeAttrs = (role === 'jefe') ? ' class="btn-rep-origen" data-ri="' + ri + '" title="Toca para cambiar" style="cursor:pointer;' : ' style="';
     var origenBadge = origen === 'importacion'
-      ? '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:#3a2a1a;color:var(--or);border:1px solid #8B5A00;font-weight:600;white-space:nowrap">&#9992; IMPORTACION</span>'
-      : '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:#1a3a1a;color:#4ADE80;border:1px solid #2E7D32;font-weight:600;white-space:nowrap">LOCAL</span>';
+      ? '<span' + origenBadgeAttrs + 'font-size:9px;padding:2px 7px;border-radius:8px;background:#3a2a1a;color:var(--or);border:1px solid #8B5A00;font-weight:600;white-space:nowrap">&#9992; IMPORTACION' + (role==='jefe'?' &#8635;':'') + '</span>'
+      : '<span' + origenBadgeAttrs + 'font-size:9px;padding:2px 7px;border-radius:8px;background:#1a3a1a;color:#4ADE80;border:1px solid #2E7D32;font-weight:600;white-space:nowrap">LOCAL' + (role==='jefe'?' &#8635;':'') + '</span>';
     repuestosHtml += '<div style="background:var(--bg3);border:1px solid ' + (isDone ? 'var(--gnbd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (isDone ? 'opacity:.6' : '') + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
         '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
@@ -1692,6 +1693,24 @@ function openDrw(id) {
         save(); toast('Actualizado'); openDrw(id);
       });
     })(repCks[rci]);
+  }
+  var origenBtns = body.querySelectorAll('.btn-rep-origen');
+  for (var obi = 0; obi < origenBtns.length; obi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        var ri3 = parseInt(this.getAttribute('data-ri'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.repuestos || !ox.repuestos[ri3]) return;
+        var actual = ox.repuestos[ri3].origen || 'local';
+        var nuevo = actual === 'importacion' ? 'local' : 'importacion';
+        ox.repuestos[ri3].origen = nuevo;
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'Repuesto "' + ox.repuestos[ri3].desc + '" cambiado a: ' + (nuevo==='importacion'?'Importacion':'Local'), ts:Date.now()});
+        save(); toast('Cambiado a ' + (nuevo==='importacion'?'Importacion':'Local')); openDrw(id);
+      });
+    })(origenBtns[obi]);
   }
   var addRepBtn = document.getElementById('btn-add-rep');
   if (addRepBtn) {
