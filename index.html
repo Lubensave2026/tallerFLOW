@@ -1234,7 +1234,8 @@ function openDrw(id) {
     for (var bi = 0; bi < badges.length; bi++) {
       var b = badges[bi];
       var ts = parseInt(b.getAttribute('data-rep-ts'));
-      b.outerHTML = elapsedRepBadge(ts);
+      var origenAttr = b.getAttribute('data-rep-origen') || 'local';
+      b.outerHTML = elapsedRepBadge(ts, origenAttr);
     }
   }, 30000);
 
@@ -1576,7 +1577,7 @@ function openDrw(id) {
 
   /* repuestos pendientes */
   var repuestosHtml = '';
-  var canAddRep = (role === 'jefe' || role === 'asesor' || (ROLES[role] && ROLES[role].tec));
+  var canAddRep = (role === 'jefe');
   var repList = o.repuestos || [];
   repuestosHtml += '<div class="sec"><div class="sec-l" style="display:flex;justify-content:space-between;align-items:center">' +
     '<span style="color:var(--or)">&#128230; Repuestos pendientes</span>' +
@@ -1608,10 +1609,14 @@ function openDrw(id) {
         '</div>';
       }
     }
+    var origen = rep.origen || 'local'; // repuestos viejos sin origen se asumen locales
+    var origenBadge = origen === 'importacion'
+      ? '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:#3a2a1a;color:var(--or);border:1px solid #8B5A00;font-weight:600;white-space:nowrap">&#9992; IMPORTACION</span>'
+      : '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:#1a3a1a;color:#4ADE80;border:1px solid #2E7D32;font-weight:600;white-space:nowrap">LOCAL</span>';
     repuestosHtml += '<div style="background:var(--bg3);border:1px solid ' + (isDone ? 'var(--gnbd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (isDone ? 'opacity:.6' : '') + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
         '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
-        (isDone ? '' : elapsedRepBadge(rep.ts)) +
+        '<div style="display:flex;align-items:center;gap:5px">' + origenBadge + (isDone ? '' : elapsedRepBadge(rep.ts, origen)) + '</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
         '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck1" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
@@ -1622,10 +1627,16 @@ function openDrw(id) {
     '</div>';
   }
   if (canAddRep) {
-    repuestosHtml += '<div style="display:flex;gap:6px;margin-top:6px">' +
-      '<input id="rep-inp" class="cin" placeholder="Descripcion del repuesto..." style="flex:1">' +
+    repuestosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
+      '<input id="rep-inp" class="cin" placeholder="Descripcion del repuesto..." style="flex:1;min-width:140px">' +
+      '<select id="rep-origen" class="cin" style="flex:0 0 auto">' +
+        '<option value="local">Local</option>' +
+        '<option value="importacion">Importacion</option>' +
+      '</select>' +
       '<button id="btn-add-rep" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
     '</div>';
+  } else if (role !== 'jefe' && repList.length) {
+    repuestosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">&#128274; Solo el Jefe de taller puede agregar o modificar repuestos.</div>';
   }
   repuestosHtml += '</div>';
 
@@ -1692,9 +1703,11 @@ function openDrw(id) {
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (!ox) return;
       ox.repuestos = ox.repuestos || [];
-      ox.repuestos.push({desc:desc, ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now()});
+      var origenSel = document.getElementById('rep-origen');
+      var origen = origenSel ? origenSel.value : 'local';
+      ox.repuestos.push({desc:desc, ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen});
       ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado: ' + desc, ts:Date.now()});
+      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + desc, ts:Date.now()});
       addNotif('Repuesto pendiente en ' + ox.plate + ': ' + desc, id);
       save(); toast('Repuesto agregado'); openDrw(id);
     });
@@ -2710,18 +2723,23 @@ function buildRepContent() {
 }
 function closeRep() { document.getElementById('m-rep').classList.remove('on'); if(window._repInterval) clearInterval(window._repInterval); }
 
+var _repPartsFilter = null; // null = menu selector, 'local' | 'importacion' = tabla filtrada
+
 function openRepParts() {
+  _repPartsFilter = null;
   buildRepPartsContent();
   document.getElementById('m-repparts').classList.add('on');
   window._repPartsInterval = setInterval(buildRepPartsContent, 15000);
 }
 function closeRepParts() { document.getElementById('m-repparts').classList.remove('on'); if(window._repPartsInterval) clearInterval(window._repPartsInterval); }
+function repPartsChoose(origen) { _repPartsFilter = origen; buildRepPartsContent(); }
+function repPartsBack() { _repPartsFilter = null; buildRepPartsContent(); }
 
-function buildRepPartsContent() {
+function getPendingRepRows() {
   // Junta todos los repuestos pendientes (ck3 != true) de todas las
-  // ordenes activas, en una tabla plana. Reutiliza el mismo campo
-  // o.repuestos que ya se captura desde Recepcion / la ficha de la orden —
-  // no requiere ningun dato nuevo.
+  // ordenes activas. Reutiliza el mismo campo o.repuestos que ya se
+  // captura desde Recepcion / la ficha de la orden — no requiere ningun
+  // dato nuevo.
   var rows = [];
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
@@ -2732,18 +2750,48 @@ function buildRepPartsContent() {
       if (rep.ck3) continue; // ya instalado, no es pendiente
       var paso = !rep.ck1 ? 'Esperando Mensajero' : (!rep.ck2 ? 'Esperando confirmar Partes' : 'Listo — falta instalar');
       var pasoColor = !rep.ck1 ? 'var(--or)' : (!rep.ck2 ? 'var(--ac)' : 'var(--gn)');
-      rows.push({o:o, rep:rep, paso:paso, pasoColor:pasoColor});
+      rows.push({o:o, rep:rep, paso:paso, pasoColor:pasoColor, origen: rep.origen || 'local'});
     }
   }
-  // Mas antiguo primero (lo que lleva mas tiempo pendiente, arriba)
-  rows.sort(function(a,b){ return (a.rep.ts||0) - (b.rep.ts||0); });
+  return rows;
+}
 
-  var html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + rows.length + '</div><div class="kpi-l">Repuestos pendientes</div></div>' +
+function buildRepPartsContent() {
+  var allRows = getPendingRepRows();
+  var html = '';
+
+  if (_repPartsFilter === null) {
+    // Menu selector — elegir Local o Importacion
+    var nLocal = allRows.filter(function(r){ return r.origen === 'local'; }).length;
+    var nImp = allRows.filter(function(r){ return r.origen === 'importacion'; }).length;
+    html += '<div style="max-width:340px;margin:0 auto">' +
+      '<div style="font-size:11px;color:var(--tx3);text-transform:uppercase;margin-bottom:12px;font-weight:600;text-align:center">Elige que reporte ver</div>' +
+      '<div onclick="repPartsChoose(\'local\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
+        '<span style="font-size:22px">&#127968;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">Repuestos Locales</div><div style="font-size:11px;color:var(--tx3)">' + nLocal + ' pendiente(s)</div></div>' +
+      '</div>' +
+      '<div onclick="repPartsChoose(\'importacion\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);cursor:pointer">' +
+        '<span style="font-size:22px">&#9992;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">Repuestos de Importacion</div><div style="font-size:11px;color:var(--tx3)">' + nImp + ' pendiente(s)</div></div>' +
+      '</div>' +
+    '</div>';
+    document.getElementById('repparts-body').innerHTML = html;
+    return;
+  }
+
+  var rows = allRows.filter(function(r){ return r.origen === _repPartsFilter; });
+  rows.sort(function(a,b){ return (a.rep.ts||0) - (b.rep.ts||0); }); // mas antiguo primero
+
+  var esImp = _repPartsFilter === 'importacion';
+  html += '<div style="margin-bottom:10px">' +
+    '<button onclick="repPartsBack()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0">&#8592; Volver</button>' +
+  '</div>';
+  html += '<div class="kpi-grid" style="margin-bottom:1rem">' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + rows.length + '</div><div class="kpi-l">' + (esImp ? 'Importacion pendientes' : 'Locales pendientes') + '</div></div>' +
   '</div>';
 
   if (!rows.length) {
-    html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay repuestos pendientes</div>';
+    html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay repuestos pendientes en esta categoria</div>';
   } else {
     html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">' +
       '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
@@ -2753,12 +2801,20 @@ function buildRepPartsContent() {
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700">Repuesto</th>' +
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Pedido por</th>' +
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Paso actual</th>' +
-        '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Tiempo pendiente</th>' +
+        '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">' + (esImp ? 'Dias pendiente' : 'Tiempo pendiente') + '</th>' +
       '</tr></thead><tbody>';
     for (var k = 0; k < rows.length; k++) {
       var r = rows[k];
       var rowBg = k % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
-      var tiempo = r.rep.ts ? businessHours(r.rep.ts, Date.now()) : '—';
+      var tiempo = '—';
+      if (r.rep.ts) {
+        if (esImp) {
+          var dias = Math.floor((Date.now() - r.rep.ts) / 86400000);
+          tiempo = dias < 1 ? '< 1 dia' : dias + (dias===1?' dia':' dias');
+        } else {
+          tiempo = businessHours(r.rep.ts, Date.now());
+        }
+      }
       html += '<tr style="background:' + rowBg + ';cursor:pointer" class="repparts-row" data-oid="' + r.o.id + '">' +
         '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + (r.o.ot||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (r.o.client||'—') + '</td>' +
@@ -2819,19 +2875,27 @@ function msgTs(ts) {
   return dd + ' ' + hh;
 }
 
-function elapsedRepBadge(ts) {
+function elapsedRepBadge(ts, origen) {
   // Builds a small colored "time waiting" pill for a repuesto request.
-  // Green under 30 min, orange 30min-2h, red over 2h — so mensajero/partes
-  // can spot stale requests at a glance. Carries data-rep-ts so a live
-  // refresh loop can find and update it without re-rendering everything.
+  // Los de IMPORTACION se muestran en dias (tienen tiempos de espera
+  // naturalmente mas largos, no tiene sentido compararlos en horas).
+  // Los LOCALES se muestran en horas/minutos como siempre.
   if (!ts) return '';
   var d = Date.now() - ts;
+  if (origen === 'importacion') {
+    var dias = Math.floor(d / 86400000);
+    var txtD = dias < 1 ? 'menos de 1 dia' : dias + (dias === 1 ? ' dia' : ' dias');
+    var bgD = 'var(--gnbg)', fgD = 'var(--gn)', bdD = 'var(--gnbd)';
+    if (dias >= 15) { bgD = 'var(--rdbg)'; fgD = 'var(--rd)'; bdD = 'var(--rdbd)'; }
+    else if (dias >= 7) { bgD = 'var(--orbg)'; fgD = 'var(--or)'; bdD = 'var(--orbd)'; }
+    return '<span data-rep-ts="' + ts + '" data-rep-origen="importacion" style="background:' + bgD + ';color:' + fgD + ';border:1px solid ' + bdD + ';padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">&#9201; ' + txtD + ' esperando</span>';
+  }
   var mins = Math.floor(d / 60000);
   var txt = mins < 60 ? mins + ' min' : (Math.floor(mins/60)) + 'h ' + (mins%60) + 'min';
   var bg = 'var(--gnbg)', fg = 'var(--gn)', bd = 'var(--gnbd)';
   if (mins >= 120) { bg = 'var(--rdbg)'; fg = 'var(--rd)'; bd = 'var(--rdbd)'; }
   else if (mins >= 30) { bg = 'var(--orbg)'; fg = 'var(--or)'; bd = 'var(--orbd)'; }
-  return '<span data-rep-ts="' + ts + '" style="background:' + bg + ';color:' + fg + ';border:1px solid ' + bd + ';padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">&#9201; ' + txt + ' esperando</span>';
+  return '<span data-rep-ts="' + ts + '" data-rep-origen="local" style="background:' + bg + ';color:' + fg + ';border:1px solid ' + bd + ';padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">&#9201; ' + txt + ' esperando</span>';
 }
 var _tt;
 function toast(msg) {
@@ -3085,7 +3149,7 @@ function buildRepsContent() {
       html += '<div style="background:var(--bg2);border:1px solid var(--orbd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px">' +
           '<div style="font-size:12px;font-weight:500">' + rep.desc + '</div>' +
-          elapsedRepBadge(rep.ts) +
+          elapsedRepBadge(rep.ts, rep.origen || 'local') +
         '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
           '<button class="btn-reps-ck" data-oid="' + o.id + '" data-ri="' + ri + '" data-ck="ck1"' +
