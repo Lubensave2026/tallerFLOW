@@ -732,6 +732,45 @@ var ROLES = {
   tec_luisc:  {label:'Luis Caceres',             ico:'🔩',  tec:true,  tn:'Luis Caceres',  lanes:['aa','ab','prb','er']}
 };
 
+// Numeros de WhatsApp para recordatorios de firmas pendientes. Formato con
+// codigo de pais, sin signos ni espacios (ej. '50212345678'). Dejar vacio
+// ('') si aun no se tiene el numero — el boton de recordatorio simplemente
+// no aparece para esa persona hasta llenarlo aqui.
+var WA_PHONES = {
+  jefe:'', asesor:'50254137857', partes:'50254823662', mensajero:'50248428251', lavador:'50246925588',
+  'Gerson Rodas':'50255542764', 'Dany Acalon':'50236557803', 'Henry Barillas':'50250275414',
+  'Gabriel Rodas':'50252140683', 'Pablo Jolon':'50255996949', 'Luis Caceres':'50230622657'
+};
+var WA_FIRST_NAMES = {
+  jefe:'Byron', asesor:'Ricardo', partes:'Kevin', mensajero:'William', lavador:'Wilmer'
+};
+function getWaPhone(sigId, o) {
+  if (sigId === 'tecnico') {
+    return WA_PHONES[o.tech] || WA_PHONES[o.tech2] || '';
+  }
+  return WA_PHONES[sigId] || '';
+}
+function getWaFirstName(sigId, o) {
+  if (sigId === 'tecnico') {
+    return (o.tech || o.tech2 || 'Tecnico').split(' ')[0];
+  }
+  return WA_FIRST_NAMES[sigId] || sigId;
+}
+function sendWaReminder(oid, sigId) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid) { o = orders[i]; break; } }
+  if (!o) return;
+  var phone = getWaPhone(sigId, o);
+  if (!phone) { toast('No hay numero de WhatsApp guardado para esta persona'); return; }
+  var sigsDef = SIGS[o.phase] || [];
+  var lb = sigId;
+  for (var j = 0; j < sigsDef.length; j++) { if (sigsDef[j].id === sigId) { lb = sigsDef[j].lb; break; } }
+  var nombre = getWaFirstName(sigId, o);
+  var msg = nombre + ', tenemos pendiente firmar \'' + lb + '\' en la orden ' + (o.ot||o.id) + ' (' + (o.client||'—') + '). \u00bffavor revisar? \ud83d\ude4f';
+  var url = 'https://wa.me/' + phone + '?text=' + encodeURIComponent(msg);
+  window.open(url, '_blank');
+}
+
 var LANES = [
   {id:'rec',label:'01 Recepcion',          cls:'l-rec'},
   {id:'aa', label:'02a Asignado-espera',   cls:'l-aa'},
@@ -1400,6 +1439,14 @@ function openDrw(id) {
       else if (canSign) btn = '<button class="btn-sg" data-sid="' + s.id + '" data-oid="' + id + '">Firmar</button>';
       else if (isSub) btn = '<button class="btn-sb" data-sid="' + s.id + '" data-oid="' + id + '">Jefe sub.</button>';
       else btn = '<span style="font-size:10px;color:var(--tx3)">Pendiente</span>';
+      // Recordatorio por WhatsApp (solo jefe, solo si falta firmar y hay
+      // numero guardado para esa persona)
+      if (!signed && role === 'jefe') {
+        var waPhone = getWaPhone(s.id, o);
+        if (waPhone) {
+          btn += '<button class="btn-wa-remind" data-sid="' + s.id + '" data-oid="' + id + '" title="Recordar por WhatsApp" style="margin-left:6px;background:#1a2e1a;border:1px solid #25D366;color:#25D366;border-radius:8px;padding:3px 8px;font-size:11px;cursor:pointer">&#128241;</button>';
+        }
+      }
       sigRows += '<div class="sg-item"><div><div class="sg-n">' + s.lb + '</div><div class="sg-r">' + s.id + '</div></div>' + btn + '</div>';
     }
     html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + eaRepBlock + sigRows + '</div>';
@@ -1840,6 +1887,16 @@ function openDrw(id) {
         advance(id, newPhase);
       }
     });
+  }
+
+  /* recordatorio por whatsapp (solo jefe) */
+  var waBtns = body.querySelectorAll('.btn-wa-remind');
+  for (var wi = 0; wi < waBtns.length; wi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        sendWaReminder(parseInt(this.getAttribute('data-oid')), this.getAttribute('data-sid'));
+      });
+    })(waBtns[wi]);
   }
 
   /* delete signature buttons (solo jefe) */
