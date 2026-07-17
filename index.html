@@ -488,6 +488,17 @@ button{cursor:pointer}
 <script>
 var SK = 'taller_v13';
 
+// Escapa texto de usuario antes de insertarlo en HTML (placas, nombres,
+// descripciones, mensajes de chat, etc.) para evitar XSS almacenado via
+// Firebase. Solo cambia como se MUESTRA el texto en pantalla — el dato
+// guardado en Firebase no se toca.
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
 // ═══════════════════════════════════════
 // FIREBASE CONFIG — Byron: pega aqui tus
 // datos de Firebase (ver instrucciones)
@@ -1141,7 +1152,7 @@ function renderBoard() {
         }
         var unread = o.msgs && o.msgs.length && (o._lr || 0) < o.msgs[o.msgs.length - 1].ts;
         var motivoHtml = (o.phase === 'det' && o.detMotivo)
-          ? '<div style="font-size:9px;color:#FF4444;margin-top:2px">&#128683; ' + o.detMotivo + '</div>'
+          ? '<div style="font-size:9px;color:#FF4444;margin-top:2px">&#128683; ' + esc(o.detMotivo) + '</div>'
           : '';
         var pendingHtml = (o.pendingConfirm && role === 'jefe')
           ? '<div style="font-size:9px;color:var(--or);margin-top:2px">&#9888; Pendiente confirmar</div>'
@@ -1189,14 +1200,14 @@ function renderBoard() {
         }
         var inner = document.createElement('div');
         inner.innerHTML =
-          '<div class="card-pl">' + o.plate + '</div>' +
+          '<div class="card-pl">' + esc(o.plate) + '</div>' +
           '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">' +
-            '<div class="card-ot">' + o.ot + '</div>' +
-            (o.client ? '<div class="card-cl">' + o.client + '</div>' : '') +
+            '<div class="card-ot">' + esc(o.ot) + '</div>' +
+            (o.client ? '<div class="card-cl">' + esc(o.client) + '</div>' : '') +
           '</div>' +
-          '<div class="card-mo">' + o.model + '</div>' +
+          '<div class="card-mo">' + esc(o.model) + '</div>' +
           '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">' +
-            '<div class="card-mt">' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '') + '</div>' +
+            '<div class="card-mt">' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2.split(' ')[0]) : '') + '</div>' +
             (o.timestamps && o.timestamps[o.phase] ? '<div class="card-tm">&#9201; ' + businessHours(o.timestamps[o.phase], Date.now()) + '</div>' : '') +
           '</div>' +
           spHtml + numHtml +
@@ -1274,11 +1285,11 @@ function openDrw(id) {
   hdr.innerHTML =
     '<div style="display:flex;align-items:flex-start;gap:10px;width:100%">' +
     '<div style="flex:1">' +
-      '<div class="drw-pl">' + o.plate + '</div>' +
-      '<div class="drw-mo">' + o.model + ' · ' + o.client + '</div>' +
+      '<div class="drw-pl">' + esc(o.plate) + '</div>' +
+      '<div class="drw-mo">' + esc(o.model) + ' · ' + esc(o.client) + '</div>' +
       '<div class="drw-bg">' +
         '<span class="dbg tag ' + tc + '">' + (lane ? lane.label : o.phase) + '</span>' +
-        '<span class="dbg" style="background:var(--bg3);color:var(--tx3);border:1px solid var(--bd)">' + o.ot + '</span>' +
+        '<span class="dbg" style="background:var(--bg3);color:var(--tx3);border:1px solid var(--bd)">' + esc(o.ot) + '</span>' +
         prio + spBadge + confirmBadge +
       '</div>' +
     '</div>' +
@@ -1305,8 +1316,8 @@ function openDrw(id) {
       '</div>' +
       '<div id="edit-order-form" style="display:none;margin-bottom:8px">' +
         '<div class="fr2" style="margin-bottom:6px">' +
-          '<div class="fg"><label class="fl">Placa</label><input class="fi" id="e-plate" value="' + (o.plate||'') + '"></div>' +
-          '<div class="fg"><label class="fl">No. OT</label><input class="fi" id="e-ot" value="' + (o.ot||'') + '"></div>' +
+          '<div class="fg"><label class="fl">Placa</label><input class="fi" id="e-plate" value="' + esc(o.plate) + '"></div>' +
+          '<div class="fg"><label class="fl">No. OT</label><input class="fi" id="e-ot" value="' + esc(o.ot) + '"></div>' +
         '</div>' +
         '<div class="fr2" style="margin-bottom:6px">' +
           '<div class="fg"><label class="fl">No. orden fisica</label><select class="fi" id="e-num"><option value="">Sin numero</option>' +
@@ -1314,8 +1325,8 @@ function openDrw(id) {
           '</select></div>' +
           '<div class="fg"><label class="fl">Color</label><select class="fi" id="e-col"><option value="">Sin color</option><option value="azul"'+(o.colorFisico==='azul'?' selected':'')+'>Azul</option><option value="amarillo"'+(o.colorFisico==='amarillo'?' selected':'')+'>Amarillo</option><option value="verde"'+(o.colorFisico==='verde'?' selected':'')+'>Verde</option></select></div>' +
         '</div>' +
-        '<div class="fg" style="margin-bottom:6px"><label class="fl">Vehiculo</label><input class="fi" id="e-model" value="' + (o.model||'') + '"></div>' +
-        '<div class="fg" style="margin-bottom:6px"><label class="fl">Cliente</label><input class="fi" id="e-client" value="' + (o.client||'') + '"></div>' +
+        '<div class="fg" style="margin-bottom:6px"><label class="fl">Vehiculo</label><input class="fi" id="e-model" value="' + esc(o.model) + '"></div>' +
+        '<div class="fg" style="margin-bottom:6px"><label class="fl">Cliente</label><input class="fi" id="e-client" value="' + esc(o.client) + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Tiempo estimado (hrs) — opcional</label><input class="fi" id="e-hrs" type="number" min="0.5" step="0.5" value="' + (o.hrsEstimado||'') + '"></div>' +
         ((role === 'jefe' || role === 'asesor') ?
           '<div class="fr2" style="margin-bottom:6px">' +
@@ -1346,9 +1357,9 @@ function openDrw(id) {
     '</div>';
   }
   html += '<div class="sec"><div class="sec-l">Informacion</div>' +
-    '<div class="irow"><span class="ik">Tecnico</span><span>' + (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : '') + '</span></div>' +
-    '<div class="irow"><span class="ik">Ubicacion</span><span>' + (o.loc || '—') + '</span></div>' +
-    (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + o.detMotivo + '</span></div>' : '') +
+    '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
+    '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc || '—') + '</span></div>' +
+    (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + esc(o.detMotivo) + '</span></div>' : '') +
     '<div class="irow"><span class="ik">Espacio</span><span>' + (o.space ? 'Espacio ' + o.space : 'Sin asignar') + '</span></div>' +
     (o.hrsEstimado ? '<div class="irow"><span class="ik">Tiempo estimado</span><span style="color:var(--ac)">' + o.hrsEstimado + ' h</span></div>' : '') +
     (o.numFisico ? '<div class="irow"><span class="ik">No. orden fisica</span><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + (o.colorFisico === 'azul' ? '#1565C0' : o.colorFisico === 'amarillo' ? '#F9A825' : o.colorFisico === 'verde' ? '#2E7D32' : '#555') + ';color:#fff;font-size:12px;font-weight:700">' + o.numFisico + '</span><span style="color:var(--tx2);font-size:11px">' + (o.colorFisico || '') + '</span></span></div>' : '') +
@@ -1404,7 +1415,7 @@ function openDrw(id) {
 
   /* desc */
   html += '<div class="sec"><div class="sec-l">Descripcion del trabajo</div>' +
-    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')">' + (o.desc || '') + '</textarea>' +
+    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')">' + esc(o.desc) + '</textarea>' +
   '</div>';
 
   /* sigs */
@@ -1530,7 +1541,7 @@ function openDrw(id) {
             '<span style="flex:1"></span>' +
             '<span style="color:var(--or);font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + durD + ' h.h.</span>' +
           '</div>' +
-          (de.motivo ? '<div style="font-size:11px;color:var(--rd)">&#128683; ' + de.motivo + '</div>' : '') +
+          (de.motivo ? '<div style="font-size:11px;color:var(--rd)">&#128683; ' + esc(de.motivo) + '</div>' : '') +
         '</div>';
       }
     }
@@ -1724,9 +1735,9 @@ function openDrw(id) {
       ox.repuestos = ox.repuestos || [];
       var origenSel = document.getElementById('rep-origen');
       var origen = origenSel ? origenSel.value : 'local';
-      ox.repuestos.push({desc:desc, ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen});
+      ox.repuestos.push({desc:esc(desc), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen});
       ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + desc, ts:Date.now()});
+      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + esc(desc), ts:Date.now()});
       addNotif('Repuesto pendiente en ' + ox.plate + ': ' + desc, id);
       save(); toast('Repuesto agregado'); openDrw(id);
     });
@@ -1774,12 +1785,12 @@ function openDrw(id) {
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (!ox) return;
       var changes = [];
-      if (ox.plate !== newPlate) changes.push('Placa: ' + ox.plate + ' -> ' + newPlate);
-      if (ox.ot !== newOt) changes.push('OT: ' + ox.ot + ' -> ' + newOt);
-      if (ox.model !== newModel) changes.push('Vehiculo: ' + ox.model + ' -> ' + newModel);
-      if (ox.client !== newClient) changes.push('Cliente: ' + ox.client + ' -> ' + newClient);
+      if (ox.plate !== newPlate) changes.push('Placa: ' + esc(ox.plate) + ' -> ' + esc(newPlate));
+      if (ox.ot !== newOt) changes.push('OT: ' + esc(ox.ot) + ' -> ' + esc(newOt));
+      if (ox.model !== newModel) changes.push('Vehiculo: ' + esc(ox.model) + ' -> ' + esc(newModel));
+      if (ox.client !== newClient) changes.push('Cliente: ' + esc(ox.client) + ' -> ' + esc(newClient));
       if (eTotalEl && eMoEl && (ox.montoTotal||0) !== newTotal) changes.push('Montos actualizados');
-      if (eTech1El && (ox.tech||'') !== (newTech1||'')) changes.push('Tecnico: ' + (ox.tech||'Sin asignar') + ' -> ' + (newTech1||'Sin asignar'));
+      if (eTech1El && (ox.tech||'') !== (newTech1||'')) changes.push('Tecnico: ' + esc(ox.tech||'Sin asignar') + ' -> ' + esc(newTech1||'Sin asignar'));
       ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
       ox.numFisico = newNum; ox.colorFisico = newColor;
       if (eTotalEl) ox.montoTotal = newTotal || null;
@@ -1900,7 +1911,7 @@ function openDrw(id) {
         ox.phase = 'det';
         ox.sigs = {};
         ox.detMotivo = motivo;
-        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#128683; DETENIDO — Motivo: ' + motivo, ts:Date.now()});
+        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#128683; DETENIDO — Motivo: ' + esc(motivo), ts:Date.now()});
         addNotif('Orden ' + ox.plate + ' DETENIDA: ' + motivo, id);
         save(); toast('Orden marcada como DETENIDA'); closeDrw();
       }
@@ -2204,7 +2215,7 @@ function advance(id, newPhase) {
   }
   o.phaseStart = Date.now();
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt: isReproceso ? ('&#9851; REPROCESO — Regresa a Trabajando (' + o.tech + ')') : ('Avance: ' + oldLbl + ' → ' + newLbl), ts:Date.now()});
+  o.msgs.push({who:who, txt: isReproceso ? ('&#9851; REPROCESO — Regresa a Trabajando (' + esc(o.tech) + ')') : ('Avance: ' + oldLbl + ' → ' + newLbl), ts:Date.now()});
   // If tech made the change, flag it for jefe confirmation
   if (r && r.tec) {
     o.pendingConfirm = {by: who, phase: newPhase, label: newLbl, ts: Date.now()};
@@ -2224,7 +2235,7 @@ function sendMsg(id) {
   if (!o) return;
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:txt, ts:Date.now()});
+  o.msgs.push({who:who, txt:esc(txt), ts:Date.now()});
   o._lr = Date.now();
   inp.value = '';
   save();
@@ -2255,7 +2266,7 @@ function addNoRep() {
   var inp = document.getElementById('f-rep-new');
   var val = inp.value.trim();
   if (!val) return;
-  _noRepDraft.push(val);
+  _noRepDraft.push(esc(val));
   inp.value = '';
   renderNoRepList();
   inp.focus();
@@ -2337,7 +2348,7 @@ function saveNO() {
 
 /* NOTIFS */
 function addNotif(txt, oid) {
-  notifs.unshift({txt:txt, oid:oid, ts:Date.now(), read:false});
+  notifs.unshift({txt:esc(txt), oid:oid, ts:Date.now(), read:false});
   if (notifs.length > 50) notifs = notifs.slice(0, 50);
   updateNDot();
 }
@@ -2428,8 +2439,8 @@ function openMap() {
       inner = '<div style="font-size:13px">' + (isMine ? '&#128994;' : '&#128992;') + '</div>';
       inner += '<div style="font-size:14px;font-weight:700;font-family:var(--mo);color:'+tc2+'">' + lparts[0] + '</div>';
       if (lparts[1]) inner += '<div style="font-size:8px;color:'+tc2+';opacity:.8">' + lparts[1] + '</div>';
-      inner += '<div style="font-size:8px;color:var(--tx2);margin-top:2px;overflow:hidden;white-space:nowrap;width:56px;text-overflow:ellipsis">' + taken.tech.split(' ')[0] + '</div>';
-      inner += '<div style="font-size:7px;font-family:var(--mo);color:var(--tx3)">' + taken.plate + '</div>';
+      inner += '<div style="font-size:8px;color:var(--tx2);margin-top:2px;overflow:hidden;white-space:nowrap;width:56px;text-overflow:ellipsis">' + esc(taken.tech.split(' ')[0]) + '</div>';
+      inner += '<div style="font-size:7px;font-family:var(--mo);color:var(--tx3)">' + esc(taken.plate) + '</div>';
     } else {
       inner = '<div style="font-size:16px;opacity:.3">' + (tipo==='alin'?'&#9881;':tipo==='elev'?'&#128295;':'&#128663;') + '</div>';
       inner += '<div style="font-size:14px;font-weight:700;font-family:var(--mo);color:'+tc2+'">' + lparts[0] + '</div>';
@@ -2504,7 +2515,7 @@ function mapPick(sp) {
     var o = myOrders[i];
     var row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px';
-    row.innerHTML = '<div><div style="font-size:12px;font-weight:600;font-family:var(--mo)">' + o.plate + '</div><div style="font-size:11px;color:var(--tx2)">' + o.model + '</div></div>';
+    row.innerHTML = '<div><div style="font-size:12px;font-weight:600;font-family:var(--mo)">' + esc(o.plate) + '</div><div style="font-size:11px;color:var(--tx2)">' + esc(o.model) + '</div></div>';
     var btn = document.createElement('button');
     btn.className = 'btn-sg';
     btn.textContent = 'Asignar';
@@ -2652,19 +2663,19 @@ function buildRepContent() {
       ? businessHours(o.timestamps[o.phase], Date.now())
       : '—';
     var rowBg = i % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
-    html += '<tr style="background:' + rowBg + ';cursor:pointer" data-tec="' + (o.tech||'') + '" data-phase="' + (o.phase||'') + '" data-oid="' + o.id + '" class="rep-row-clickable">' +
-      '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + (o.ot||'—') + '</td>' +
+    html += '<tr style="background:' + rowBg + ';cursor:pointer" data-tec="' + esc(o.tech||'') + '" data-phase="' + esc(o.phase||'') + '" data-oid="' + o.id + '" class="rep-row-clickable">' +
+      '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(o.ot||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap">' + fecha + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' +
         '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">' + pc.label + '</span>' +
       '</td>' +
-      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.client||'—') + '</td>' +
-      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.model||'—') + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.client||'—') + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.model||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:center">' +
         (o.numFisico ? '<div style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:' + (o.colorFisico==='azul'?'#1565C0':o.colorFisico==='amarillo'?'#F9A825':o.colorFisico==='verde'?'#2E7D32':'#555') + ';color:#fff;font-size:11px;font-weight:700">' + o.numFisico + '</div>' : '<span style="color:var(--tx3);font-size:10px">—</span>') +
       '</td>' +
-      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + (o.plate||'—') + '</td>' +
-      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (o.tech||'Sin asignar') + (o.tech2?' + '+o.tech2.split(' ')[0]:'') + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + esc(o.plate||'—') + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.tech||'Sin asignar') + (o.tech2?' + '+esc(o.tech2.split(' ')[0]):'') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>' +
       ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx2)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</td>' : '') +
     '</tr>';
@@ -2835,9 +2846,9 @@ function buildRepPartsContent() {
         }
       }
       html += '<tr style="background:' + rowBg + ';cursor:pointer" class="repparts-row" data-oid="' + r.o.id + '">' +
-        '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + (r.o.ot||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (r.o.client||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (r.o.model||'—') + '</td>' +
+        '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(r.o.ot||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(r.o.client||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(r.o.model||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + r.rep.desc + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (r.rep.by||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:' + r.pasoColor + ';font-weight:600;white-space:nowrap">' + r.paso + '</td>' +
@@ -2973,14 +2984,14 @@ function renderHist(q) {
     var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT') : '—';
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:9px 11px;margin-bottom:6px;cursor:pointer" class="hist-card" data-idx="' + i + '">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
-        '<span style="font-size:13px;font-weight:600;font-family:var(--mo)">' + o.plate + '</span>' +
+        '<span style="font-size:13px;font-weight:600;font-family:var(--mo)">' + esc(o.plate) + '</span>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
           '<span style="font-size:10px;color:var(--tx3)">' + fecha + '</span>' +
           '<span style="font-size:10px;color:var(--ac);border:1px solid var(--blbd);background:var(--blbg);padding:1px 8px;border-radius:8px">Ver detalle</span>' +
         '</div>' +
       '</div>' +
-      '<div style="font-size:11px;color:var(--tx2);margin-top:2px">' + o.model + ' · ' + o.client + '</div>' +
-      '<div style="font-size:10px;color:var(--tx3);margin-top:2px">' + (o.tech||'—') + ' · ' + o.ot + (o._arch ? ' · <span style="color:var(--tx3)">Archivado</span>' : '') + '</div>' +
+      '<div style="font-size:11px;color:var(--tx2);margin-top:2px">' + esc(o.model) + ' · ' + esc(o.client) + '</div>' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:2px">' + esc(o.tech||'—') + ' · ' + esc(o.ot) + (o._arch ? ' · <span style="color:var(--tx3)">Archivado</span>' : '') + '</div>' +
     '</div>';
   }
   if (all.length > 50) html += '<div style="font-size:11px;color:var(--tx3);text-align:center;padding:8px">Mostrando 50 de ' + all.length + ' resultados. Usa el buscador para filtrar.</div>';
@@ -3152,11 +3163,11 @@ function buildRepsContent() {
     var pc = PHASE_COLORS[o.phase] || {bg:'#333',color:'#fff',label:o.phase};
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px;margin-bottom:10px">' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
-        '<span style="font-size:14px;font-weight:700;font-family:var(--mo)">' + o.plate + '</span>' +
-        '<span style="font-size:11px;color:var(--tx2)">' + o.model + '</span>' +
+        '<span style="font-size:14px;font-weight:700;font-family:var(--mo)">' + esc(o.plate) + '</span>' +
+        '<span style="font-size:11px;color:var(--tx2)">' + esc(o.model) + '</span>' +
         '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:1px 8px;border-radius:8px;font-size:10px;font-weight:600;margin-left:auto">' + pc.label + '</span>' +
       '</div>' +
-      '<div style="font-size:11px;color:var(--tx3);margin-bottom:8px">' + (o.tech || 'Sin tecnico') + ' · ' + o.ot + '</div>';
+      '<div style="font-size:11px;color:var(--tx3);margin-bottom:8px">' + esc(o.tech || 'Sin tecnico') + ' · ' + esc(o.ot) + '</div>';
 
     for (var ri = 0; ri < repList.length; ri++) {
       var rep = repList[ri];
@@ -3365,11 +3376,11 @@ function buildSigsContent() {
       var oHrs = oTs ? (businessMinutes(oTs,Date.now())/60).toFixed(1) : '?';
       html += '<div style="background:#1a0000;border:1px solid var(--rd);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;cursor:pointer" data-oid="' + oo.id + '">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">' +
-          '<span style="font-size:13px;font-weight:700;font-family:var(--mo)">' + oo.plate + '</span>' +
-          '<span style="font-size:11px;color:var(--tx2)">' + oo.model + '</span>' +
+          '<span style="font-size:13px;font-weight:700;font-family:var(--mo)">' + esc(oo.plate) + '</span>' +
+          '<span style="font-size:11px;color:var(--tx2)">' + esc(oo.model) + '</span>' +
           '<span style="background:' + opc.bg + ';color:' + opc.color + ';padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;margin-left:auto">' + opc.label + '</span>' +
         '</div>' +
-        '<div style="font-size:11px;color:var(--tx3);margin-bottom:7px">' + oo.ot + ' · ' + oo.client + ' · <span style="color:var(--rd)">&#9201; ' + oHrs + 'h esperando</span></div>' +
+        '<div style="font-size:11px;color:var(--tx3);margin-bottom:7px">' + esc(oo.ot) + ' · ' + esc(oo.client) + ' · <span style="color:var(--rd)">&#9201; ' + oHrs + 'h esperando</span></div>' +
         '<div style="display:flex;align-items:center;justify-content:space-between">' +
           '<span style="font-size:11px;color:var(--rd)">&#9997; ' + os.lb + '</span>' +
           '<button class="btn-sg btn-sig-action" data-oid="' + oo.id + '" data-sid="' + os.id + '" style="font-size:11px;padding:5px 14px;background:var(--rd);border-color:var(--rd)">Firmar</button>' +
@@ -3387,11 +3398,11 @@ function buildSigsContent() {
       var pc = PHASE_COLORS[o.phase] || {bg:'#333',color:'#fff',label:o.phase};
       html += '<div style="background:var(--bg3);border:1px solid var(--gnbd);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;cursor:pointer" data-oid="' + o.id + '">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">' +
-          '<span style="font-size:13px;font-weight:700;font-family:var(--mo)">' + o.plate + '</span>' +
-          '<span style="font-size:11px;color:var(--tx2)">' + o.model + '</span>' +
+          '<span style="font-size:13px;font-weight:700;font-family:var(--mo)">' + esc(o.plate) + '</span>' +
+          '<span style="font-size:11px;color:var(--tx2)">' + esc(o.model) + '</span>' +
           '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;margin-left:auto;white-space:nowrap">' + pc.label + '</span>' +
         '</div>' +
-        '<div style="font-size:11px;color:var(--tx3);margin-bottom:7px">' + o.ot + ' · ' + o.client + '</div>' +
+        '<div style="font-size:11px;color:var(--tx3);margin-bottom:7px">' + esc(o.ot) + ' · ' + esc(o.client) + '</div>' +
         '<div style="display:flex;align-items:center;justify-content:space-between">' +
           '<span style="font-size:11px;color:var(--gn)">&#9997; ' + s.lb + '</span>' +
           '<button class="btn-sg btn-sig-action" data-oid="' + o.id + '" data-sid="' + s.id + '" style="font-size:11px;padding:5px 14px">Firmar</button>' +
@@ -3408,11 +3419,11 @@ function buildSigsContent() {
       var pcw = PHASE_COLORS[ow.phase] || {bg:'#333',color:'#fff',label:ow.phase};
       html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;opacity:.6">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">' +
-          '<span style="font-size:13px;font-weight:700;font-family:var(--mo)">' + ow.plate + '</span>' +
-          '<span style="font-size:11px;color:var(--tx2)">' + ow.model + '</span>' +
+          '<span style="font-size:13px;font-weight:700;font-family:var(--mo)">' + esc(ow.plate) + '</span>' +
+          '<span style="font-size:11px;color:var(--tx2)">' + esc(ow.model) + '</span>' +
           '<span style="background:' + pcw.bg + ';color:' + pcw.color + ';padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;margin-left:auto;white-space:nowrap">' + pcw.label + '</span>' +
         '</div>' +
-        '<div style="font-size:11px;color:var(--tx3);margin-bottom:4px">' + ow.ot + ' · ' + ow.client + '</div>' +
+        '<div style="font-size:11px;color:var(--tx3);margin-bottom:4px">' + esc(ow.ot) + ' · ' + esc(ow.client) + '</div>' +
         '<div style="font-size:11px;color:var(--tx3)">&#9203; ' + sw.lb + ' — esperando firma previa</div>' +
       '</div>';
     }
@@ -3452,7 +3463,7 @@ function buildSigsContent() {
 function openHistDetail(o) {
   // Header
   var titleEl = document.getElementById('hist-detail-title');
-  if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + o.plate + '</span> &mdash; ' + o.ot +
+  if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
     ' <button class="btn-s" style="padding:4px 10px;font-size:12px;margin-left:auto" onclick="closeHistDetail()">&#x2715;</button>';
 
   var html = '';
@@ -3460,13 +3471,13 @@ function openHistDetail(o) {
   // ── Info general ──
   var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
   html += '<div class="sec"><div class="sec-l">Informacion general</div>' +
-    '<div class="irow"><span class="ik">Vehiculo</span><span>' + (o.model||'—') + '</span></div>' +
-    '<div class="irow"><span class="ik">Cliente</span><span>' + (o.client||'—') + '</span></div>' +
-    '<div class="irow"><span class="ik">Tecnico</span><span>' + (o.tech||'—') + (o.tech2 ? ' + ' + o.tech2 : '') + '</span></div>' +
-    '<div class="irow"><span class="ik">Placa</span><span style="font-family:var(--mo)">' + (o.plate||'—') + '</span></div>' +
-    '<div class="irow"><span class="ik">No. OT</span><span style="font-family:var(--mo)">' + (o.ot||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech||'—') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
+    '<div class="irow"><span class="ik">Placa</span><span style="font-family:var(--mo)">' + esc(o.plate||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">No. OT</span><span style="font-family:var(--mo)">' + esc(o.ot||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Fecha ingreso</span><span>' + fecha + '</span></div>' +
-    '<div class="irow"><span class="ik">Ubicacion</span><span>' + (o.loc||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
@@ -3478,7 +3489,7 @@ function openHistDetail(o) {
   // ── Descripcion ──
   if (o.desc) {
     html += '<div class="sec"><div class="sec-l">Descripcion del trabajo</div>' +
-      '<div style="font-size:12px;color:var(--tx2);background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:9px 11px;line-height:1.5">' + o.desc + '</div>' +
+      '<div style="font-size:12px;color:var(--tx2);background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:9px 11px;line-height:1.5">' + esc(o.desc) + '</div>' +
     '</div>';
   }
 
