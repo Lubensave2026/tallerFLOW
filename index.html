@@ -1026,9 +1026,7 @@ function doLogin(rk) {
   document.getElementById('btn-new').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-repparts').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || rk === 'mensajero') ? 'inline-flex' : 'none';
-  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe') ? 'inline-flex' : 'none';
-  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe') ? 'inline-flex' : 'none';
-  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe') ? 'inline-flex' : 'none';
+  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = rk === 'jefe' ? 'inline-flex' : 'none';
   document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
@@ -3153,11 +3151,14 @@ function closeReps() {
 function buildRepsContent() {
   var html = '';
   var found = 0;
+  var rMe = role ? ROLES[role] : null;
+  var myName = rMe && rMe.tec ? rMe.tn : null;
 
   // Collect all orders with pending repuestos
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.phase === 'cer') continue;
+    if (myName && o.tech !== myName && o.tech2 !== myName) continue;
     var repList = o.repuestos || [];
     var pending = repList.filter(function(r) { return !r.ck3; });
     if (!pending.length) continue;
