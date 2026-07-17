@@ -1588,7 +1588,7 @@ function openDrw(id) {
 
   /* repuestos pendientes */
   var repuestosHtml = '';
-  var canAddRep = (role === 'jefe');
+  var canAddRep = (role === 'jefe') || (role === 'asesor') || (r.tec && o.phase === 'ab');
   var repList = o.repuestos || [];
   repuestosHtml += '<div class="sec"><div class="sec-l" style="display:flex;justify-content:space-between;align-items:center">' +
     '<span style="color:var(--or)">&#128230; Repuestos pendientes</span>' +
@@ -1647,8 +1647,11 @@ function openDrw(id) {
       '</select>' +
       '<button id="btn-add-rep" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
     '</div>';
-  } else if (role !== 'jefe' && repList.length) {
-    repuestosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">&#128274; Solo el Jefe de taller puede agregar o modificar repuestos.</div>';
+  } else if (repList.length) {
+    var noAddMsg = (r.tec)
+      ? '&#128274; Los tecnicos solo pueden agregar repuestos mientras la orden esta en Trabajando.'
+      : '&#128274; Solo el Jefe de taller, el Asesor, o el tecnico (en Trabajando) pueden agregar o modificar repuestos.';
+    repuestosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">' + noAddMsg + '</div>';
   }
   repuestosHtml += '</div>';
 
