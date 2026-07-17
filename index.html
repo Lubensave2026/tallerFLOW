@@ -1024,12 +1024,14 @@ function doLogin(rk) {
   var r = ROLES[rk];
   document.getElementById('hdr-role').textContent = (r ? r.ico + ' ' + r.label : rk);
   document.getElementById('btn-new').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
-  document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
+  document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-repparts').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || rk === 'mensajero') ? 'inline-flex' : 'none';
   document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = rk === 'jefe' ? 'inline-flex' : 'none';
   document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
+  var srchTecEl = document.getElementById('srch-tec');
+  if (srchTecEl) srchTecEl.style.display = (r && r.tec) ? 'none' : '';
   showSc('ap');
   // Ensure screen is visible then render
   setTimeout(function() { renderBoard(); updateNDot(); }, 100);
@@ -2549,16 +2551,21 @@ function buildRepContent() {
   var today = new Date(); today.setHours(0,0,0,0);
   var todayTs = today.getTime();
 
+  // Technicians only see their own assigned cases in this report
+  var rMe = role ? ROLES[role] : null;
+  var myName = rMe && rMe.tec ? rMe.tn : null;
+  var repOrders = myName ? orders.filter(function(o){ return o.tech === myName || o.tech2 === myName; }) : orders;
+
   // Sort orders by OT number descending
-  var sorted = orders.filter(function(o){ return o.phase !== 'cer'; }).sort(function(a,b) {
+  var sorted = repOrders.filter(function(o){ return o.phase !== 'cer'; }).sort(function(a,b) {
     return (parseInt(b.ot||0) || 0) - (parseInt(a.ot||0) || 0);
   });
 
   // KPIs
-  var total = orders.length;
+  var total = repOrders.length;
   var active = 0, closed = 0, urg = 0, todayNew = 0;
-  for (var i = 0; i < orders.length; i++) {
-    var ox = orders[i];
+  for (var i = 0; i < repOrders.length; i++) {
+    var ox = repOrders[i];
     if (ox.phase !== 'cer') active++; else closed++;
     if (ox.prio === 'urgente' && ox.phase !== 'cer') urg++;
     if ((ox.cat||0) >= todayTs) todayNew++;
@@ -2570,7 +2577,7 @@ function buildRepContent() {
     '<div class="kpi"><div class="kpi-n" style="color:var(--tx3)">' + closed + '</div><div class="kpi-l">Cerradas</div></div>' +
     '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + todayNew + '</div><div class="kpi-l">Hoy</div></div>' +
     '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + urg + '</div><div class="kpi-l">Urgentes</div></div>' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + orders.filter(function(o){return o.phase==='det';}).length + '</div><div class="kpi-l">Detenidas</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repOrders.filter(function(o){return o.phase==='det';}).length + '</div><div class="kpi-l">Detenidas</div></div>' +
   '</div>';
 
   // Facturacion potencial + ya cerrado (jefe, asesor de servicio y encargado
@@ -2602,13 +2609,18 @@ function buildRepContent() {
     '</div>';
   }
 
+  if (myName) {
+    html += '<div style="background:var(--blbg);border:1px solid var(--blbd);border-radius:var(--r);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--ac)">Mostrando solo tus casos asignados</div>';
+  }
+
   // Filter controls
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem">' +
+    (myName ? '' :
     '<select id="rep-fil-tec" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
       '<option value="">Todos los tecnicos</option>' +
       '<option>Gerson Rodas</option><option>Dany Acalon</option><option>Henry Barillas</option>' +
       '<option>Gabriel Rodas</option><option>Pablo Jolon</option><option>Luis Caceres</option>' +
-    '</select>' +
+    '</select>') +
     '<select id="rep-fil-phase" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
       '<option value="">Todos los estatus</option>' +
       '<option value="rec">Recepcion</option>' +
