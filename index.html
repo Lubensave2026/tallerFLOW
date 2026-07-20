@@ -1427,8 +1427,8 @@ function openDrw(id) {
     var eaReps = (o.repuestos || []).filter(function(r){ return !r.ck3; });
     if (eaReps.length === 0 && !o.noAutorizado) {
       eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--orbd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--or)">'+
-        '&#128230; Antes de firmar, agrega los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo, o si el cliente no autorizo nada:</div>' +
-        '<button id="btn-no-aut" style="width:100%;margin-bottom:4px;padding:8px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;cursor:pointer">&#x2715; Cliente NO autorizo nada</button>';
+        '&#128230; Antes de firmar, agrega los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo' + ((role === 'jefe' || role === 'asesor') ? ', o si el cliente no autorizo nada:' : '.') + '</div>' +
+        ((role === 'jefe' || role === 'asesor') ? '<button id="btn-no-aut" style="width:100%;margin-bottom:4px;padding:8px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;cursor:pointer">&#x2715; Cliente NO autorizo nada</button>' : '');
     } else if (o.noAutorizado && eaReps.length === 0) {
       eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--rd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--rd);display:flex;justify-content:space-between;align-items:center">'+
         '<span>&#x2715; Cliente no autorizo nada — registrado' + (o.noAutorizadoBy ? ' por ' + o.noAutorizadoBy : '') + '</span>' +
@@ -2035,6 +2035,7 @@ function setSpace(id, sp) {
 }
 
 function marcarNoAut(id) {
+  if (role !== 'jefe' && role !== 'asesor') { toast('Solo el Jefe de taller o el Asesor de servicio pueden registrar esto'); return; }
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
