@@ -1985,7 +1985,10 @@ function openDrw(id) {
       btn.addEventListener('click', function() {
         if (this.classList.contains('lk')) { toast('Completa las firmas primero'); return; }
         if (Date.now() - _recentSignAt < 900) { toast('Un momento... confirma de nuevo si es lo que querias hacer'); return; }
-        advance(parseInt(this.getAttribute('data-oid')), this.getAttribute('data-phase'));
+        var targetPhase = this.getAttribute('data-phase');
+        var targetLabel = NL[targetPhase] || targetPhase;
+        if (!confirm('¿Estas seguro de que la siguiente fase es ' + targetLabel + '?')) return;
+        advance(parseInt(this.getAttribute('data-oid')), targetPhase);
       });
     })(phBtns2[i]);
   }
