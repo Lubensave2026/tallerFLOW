@@ -302,7 +302,7 @@ button{cursor:pointer}
     <div class="lg-grid">
       <button class="lg-btn" onclick="goPin('jefe')"><span class="ico">👨‍💼</span>Byron<span class="sub">Jefe taller</span></button>
       <button class="lg-btn" onclick="goPin('asesor')"><span class="ico">🗣️</span>Ricardo<span class="sub">Asesor serv.</span></button>
-      <button class="lg-btn" onclick="goPin('partes')"><span class="ico">📦</span>Kevin<span class="sub">Asesor partes</span></button>
+      <button class="lg-btn" onclick="goPin('partes')"><span class="ico">📦</span>Mario<span class="sub">Asesor partes</span></button>
       <button class="lg-btn" onclick="goPin('lavador')"><span class="ico">💧</span>Wilmer<span class="sub">Lavador</span></button>
       <button class="lg-btn" onclick="goPin('mensajero')"><span class="ico">🛵</span>William<span class="sub">Mensajero</span></button>
     </div>
@@ -723,7 +723,7 @@ function initFirebase() {
 }
 
 var PINS = {
-  jefe:'225181514', asesor:'1893118', partes:'11522914',
+  jefe:'225181514', asesor:'1893118', partes:'13118915',
   lavador:'23912135', mensajero:'23912129',
   tec_gerson:'75181915', tec_dany:'411425', tec_henry:'85141825',
   tec_gabriel:'712189', tec_pablo:'16121215', tec_luisc:'1221919'
@@ -732,7 +732,7 @@ var PINS = {
 var ROLES = {
   jefe:       {label:'Byron - Jefe taller',    ico:'👨‍💼', tec:false, lanes:'all'},
   asesor:     {label:'Ricardo - Asesor serv.',  ico:'🗣️',  tec:false, lanes:['rec','aa','ab','prb','pa','pb','ea','er','ext','lav','lst','ent','cer','det']},
-  partes:     {label:'Kevin - Asesor partes',   ico:'📦',  tec:false, lanes:['pa','er','ext']},
+  partes:     {label:'Mario - Asesor partes',   ico:'📦',  tec:false, lanes:['pa','er','ext']},
   lavador:    {label:'Wilmer - Lavador',         ico:'💧',  tec:false, lanes:['lav']},
   mensajero:  {label:'William - Mensajero',      ico:'🛵',  tec:false, lanes:['er']},
   tec_gerson: {label:'Gerson Rodas',             ico:'🔩',  tec:true,  tn:'Gerson Rodas',  lanes:['aa','ab','prb','er']},
@@ -748,12 +748,12 @@ var ROLES = {
 // ('') si aun no se tiene el numero — el boton de recordatorio simplemente
 // no aparece para esa persona hasta llenarlo aqui.
 var WA_PHONES = {
-  jefe:'', asesor:'50254137857', partes:'50254823662', mensajero:'50248428251', lavador:'50246925588',
+  jefe:'', asesor:'50254137857', partes:'', mensajero:'50248428251', lavador:'50246925588',
   'Gerson Rodas':'50255542764', 'Dany Acalon':'50236557803', 'Henry Barillas':'50250275414',
   'Gabriel Rodas':'50252140683', 'Pablo Jolon':'50255996949', 'Luis Caceres':'50230622657'
 };
 var WA_FIRST_NAMES = {
-  jefe:'Byron', asesor:'Ricardo', partes:'Kevin', mensajero:'William', lavador:'Wilmer'
+  jefe:'Byron', asesor:'Ricardo', partes:'Mario', mensajero:'William', lavador:'Wilmer'
 };
 function getWaPhone(sigId, o) {
   if (sigId === 'tecnico') {
@@ -939,7 +939,7 @@ function seed() {
     {id:1,plate:'P-456BCD',model:'Audi A1 2018',client:'Mario Lopez',tech:'Henry Barillas',ot:'OT-4315',phase:'prb',prio:'urgente',loc:'AGUILARB',space:'3',sigs:{jefe:true},desc:'Reparacion DSG',msgs:[{who:'Byron',txt:'En prueba de ruta',ts:Date.now()-3600000}],cat:Date.now()-86400000},
     {id:2,plate:'Q-123ZZZ',model:'Toyota Hilux 2020',client:'Ana Garcia',tech:'Gerson Rodas',ot:'OT-4320',phase:'ab',prio:'normal',loc:'AGUILARB',space:'1',sigs:{tecnico:true},desc:'Servicio 10,000 km',msgs:[{who:'Ricardo',txt:'Llave entregada',ts:Date.now()-7200000}],cat:Date.now()-43200000},
     {id:3,plate:'O-789MMM',model:'Hyundai Tucson 2022',client:'Carlos Rivas',tech:'Dany Acalon',ot:'OT-4318',phase:'lav',prio:'normal',loc:'FRAIJNES',space:'2',sigs:{},desc:'Frenos completos',msgs:[{who:'Byron',txt:'Prueba ok',ts:Date.now()-900000}],cat:Date.now()-54000000},
-    {id:4,plate:'P-555QQQ',model:'Nissan Frontier 2019',client:'Roberto Diaz',tech:'Luis Caceres',ot:'OT-4322',phase:'er',prio:'urgente',loc:'AGUILARB',space:'5',sigs:{},desc:'Cambio de clutch',msgs:[{who:'Kevin',txt:'Disco en pedido',ts:Date.now()-5400000}],cat:Date.now()-108000000},
+    {id:4,plate:'P-555QQQ',model:'Nissan Frontier 2019',client:'Roberto Diaz',tech:'Luis Caceres',ot:'OT-4322',phase:'er',prio:'urgente',loc:'AGUILARB',space:'5',sigs:{},desc:'Cambio de clutch',msgs:[{who:'Mario',txt:'Disco en pedido',ts:Date.now()-5400000}],cat:Date.now()-108000000},
     {id:5,plate:'S-321PPP',model:'Honda CR-V 2021',client:'Sofia Perez',tech:'Pablo Jolon',ot:'OT-4325',phase:'rec',prio:'normal',loc:'Z10',space:'',sigs:{},desc:'Ruido suspension',msgs:[],cat:Date.now()-3600000},
     {id:6,plate:'M-777GGG',model:'VW Tiguan 2020',client:'Eduardo Mendez',tech:'Gabriel Rodas',ot:'OT-4328',phase:'pa',prio:'normal',loc:'AGUILARB',space:'4',sigs:{},desc:'Cotizacion direccion hidraulica',msgs:[{who:'Gabriel Rodas',txt:'Requiere cotizacion cremallera',ts:Date.now()-10800000}],cat:Date.now()-172800000}
   ];
@@ -2701,7 +2701,7 @@ function buildRepContent() {
   if (role === 'jefe') {
     var rolesSigs = [
       {label:'Ricardo — Asesor serv.', sigId:'asesor', tn:null},
-      {label:'Kevin — Asesor partes', sigId:'partes', tn:null, countReps2:true},
+      {label:'Mario — Asesor partes', sigId:'partes', tn:null, countReps2:true},
       {label:'William — Mensajero', sigId:'mensajero', tn:null, countReps:true},
       {label:'Gerson Rodas', sigId:'tecnico', tn:'Gerson Rodas'},
       {label:'Dany Acalon', sigId:'tecnico', tn:'Dany Acalon'},
