@@ -1328,6 +1328,16 @@ function openDrw(id) {
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Vehiculo</label><input class="fi" id="e-model" value="' + esc(o.model) + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Cliente</label><input class="fi" id="e-client" value="' + esc(o.client) + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Tiempo estimado (hrs) — opcional</label><input class="fi" id="e-hrs" type="number" min="0.5" step="0.5" value="' + (o.hrsEstimado||'') + '"></div>' +
+        (role === 'jefe' ?
+          '<div class="fg" style="margin-bottom:6px"><label class="fl">Prioridad</label><select class="fi" id="e-prio">' +
+            '<option value="normal"' + (!o.prio || o.prio === 'normal' ? ' selected' : '') + '>Normal</option>' +
+            '<option value="urgente"' + (o.prio === 'urgente' ? ' selected' : '') + '>Urgente</option>' +
+            '<option value="vip"' + (o.prio === 'vip' ? ' selected' : '') + '>VIP</option>' +
+            '<option value="garantia"' + (o.prio === 'garantia' ? ' selected' : '') + '>Garantia</option>' +
+            '<option value="interna"' + (o.prio === 'interna' ? ' selected' : '') + '>Interna</option>' +
+            '<option value="endpint"' + (o.prio === 'endpint' ? ' selected' : '') + '>End. y Pint.</option>' +
+          '</select></div>'
+        : '') +
         ((role === 'jefe' || role === 'asesor') ?
           '<div class="fr2" style="margin-bottom:6px">' +
             '<div class="fg"><label class="fl">Total autorizado (Q)</label><input class="fi" id="e-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '"></div>' +
@@ -1781,6 +1791,8 @@ function openDrw(id) {
       var eTech2El  = document.getElementById('e-tech2');
       var newTech1  = eTech1El ? eTech1El.value : null;
       var newTech2  = eTech2El ? eTech2El.value : null;
+      var ePrioEl   = document.getElementById('e-prio');
+      var newPrio   = ePrioEl ? ePrioEl.value : null;
       if (eTech1El && eTech2El && newTech2 && newTech2 === newTech1) { toast('No puedes asignar el mismo tecnico dos veces'); return; }
       if (eTotalEl && eMoEl && newMO > newTotal && newTotal > 0) { toast('La M.O. no puede superar el total'); return; }
       if (!newPlate || !newModel || !newClient) { toast('Placa, vehiculo y cliente son requeridos'); return; }
@@ -1794,12 +1806,14 @@ function openDrw(id) {
       if (ox.client !== newClient) changes.push('Cliente: ' + esc(ox.client) + ' -> ' + esc(newClient));
       if (eTotalEl && eMoEl && (ox.montoTotal||0) !== newTotal) changes.push('Montos actualizados');
       if (eTech1El && (ox.tech||'') !== (newTech1||'')) changes.push('Tecnico: ' + esc(ox.tech||'Sin asignar') + ' -> ' + esc(newTech1||'Sin asignar'));
+      if (ePrioEl && (ox.prio||'normal') !== newPrio) changes.push('Prioridad: ' + (PRIO_LABELS[ox.prio]||'Normal') + ' -> ' + (PRIO_LABELS[newPrio]||'Normal'));
       ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
       ox.numFisico = newNum; ox.colorFisico = newColor;
       if (eTotalEl) ox.montoTotal = newTotal || null;
       if (eMoEl) ox.montoMO = newMO || null;
       if (eTech1El) ox.tech = newTech1 || null;
       if (eTech2El) ox.tech2 = newTech2 || null;
+      if (ePrioEl) ox.prio = newPrio;
       var hrsEl = document.getElementById('e-hrs');
       ox.hrsEstimado = hrsEl && hrsEl.value ? parseFloat(hrsEl.value) : null;
       if (changes.length) {
