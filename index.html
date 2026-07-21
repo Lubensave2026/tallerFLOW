@@ -2137,7 +2137,7 @@ function doSign(id, sigId) {
   var phaseSigsAuto = SIGS[o.phase] || [];
   var allSignedAuto = phaseSigsAuto.every(function(s) { return o.sigs[s.id]; });
   if (allSignedAuto) {
-    var autoNext = {pa:'pb', pb:'ea', lav:'lst'};
+    var autoNext = {pa:'pb', lav:'lst'};
     if (autoNext[o.phase]) {
       // Small delay so user sees confirmation toast before advance
       var autoPhase = autoNext[o.phase];
