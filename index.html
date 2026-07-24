@@ -645,25 +645,14 @@ function initFirebase() {
     firebase.initializeApp(FB_CONFIG);
     db = firebase.database();
 
-    // Login anonimo — esperar confirmacion antes de leer/escribir datos
-    firebase.auth().onAuthStateChanged(function(user) {
-      if (user) {
-        console.log("Firebase auth OK — uid:", user.uid);
-        fbReady = true;
-        _initFirebaseListeners();
-      }
-    });
-
+    // Login anonimo requerido por las reglas de seguridad (auth != null)
     firebase.auth().signInAnonymously().catch(function(e){
       console.log("Firebase auth error:", e);
     });
 
-  } catch(e) {
-    console.log("Firebase init error:", e);
-  }
-}
+    console.log("Firebase conectado OK");
+    fbReady = true;
 
-function _initFirebaseListeners() {
     _migrateIfNeeded(function() {
       // Meta: notifs, nxtId, archived — sigue siendo un solo objeto (bajo
       // riesgo de colision, son pocos cambios comparado con las ordenes)
@@ -727,6 +716,10 @@ function _initFirebaseListeners() {
         attachIncrementalOrderListeners();
       });
     });
+  } catch(e) {
+    console.log("Firebase error:", e);
+    fbReady = false;
+  }
 }
 
 var PINS = {
@@ -1034,7 +1027,7 @@ function doLogin(rk) {
   document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-repparts').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || rk === 'mensajero') ? 'inline-flex' : 'none';
   document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
-  document.getElementById('btn-arch').style.display = rk === 'jefe' ? 'inline-flex' : 'none';
+  document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
   var srchTecEl = document.getElementById('srch-tec');
@@ -2985,7 +2978,10 @@ function openHist() {
     document.getElementById('m-hist').classList.remove('on');
   });
   var archBtn = document.getElementById('btn-arch-now');
-  if (archBtn) archBtn.addEventListener('click', function() { archiveOld(); });
+  if (archBtn) {
+    archBtn.style.display = role === 'jefe' ? '' : 'none';
+    archBtn.addEventListener('click', function() { archiveOld(); });
+  }
   var si2 = document.getElementById('hist-srch');
   if (si2) si2.addEventListener('input', function() { renderHist(this.value); });
 }
@@ -3052,6 +3048,7 @@ function renderHist(q) {
 }
 
 function archiveOld() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede archivar ordenes'); return; }
   var cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days
   var toArchive = [];
   var remaining = [];
