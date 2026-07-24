@@ -645,14 +645,25 @@ function initFirebase() {
     firebase.initializeApp(FB_CONFIG);
     db = firebase.database();
 
-    // Login anonimo requerido por las reglas de seguridad (auth != null)
+    // Login anonimo — esperar confirmacion antes de leer/escribir datos
+    firebase.auth().onAuthStateChanged(function(user) {
+      if (user) {
+        console.log("Firebase auth OK — uid:", user.uid);
+        fbReady = true;
+        _initFirebaseListeners();
+      }
+    });
+
     firebase.auth().signInAnonymously().catch(function(e){
       console.log("Firebase auth error:", e);
     });
 
-    console.log("Firebase conectado OK");
-    fbReady = true;
+  } catch(e) {
+    console.log("Firebase init error:", e);
+  }
+}
 
+function _initFirebaseListeners() {
     _migrateIfNeeded(function() {
       // Meta: notifs, nxtId, archived — sigue siendo un solo objeto (bajo
       // riesgo de colision, son pocos cambios comparado con las ordenes)
@@ -716,10 +727,6 @@ function initFirebase() {
         attachIncrementalOrderListeners();
       });
     });
-  } catch(e) {
-    console.log("Firebase error:", e);
-    fbReady = false;
-  }
 }
 
 var PINS = {
