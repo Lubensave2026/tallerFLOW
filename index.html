@@ -553,13 +553,29 @@ function maybeDailyBackup(currentData) {
   var ref = db.ref('taller/backups/' + key);
   ref.once('value').then(function(snap) {
     if (snap.exists()) return; // ya hay respaldo de hoy, no tocar
-    ref.set({
-      orders:   currentData.orders   || [],
-      notifs:   currentData.notifs   || [],
-      nxtId:    currentData.nxtId    || 0,
-      archived: currentData.archived || [],
-      _backupTs: Date.now()
-    }).catch(function(e){ console.log('Backup diario error:', e); });
+    // El historial ya no vive en memoria permanentemente (ver taller/historial
+    // + openHist), asi que para que el respaldo diario siga completo hay que
+    // leerlo aqui — una vez al dia, no en cada cambio de meta.
+    db.ref('taller/historial').once('value').then(function(histSnap) {
+      var histData = histSnap.val() || {};
+      var histArr = Object.keys(histData).map(function(k){ return histData[k]; }).filter(Boolean);
+      ref.set({
+        orders:   currentData.orders   || [],
+        notifs:   currentData.notifs   || [],
+        nxtId:    currentData.nxtId    || 0,
+        archived: histArr,
+        _backupTs: Date.now()
+      }).catch(function(e){ console.log('Backup diario error:', e); });
+    }).catch(function(e){
+      console.log('Backup diario: error al leer historial, se respalda sin el', e);
+      ref.set({
+        orders:   currentData.orders   || [],
+        notifs:   currentData.notifs   || [],
+        nxtId:    currentData.nxtId    || 0,
+        archived: [],
+        _backupTs: Date.now()
+      }).catch(function(e2){ console.log('Backup diario error:', e2); });
+    });
   }).catch(function(e){ console.log('Backup diario check error:', e); });
 }
 
@@ -632,6 +648,39 @@ function _migrateIfNeeded(cb) {
   });
 }
 
+// Migracion unica: mueve taller/meta.archived (un arreglo gigante que
+// viajaba completo cada vez que cambiaba notifs o nxtId) a taller/historial/{id},
+// un nodo por orden igual que orders_by_id — asi solo se descarga cuando
+// alguien abre el Historial, no en cada cambio de meta. Protegida con
+// transaction igual que _migrateIfNeeded, para que corra una sola vez.
+function _migrateHistorialIfNeeded(cb) {
+  db.ref('taller/migration_v3_done').transaction(function(cur) {
+    if (cur) return; // ya migrado (o alguien mas ya esta migrando) — abortar
+    return true;
+  }, function(err, committed) {
+    if (err) { console.log('Migracion historial: error de transaction', err); cb(); return; }
+    if (!committed) { cb(); return; } // otro dispositivo ya migro o esta migrando
+    db.ref('taller/meta').once('value').then(function(snap) {
+      var meta = snap.val() || {};
+      var old = meta.archived || [];
+      if (!old.length) {
+        // Nada que migrar, pero igual limpiar el campo si por alguna razon existe
+        db.ref('taller/meta/archived').remove().then(cb).catch(function(e){ console.log('Migracion historial: error al limpiar', e); cb(); });
+        return;
+      }
+      var updates = {};
+      for (var i = 0; i < old.length; i++) {
+        updates['taller/historial/' + old[i].id] = old[i];
+      }
+      updates['taller/meta/archived'] = null; // quitar el campo viejo, sin tocar notifs/nxtId
+      db.ref().update(updates).then(function() {
+        console.log('Migracion historial completada: ' + old.length + ' orden(es).');
+        cb();
+      }).catch(function(e) { console.log('Migracion historial: error al escribir', e); cb(); });
+    }).catch(function(e) { console.log('Migracion historial: error al leer meta', e); cb(); });
+  });
+}
+
 function initFirebase() {
   try {
     if (typeof firebase === 'undefined') {
@@ -654,18 +703,20 @@ function initFirebase() {
     fbReady = true;
 
     _migrateIfNeeded(function() {
-      // Meta: notifs, nxtId, archived — sigue siendo un solo objeto (bajo
-      // riesgo de colision, son pocos cambios comparado con las ordenes)
+    _migrateHistorialIfNeeded(function() {
+      // Meta: notifs, nxtId — un solo objeto (bajo riesgo de colision, son
+      // pocos cambios comparado con las ordenes). 'archived' ya NO vive aqui
+      // (ver taller/historial/{id} + openHist) para no retransmitir todo el
+      // historial cada vez que cambia notifs o nxtId.
       db.ref('taller/meta').on('value', function(snap) {
         _hasReceivedFirebaseData = true; // ya se confirmo conexion + primera respuesta real
         var data = snap.val();
         if (!data) return;
         if (data.notifs   !== undefined) notifs   = data.notifs   || [];
         if (data.nxtId    !== undefined) { nxtId = data.nxtId; _updateHwm(nxtId); }
-        if (data.archived !== undefined) archived = data.archived || [];
-        _lastSyncedMeta = JSON.stringify({notifs:notifs, nxtId:nxtId, archived:archived});
+        _lastSyncedMeta = JSON.stringify({notifs:notifs, nxtId:nxtId});
         try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
-        maybeDailyBackup({orders:orders, notifs:notifs, nxtId:nxtId, archived:archived});
+        maybeDailyBackup({orders:orders, notifs:notifs, nxtId:nxtId});
         _scheduleRender();
       });
 
@@ -715,6 +766,7 @@ function initFirebase() {
         console.log('Error en snapshot inicial de ordenes, se activan listeners de todas formas:', e);
         attachIncrementalOrderListeners();
       });
+    });
     });
   } catch(e) {
     console.log("Firebase error:", e);
@@ -919,9 +971,9 @@ function save() {
           changedCount++;
         }
       }
-      var metaJson = JSON.stringify({notifs:notifs, nxtId:nxtId, archived:archived});
+      var metaJson = JSON.stringify({notifs:notifs, nxtId:nxtId});
       if (metaJson !== _lastSyncedMeta) {
-        updates['taller/meta'] = {notifs:notifs, nxtId:nxtId, archived:archived, _v:Date.now()};
+        updates['taller/meta'] = {notifs:notifs, nxtId:nxtId, _v:Date.now()};
         _lastSyncedMeta = metaJson;
         changedCount++;
       }
@@ -2968,7 +3020,6 @@ function toast(msg) {
 
 /* HISTORY */
 function openHist() {
-  renderHist('');
   document.getElementById('m-hist').classList.add('on');
   var si = document.getElementById('hist-srch');
   if (si) si.value = '';
@@ -2984,6 +3035,25 @@ function openHist() {
   }
   var si2 = document.getElementById('hist-srch');
   if (si2) si2.addEventListener('input', function() { renderHist(this.value); });
+
+  // El historial (ordenes cerradas y archivadas) ya no viaja permanentemente
+  // en memoria — se consulta a taller/historial solo cuando se abre este
+  // modal, para no retransmitir todo el historico en cada cambio de meta.
+  if (fbReady && db) {
+    var list = document.getElementById('hist-list');
+    if (list) list.innerHTML = '<div style="font-size:12px;color:var(--tx3);padding:1rem;text-align:center">Cargando historial…</div>';
+    db.ref('taller/historial').once('value').then(function(snap) {
+      var data = snap.val() || {};
+      archived = Object.keys(data).map(function(k){ return data[k]; }).filter(Boolean);
+      renderHist(si ? si.value : '');
+    }).catch(function(e) {
+      console.log('Error al cargar historial:', e);
+      toast('No se pudo cargar el historial completo, mostrando lo disponible localmente');
+      renderHist(si ? si.value : '');
+    });
+  } else {
+    renderHist('');
+  }
 }
 
 function renderHist(q) {
@@ -3066,16 +3136,19 @@ function archiveOld() {
   }
   for (var i = 0; i < toArchive.length; i++) archived.push(toArchive[i]);
   orders = remaining;
-  saveArch();
+  // Cada orden archivada va directo a su propio nodo en taller/historial —
+  // no viaja pegada a notifs/nxtId como antes (ver taller/meta).
+  if (fbReady && db) {
+    var histUpdates = {};
+    for (var i = 0; i < toArchive.length; i++) histUpdates['taller/historial/' + toArchive[i].id] = toArchive[i];
+    db.ref().update(histUpdates).catch(function(e) { console.log('Error al escribir historial:', e); });
+  }
   save();
   renderHist('');
   renderBoard();
   toast(toArchive.length + ' orden(es) archivada(s)');
 }
 
-function saveArch() {
-  save(); // unified save handles both local and Firebase
-}
 function loadArch() {
   try {
     var d = JSON.parse(localStorage.getItem(SK) || 'null');
