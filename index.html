@@ -1129,6 +1129,25 @@ function cardMatch(o) {
   return true;
 }
 
+// Badge de 2 partes para la fase 'prb' (Prueba/Insp.Final) — se usa tanto en
+// la tarjeta del board como en la ficha, para que se vea igual en ambos
+// lugares: verde cuando esa firma ya se hizo, naranja mientras esta pendiente.
+function prbStatusBadge(o) {
+  var jefeDone = !!(o.sigs && o.sigs.jefe);
+  var tecDone = !!(o.sigs && o.sigs.tecnico);
+  var seg1Color = jefeDone ? 'var(--gn)' : 'var(--or)';
+  var seg1Bg = jefeDone ? 'var(--gnbg)' : 'var(--orbg)';
+  var seg1Bd = jefeDone ? 'var(--gnbd)' : 'var(--orbd)';
+  var seg2Color = tecDone ? 'var(--gn)' : (jefeDone ? 'var(--or)' : 'var(--tx3)');
+  var seg2Bg = tecDone ? 'var(--gnbg)' : (jefeDone ? 'var(--orbg)' : 'var(--bg4)');
+  var seg2Bd = tecDone ? 'var(--gnbd)' : (jefeDone ? 'var(--orbd)' : 'var(--bd)');
+  return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">' +
+    '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg1Bd + ';background:' + seg1Bg + ';color:' + seg1Color + '">' + (jefeDone ? '&#10003; ' : '') + 'Prueba ruta (Jefe)</span>' +
+    '<span style="color:var(--tx3);font-size:11px">/</span>' +
+    '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg2Bd + ';background:' + seg2Bg + ';color:' + seg2Color + '">' + (tecDone ? '&#10003; ' : '') + 'Insp. Final (Tecnico)</span>' +
+  '</div>';
+}
+
 function renderBoard() {
   if (!role) return;
   if (!ROLES[role]) return;
@@ -1207,8 +1226,12 @@ function renderBoard() {
         }
         var sigs = SIGS[o.phase] || [];
         var sigHtml = '';
-        for (var si = 0; si < sigs.length; si++) {
-          sigHtml += '<span class="sg ' + (o.sigs[sigs[si].id] ? 'ok' : 'pd') + '">' + sigs[si].lb.split(' ')[0] + '</span>';
+        if (o.phase === 'prb') {
+          sigHtml = prbStatusBadge(o);
+        } else {
+          for (var si = 0; si < sigs.length; si++) {
+            sigHtml += '<span class="sg ' + (o.sigs[sigs[si].id] ? 'ok' : 'pd') + '">' + sigs[si].lb.split(' ')[0] + '</span>';
+          }
         }
         var unread = o.msgs && o.msgs.length && (o._lr || 0) < o.msgs[o.msgs.length - 1].ts;
         var motivoHtml = (o.phase === 'det' && o.detMotivo)
@@ -1506,22 +1529,7 @@ function openDrw(id) {
       '</div>';
     }
   }
-  var prbStatusBlock = '';
-  if (o.phase === 'prb') {
-    var prbJefeDone = !!(o.sigs && o.sigs.jefe);
-    var prbTecDone = !!(o.sigs && o.sigs.tecnico);
-    var seg1Color = prbJefeDone ? 'var(--gn)' : 'var(--or)';
-    var seg1Bg = prbJefeDone ? 'var(--gnbg)' : 'var(--orbg)';
-    var seg1Bd = prbJefeDone ? 'var(--gnbd)' : 'var(--orbd)';
-    var seg2Color = prbTecDone ? 'var(--gn)' : (prbJefeDone ? 'var(--or)' : 'var(--tx3)');
-    var seg2Bg = prbTecDone ? 'var(--gnbg)' : (prbJefeDone ? 'var(--orbg)' : 'var(--bg4)');
-    var seg2Bd = prbTecDone ? 'var(--gnbd)' : (prbJefeDone ? 'var(--orbd)' : 'var(--bd)');
-    prbStatusBlock = '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">' +
-      '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg1Bd + ';background:' + seg1Bg + ';color:' + seg1Color + '">' + (prbJefeDone ? '&#10003; ' : '') + 'Prueba ruta (Jefe)</span>' +
-      '<span style="color:var(--tx3);font-size:11px">/</span>' +
-      '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg2Bd + ';background:' + seg2Bg + ';color:' + seg2Color + '">' + (prbTecDone ? '&#10003; ' : '') + 'Insp. Final (Tecnico)</span>' +
-    '</div>';
-  }
+  var prbStatusBlock = (o.phase === 'prb') ? ('<div style="margin-bottom:8px">' + prbStatusBadge(o) + '</div>') : '';
   if (sigs.length) {
     var sigRows = '';
     for (var i = 0; i < sigs.length; i++) {
