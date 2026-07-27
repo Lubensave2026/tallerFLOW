@@ -872,7 +872,7 @@ var SIGS = {
 
 var NEXT = {
   rec:['aa'],aa:['ab'],det:['aa'],ab:['prb','lav','pa','er','ext','det','lst'],
-  prb:['lav','lst','ab','reproceso'],pa:['pb','ab'],pb:['ea','pa'],ea:['aa','lav','lst'],er:['aa'],
+  prb:['lav','lst','ab','reproceso'],pa:['pb','ab'],pb:['ea','pa'],ea:['aa','lav','lst','prb','ext'],er:['aa'],
   ext:['ab','prb'],lav:['lst'],lst:['ent'],ent:['cer'],cer:[]
 };
 
@@ -1506,6 +1506,22 @@ function openDrw(id) {
       '</div>';
     }
   }
+  var prbStatusBlock = '';
+  if (o.phase === 'prb') {
+    var prbJefeDone = !!(o.sigs && o.sigs.jefe);
+    var prbTecDone = !!(o.sigs && o.sigs.tecnico);
+    var seg1Color = prbJefeDone ? 'var(--gn)' : 'var(--or)';
+    var seg1Bg = prbJefeDone ? 'var(--gnbg)' : 'var(--orbg)';
+    var seg1Bd = prbJefeDone ? 'var(--gnbd)' : 'var(--orbd)';
+    var seg2Color = prbTecDone ? 'var(--gn)' : (prbJefeDone ? 'var(--or)' : 'var(--tx3)');
+    var seg2Bg = prbTecDone ? 'var(--gnbg)' : (prbJefeDone ? 'var(--orbg)' : 'var(--bg4)');
+    var seg2Bd = prbTecDone ? 'var(--gnbd)' : (prbJefeDone ? 'var(--orbd)' : 'var(--bd)');
+    prbStatusBlock = '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">' +
+      '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg1Bd + ';background:' + seg1Bg + ';color:' + seg1Color + '">' + (prbJefeDone ? '&#10003; ' : '') + 'Prueba ruta (Jefe)</span>' +
+      '<span style="color:var(--tx3);font-size:11px">/</span>' +
+      '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg2Bd + ';background:' + seg2Bg + ';color:' + seg2Color + '">' + (prbTecDone ? '&#10003; ' : '') + 'Insp. Final (Tecnico)</span>' +
+    '</div>';
+  }
   if (sigs.length) {
     var sigRows = '';
     for (var i = 0; i < sigs.length; i++) {
@@ -1531,7 +1547,7 @@ function openDrw(id) {
       }
       sigRows += '<div class="sg-item"><div><div class="sg-n">' + s.lb + '</div><div class="sg-r">' + s.id + '</div></div>' + btn + '</div>';
     }
-    html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + eaRepBlock + sigRows + '</div>';
+    html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + prbStatusBlock + eaRepBlock + sigRows + '</div>';
   }
 
   /* phase btns */
@@ -3291,13 +3307,20 @@ function buildRepsContent() {
     found++;
 
     var pc = PHASE_COLORS[o.phase] || {bg:'#333',color:'#fff',label:o.phase};
-    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px;margin-bottom:10px">' +
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
-        '<span style="font-size:14px;font-weight:700;font-family:var(--mo)">' + esc(o.plate) + '</span>' +
+    // Alternar el fondo y marcar un borde de color por caso (usando el color
+    // de la fase) para que cada orden se distinga claramente de la siguiente
+    // cuando hay varias en la lista.
+    var groupBg = (found % 2 === 1) ? 'var(--bg3)' : 'var(--bg2)';
+    html += '<div style="background:' + groupBg + ';border:1px solid var(--bd2);border-left:4px solid ' + pc.bg + ';border-radius:var(--r);padding:10px 12px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.3)">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+        '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px">' + esc(o.plate) + '</span>' +
         '<span style="font-size:11px;color:var(--tx2)">' + esc(o.model) + '</span>' +
         '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:1px 8px;border-radius:8px;font-size:10px;font-weight:600;margin-left:auto">' + pc.label + '</span>' +
       '</div>' +
-      '<div style="font-size:11px;color:var(--tx3);margin-bottom:8px">' + esc(o.tech || 'Sin tecnico') + ' · ' + esc(o.ot) + '</div>';
+      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+        '<span style="background:var(--bg4);border:1px solid var(--bd2);border-radius:8px;padding:2px 9px;font-size:11px;font-weight:700;color:var(--ac)">&#128295; ' + esc(o.tech || 'Sin tecnico') + '</span>' +
+        '<span style="font-size:10px;color:var(--tx3);font-family:var(--mo)">' + esc(o.ot) + '</span>' +
+      '</div>';
 
     for (var ri = 0; ri < repList.length; ri++) {
       var rep = repList[ri];
