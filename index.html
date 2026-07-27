@@ -364,7 +364,7 @@ button{cursor:pointer}
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
     <button class="btn-map" onclick="openMap()">🗺 Mapa</button>
-    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; Repuestos</button>
+    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS</button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Reporte Repuestos</button>
@@ -1197,6 +1197,14 @@ function renderBoard() {
       for (var ci = 0; ci < items.length; ci++) {
         var o = items[ci];
         var tc = TM[o.phase] || ['tgr', '?'];
+        if (o.phase === 'prb') {
+          var prbJefeOk = !!(o.sigs && o.sigs.jefe);
+          var prbTecOk = !!(o.sigs && o.sigs.tecnico);
+          var prbLabel = (prbJefeOk && prbTecOk) ? 'Prueba/Insp.Final ✓'
+            : prbJefeOk ? 'Insp. Final (Tecnico)'
+            : 'Prueba ruta (Jefe)';
+          tc = [tc[0], prbLabel];
+        }
         var sigs = SIGS[o.phase] || [];
         var sigHtml = '';
         for (var si = 0; si < sigs.length; si++) {
@@ -1692,11 +1700,22 @@ function openDrw(id) {
         '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
         '<div style="display:flex;align-items:center;gap:5px">' + origenBadge + (isDone ? '' : elapsedRepBadge(rep.ts, origen)) + '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck1" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
-        '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck2" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck2 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck2 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck2 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</button>' +
-        '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck3" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck3 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck3 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck3 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</button>' +
-      '</div>' +
+      (role === 'jefe' ?
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck1" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
+          '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck2" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck2 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck2 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck2 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</button>' +
+          '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck3" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck3 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck3 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck3 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</button>' +
+        '</div>'
+      :
+        // Para todos los demas roles, esta seccion es solo informativa — la
+        // firma real se hace desde el panel REPUESTOS Y SUBCONTRATOS.
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--bd);background:var(--bg4);color:' + (rep.ck1 ? 'var(--gn)' : 'var(--tx3)') + '">' + (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</span>' +
+          '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--bd);background:var(--bg4);color:' + (rep.ck2 ? 'var(--gn)' : 'var(--tx3)') + '">' + (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</span>' +
+          '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--bd);background:var(--bg4);color:' + (rep.ck3 ? 'var(--gn)' : 'var(--tx3)') + '">' + (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</span>' +
+        '</div>' +
+        '<div style="font-size:9px;color:var(--tx3);margin-top:5px;font-style:italic">&#128274; Firma desde &#128230; REPUESTOS Y SUBCONTRATOS</div>'
+      ) +
       (repTimingHtml ? '<div style="margin-top:7px;padding-top:6px;border-top:1px solid var(--bd)">' + repTimingHtml + '</div>' : '') +
     '</div>';
   }
@@ -3901,7 +3920,7 @@ window.addEventListener('load', function() {
 <!-- REPUESTOS MODAL -->
 <div class="mwrap" id="m-reps">
   <div class="rep-modal">
-    <div class="modal-t">&#128230; Repuestos pendientes
+    <div class="modal-t">&#128230; REPUESTOS Y SUBCONTRATOS
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeReps()">&#x2715;</button>
     </div>
     <div id="reps-body"></div>
