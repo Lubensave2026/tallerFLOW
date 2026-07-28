@@ -159,7 +159,7 @@ button{cursor:pointer}
 .drw.on{transform:translateY(0)}
 .drw-hnd{width:36px;height:4px;border-radius:2px;background:var(--bd2);margin:10px auto 0;flex-shrink:0}
 .drw-hdr{padding:.75rem 1rem;border-bottom:1px solid var(--bd);flex-shrink:0;display:flex;justify-content:space-between;align-items:flex-start}
-.drw-pl{font-size:18px;font-weight:700;font-family:var(--mo);letter-spacing:.5px}
+.drw-pl{font-size:24px;font-weight:800;font-family:var(--mo);letter-spacing:.6px;color:var(--ac)}
 .drw-mo{font-size:12px;color:var(--tx2);margin-top:2px}
 .drw-bg{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
 .dbg{font-size:10px;padding:2px 9px;border-radius:10px}
@@ -167,6 +167,16 @@ button{cursor:pointer}
 .drw-body{overflow-y:auto;flex:1;padding:1rem}
 .sec{margin-bottom:1.25rem}
 .sec-l{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--tx3);margin-bottom:8px}
+.sec-box{border:1px solid var(--bd2);border-radius:var(--r);background:var(--bg3);margin-bottom:14px;overflow:hidden}
+.sec-box-hdr{display:flex;align-items:center;gap:9px;padding:13px 14px;cursor:pointer;user-select:none}
+.sec-box-hdr:active{background:var(--bg4)}
+.sec-box-num{font-size:11px;font-weight:800;color:var(--ac);background:var(--bg4);border-radius:6px;padding:2px 8px;flex-shrink:0}
+.sec-box-title{font-size:13px;font-weight:800;letter-spacing:.4px;color:var(--tx);text-transform:uppercase;flex:1}
+.sec-box-chevron{font-size:11px;color:var(--tx3);transition:transform .2s;flex-shrink:0}
+.sec-box.open .sec-box-chevron{transform:rotate(180deg)}
+.sec-box-body{padding:0 14px 14px 14px;display:none}
+.sec-box.open .sec-box-body{display:block}
+.sec-box.static .sec-box-hdr{cursor:default}
 .irow{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd);font-size:12px}
 .irow:last-child{border-bottom:none}
 .ik{color:var(--tx2)}
@@ -1311,6 +1321,31 @@ function renderBoard() {
 }
 
 /* DRAWER */
+// Estado de que secciones estan abiertas/cerradas en la ficha — vive fuera
+// de openDrw() para que sobreviva a los re-render (cada accion dentro del
+// drawer, como firmar o guardar, vuelve a llamar openDrw()). Por defecto
+// todas cerradas; una vez el usuario abre una, se queda abierta mientras
+// siga usando la app (no se reinicia entre ordenes ni entre re-renders).
+var _drwOpenSections = {};
+
+function secBox(num, title, innerHtml, key) {
+  if (!key) {
+    // Caja simple, siempre visible, sin numero de acordeon — Mensajes internos
+    return '<div class="sec-box open static"><div class="sec-box-hdr">' +
+      '<span class="sec-box-title">' + title + '</span>' +
+    '</div><div class="sec-box-body" style="display:block">' + innerHtml + '</div></div>';
+  }
+  var isOpen = !!_drwOpenSections[key];
+  return '<div class="sec-box' + (isOpen ? ' open' : '') + '" data-sec-key="' + key + '">' +
+    '<div class="sec-box-hdr">' +
+      '<span class="sec-box-num">' + num + '</span>' +
+      '<span class="sec-box-title">' + title + '</span>' +
+      '<span class="sec-box-chevron">&#9650;</span>' +
+    '</div>' +
+    '<div class="sec-box-body">' + innerHtml + '</div>' +
+  '</div>';
+}
+
 function openDrw(id) {
   var confirmBadge = '';
   var o = null;
@@ -1511,6 +1546,13 @@ function openDrw(id) {
     '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')">' + esc(o.desc) + '</textarea>' +
   '</div>';
 
+  // Seccion 01) INFORMACION lista — todo lo de arriba (edicion, datos,
+  // asignacion de tecnico, espacio de trabajo, descripcion) queda agrupado
+  // en una sola caja. A partir de aqui 'html' se reutiliza para acumular la
+  // seccion 02) FIRMAS Y CAMBIOS DE FASE.
+  var infoHtml = html;
+  html = '';
+
   /* sigs */
   // ea phase: show warning if no repuestos added yet — con opcion de marcar
   // que el cliente no autorizo nada (desbloquea la firma sin crear un
@@ -1582,7 +1624,16 @@ function openDrw(id) {
   }
 
   /* phase log in drawer */
+  var fmtFullDate = function(ts) {
+    return new Date(ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  };
   var phaseLogHtml = '';
+  if (o.cat) {
+    phaseLogHtml += '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg4);border:1px solid var(--bd2);border-radius:var(--rs);padding:7px 10px;margin-bottom:8px">' +
+      '<span style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px">&#128198; Fecha de apertura</span>' +
+      '<span style="font-size:12px;font-weight:600;color:var(--tx2)">' + fmtFullDate(o.cat) + '</span>' +
+    '</div>';
+  }
   if (o.phaseLog && o.phaseLog.length) {
     // Filter phases by role
     var visiblePhases = null; // null = all
@@ -1609,7 +1660,6 @@ function openDrw(id) {
       consolidated[pl.phase].count++;
       if (pl.to > consolidated[pl.phase].lastTo) consolidated[pl.phase].lastTo = pl.to;
     }
-    phaseLogHtml = '<div class="sec"><div class="sec-l">Bitacora de tiempos por fase</div>';
     for (var oi2 = 0; oi2 < order.length; oi2++) {
       var ph = consolidated[order[oi2]];
       var pc3 = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[ph.phase]) ? PHASE_COLORS[ph.phase] : {bg:'#333',color:'#fff',label:ph.phase};
@@ -1639,7 +1689,14 @@ function openDrw(id) {
         '</div>';
       }
     }
-    phaseLogHtml += '</div>';
+  } else {
+    phaseLogHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Aun no hay movimientos de fase registrados.</div>';
+  }
+  if (o.phase === 'cer' && o.timestamps && o.timestamps.cer) {
+    phaseLogHtml += '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--gnbg);border:1px solid var(--gnbd);border-radius:var(--rs);padding:7px 10px;margin-top:8px">' +
+      '<span style="font-size:10px;color:var(--gn);text-transform:uppercase;letter-spacing:.3px">&#9989; Fecha de cierre</span>' +
+      '<span style="font-size:12px;font-weight:700;color:var(--gn)">' + fmtFullDate(o.timestamps.cer) + '</span>' +
+    '</div>';
   }
 
 /* jefe pending confirmation */
@@ -1678,14 +1735,18 @@ function openDrw(id) {
     '</div>';
   }
 
+  // Seccion 02) FIRMAS Y CAMBIOS DE FASE lista.
+  var firmasHtml = html;
+  html = '';
+
   /* phase log html already built above */
 
   /* repuestos pendientes */
   var repuestosHtml = '';
   var canAddRep = (role === 'jefe') || (role === 'asesor') || (r.tec && o.phase === 'ab');
   var repList = o.repuestos || [];
-  repuestosHtml += '<div class="sec"><div class="sec-l" style="display:flex;justify-content:space-between;align-items:center">' +
-    '<span style="color:var(--or)">&#128230; Repuestos pendientes</span>' +
+  repuestosHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+    '<span style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px">Repuestos y subcontratos pendientes</span>' +
     '<span style="font-size:10px;color:var(--tx3)">' + repList.filter(function(r){return !r.ck3;}).length + ' pendiente(s)</span>' +
   '</div>';
   if (repList.length === 0) {
@@ -1758,7 +1819,6 @@ function openDrw(id) {
       : '&#128274; Solo el Jefe de taller, el Asesor, o el tecnico (en Trabajando) pueden agregar o modificar repuestos.';
     repuestosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">' + noAddMsg + '</div>';
   }
-  repuestosHtml += '</div>';
 
   /* chat */
   var msgsHtml = '';
@@ -1770,16 +1830,33 @@ function openDrw(id) {
   } else {
     msgsHtml = '<div class="cemp">Sin mensajes</div>';
   }
-  html += '<div class="sec"><div class="sec-l">Mensajes internos</div>' +
+  var msgsBoxInner =
     '<div class="chat-box" id="chat-box">' + msgsHtml + '</div>' +
     '<div class="chat-row">' +
       '<input class="cin" id="chat-in" placeholder="Escribe un mensaje...">' +
       '<button class="btn-snd" id="btn-snd" data-oid="' + id + '">&#10148;</button>' +
-    '</div></div>';
+    '</div>';
 
-  html += repuestosHtml;
-  html += phaseLogHtml;
-  body.innerHTML = html;
+  body.innerHTML =
+    secBox('01', 'Informacion', infoHtml, 'info') +
+    secBox('02', 'Firmas y cambios de fase', firmasHtml, 'firmas') +
+    secBox(null, 'Mensajes internos', msgsBoxInner, null) +
+    secBox('03', 'Solicitud de repuestos', repuestosHtml, 'reps') +
+    secBox('04', 'Bitacora', phaseLogHtml, 'bitacora');
+
+  /* seccion collapse/expand */
+  var secBoxes = body.querySelectorAll('.sec-box[data-sec-key]');
+  for (var sbi = 0; sbi < secBoxes.length; sbi++) {
+    (function(box) {
+      var hdr = box.querySelector('.sec-box-hdr');
+      if (!hdr) return;
+      hdr.addEventListener('click', function() {
+        var key = box.getAttribute('data-sec-key');
+        _drwOpenSections[key] = !box.classList.contains('open');
+        box.classList.toggle('open');
+      });
+    })(secBoxes[sbi]);
+  }
 
   /* attach events after innerHTML */
   var cb = document.getElementById('chat-box');
