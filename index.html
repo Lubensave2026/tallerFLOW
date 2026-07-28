@@ -97,17 +97,17 @@ button{cursor:pointer}
 .srch::placeholder{color:var(--tx3)}
 
 /* KANBAN */
-.board{flex:1;overflow-x:auto;overflow-y:hidden;padding:1rem;display:flex;gap:9px;align-items:flex-start;min-height:200px}
+.board{flex:1;overflow-x:auto;overflow-y:hidden;padding:1rem;display:flex;gap:9px;align-items:stretch;min-height:200px}
 .board.vert{flex-direction:column;overflow-x:hidden;overflow-y:auto;padding:.75rem}
 .board.vert .lane{flex:none;min-width:unset;width:100%}
-.board.vert .lane-body{flex-direction:row;flex-wrap:wrap;gap:8px;padding:8px}
+.board.vert .lane-body{flex:none;flex-direction:row;flex-wrap:wrap;gap:8px;padding:8px;max-height:none;overflow-y:visible}
 .board.vert .card{flex:0 0 calc(50% - 4px);min-width:140px}
 @media(min-width:500px){.board.vert .card{flex:0 0 calc(33% - 6px)}}
-.lane{flex:0 0 195px;min-width:195px}
-.lane-hdr{border-radius:var(--r) var(--r) 0 0;padding:8px 10px;display:flex;align-items:center;justify-content:space-between}
+.lane{flex:0 0 195px;min-width:195px;display:flex;flex-direction:column}
+.lane-hdr{border-radius:var(--r) var(--r) 0 0;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .lt{font-size:10px;font-weight:600;letter-spacing:.3px;text-transform:uppercase}
 .lc{font-size:10px;padding:1px 7px;border-radius:10px;font-family:var(--mo)}
-.lane-body{border-radius:0 0 var(--r) var(--r);border:1px solid var(--bd);border-top:none;background:var(--bg2);min-height:60px;max-height:calc(100vh - 140px);overflow-y:auto;padding:6px;padding-bottom:80px;display:flex;flex-direction:column;gap:5px}
+.lane-body{border-radius:0 0 var(--r) var(--r);border:1px solid var(--bd);border-top:none;background:var(--bg2);flex:1;min-height:0;overflow-y:auto;padding:6px;padding-bottom:16px;display:flex;flex-direction:column;gap:5px}
 
 /* CARD */
 .card{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:9px 10px;cursor:pointer;transition:border-color .15s,transform .1s;position:relative}
@@ -1658,21 +1658,28 @@ function openDrw(id) {
       var pl = o.phaseLog[pli];
       if (visiblePhases && visiblePhases.indexOf(pl.phase) < 0) continue;
       if (pl.phase === 'det') { detEntries.push(pl); continue; }
-      if (!consolidated[pl.phase]) {
-        consolidated[pl.phase] = {phase:pl.phase, label:pl.label, minutes:0, count:0, firstFrom:pl.from, lastTo:pl.to};
-        order.push(pl.phase);
+      // 'prb' (Prueba/Insp.Final) se registra en 2 tramos (subphase 'jefe' /
+      // 'tecnico') que deben mostrarse por separado, no sumados en una sola
+      // fila — el resto de fases siguen consolidandose solo por 'phase'.
+      var key = pl.phase + (pl.subphase ? ('_' + pl.subphase) : '');
+      if (!consolidated[key]) {
+        consolidated[key] = {phase:pl.phase, label:pl.label, minutes:0, count:0, firstFrom:pl.from, lastTo:pl.to};
+        order.push(key);
       }
-      consolidated[pl.phase].minutes += pl.minutes || 0;
-      consolidated[pl.phase].count++;
-      if (pl.to > consolidated[pl.phase].lastTo) consolidated[pl.phase].lastTo = pl.to;
+      consolidated[key].minutes += pl.minutes || 0;
+      consolidated[key].count++;
+      if (pl.to > consolidated[key].lastTo) consolidated[key].lastTo = pl.to;
     }
     for (var oi2 = 0; oi2 < order.length; oi2++) {
       var ph = consolidated[order[oi2]];
       var pc3 = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[ph.phase]) ? PHASE_COLORS[ph.phase] : {bg:'#333',color:'#fff',label:ph.phase};
+      // 'prb' dividido en tramos: mostrar la etiqueta especifica del tramo
+      // (Prueba de ruta / Inspeccion final) en vez del badge generico de fase.
+      var badgeLabel = (ph.phase === 'prb') ? esc(ph.label) : pc3.label;
       var dur = ph.minutes < 60 ? Math.round(ph.minutes) + ' min' : (ph.minutes/60).toFixed(1) + ' h';
       var countBadge = ph.count > 1 ? ' <span style="font-size:9px;opacity:.7">(' + ph.count + ' veces)</span>' : '';
       phaseLogHtml += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 10px;margin-bottom:5px;display:flex;align-items:center;gap:8px">' +
-        '<span style="background:' + pc3.bg + ';color:' + pc3.color + ';padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">' + pc3.label + '</span>' +
+        '<span style="background:' + pc3.bg + ';color:' + pc3.color + ';padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">' + badgeLabel + '</span>' +
         '<span style="font-size:10px;color:var(--tx3);flex:1">' + countBadge + '</span>' +
         '<span style="color:var(--or);font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + dur + ' h.h.</span>' +
       '</div>';
@@ -2264,6 +2271,7 @@ function delSig(id, sigId) {
   for (var j = 0; j < sigsDef.length; j++) { if (sigsDef[j].id === sigId) { lb = sigsDef[j].lb; break; } }
   if (!confirm('¿Eliminar la firma "' + lb + '"? El espacio quedara disponible para volver a firmar.')) return;
   delete o.sigs[sigId];
+  if (o.sigsTs) delete o.sigsTs[sigId];
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt:'&#x2715; Firma eliminada: ' + lb, ts:Date.now()});
@@ -2311,6 +2319,8 @@ function doSign(id, sigId) {
     }
   }
   o.sigs[sigId] = true;
+  o.sigsTs = o.sigsTs || {};
+  o.sigsTs[sigId] = Date.now();
   // Auto-advance when all required sigs for this phase are complete
   var phaseSigsAuto = SIGS[o.phase] || [];
   var allSignedAuto = phaseSigsAuto.every(function(s) { return o.sigs[s.id]; });
@@ -2394,17 +2404,31 @@ function advance(id, newPhase) {
   var who = ROLES[role] ? ROLES[role].label : role;
   // Save phase log before moving
   if (!o.phaseLog) o.phaseLog = [];
-  var phaseEntry = {
-    phase: o.phase,
-    label: oldLbl,
-    from: (o.timestamps && o.timestamps[o.phase]) ? o.timestamps[o.phase] : (o.cat || Date.now()),
-    to: Date.now()
-  };
-  phaseEntry.minutes = businessMinutes(phaseEntry.from, phaseEntry.to);
-  if (phaseEntry.phase === 'det') phaseEntry.motivo = outgoingDetMotivo || null;
-  o.phaseLog.push(phaseEntry);
+  var phaseFrom = (o.timestamps && o.timestamps[o.phase]) ? o.timestamps[o.phase] : (o.cat || Date.now());
+  var phaseTo = Date.now();
+  if (o.phase === 'prb' && o.sigsTs && o.sigsTs.jefe && o.sigsTs.jefe > phaseFrom && o.sigsTs.jefe < phaseTo) {
+    // Prueba/Insp.Final se registra en 2 tramos separados para poder medir
+    // cuellos de botella por separado: la prueba de ruta (Jefe), desde que
+    // la orden entra a la fase hasta que el jefe firma; y la inspeccion
+    // final (Tecnico), desde ahi hasta que se avanza a la siguiente fase.
+    var jefeTs = o.sigsTs.jefe;
+    o.phaseLog.push({
+      phase: 'prb', subphase: 'jefe', label: 'Prueba de ruta (Jefe)',
+      from: phaseFrom, to: jefeTs, minutes: businessMinutes(phaseFrom, jefeTs)
+    });
+    o.phaseLog.push({
+      phase: 'prb', subphase: 'tecnico', label: 'Inspeccion final (Tecnico)',
+      from: jefeTs, to: phaseTo, minutes: businessMinutes(jefeTs, phaseTo)
+    });
+  } else {
+    var phaseEntry = { phase: o.phase, label: oldLbl, from: phaseFrom, to: phaseTo };
+    phaseEntry.minutes = businessMinutes(phaseEntry.from, phaseEntry.to);
+    if (phaseEntry.phase === 'det') phaseEntry.motivo = outgoingDetMotivo || null;
+    o.phaseLog.push(phaseEntry);
+  }
   o.phase = newPhase;
   o.sigs = {};
+  o.sigsTs = {};
   if (!o.timestamps) o.timestamps = {};
   o.timestamps[newPhase] = Date.now();
   if (isReproceso) {
@@ -3925,7 +3949,17 @@ function advanceReproceso(id, causa) {
   o.msgs.push({who:who, txt:'&#9851; REPROCESO — Causa: ' + causa + ' (desde ' + oldLbl + ')', ts:Date.now()});
   if (!o.phaseLog) o.phaseLog = [];
   var fromTs = o.timestamps[oldPhase] || o.cat;
-  o.phaseLog.push({phase:oldPhase, label:oldLbl, from:fromTs, to:Date.now(), minutes:businessMinutes(fromTs, Date.now())});
+  var toTsR = Date.now();
+  if (oldPhase === 'prb' && o.sigsTs && o.sigsTs.jefe && o.sigsTs.jefe > fromTs && o.sigsTs.jefe < toTsR) {
+    // Mismo criterio que en advance(): si el reproceso sale de Prueba/Insp.Final
+    // y el jefe ya habia firmado la prueba de ruta, se registra en 2 tramos.
+    var jefeTsR = o.sigsTs.jefe;
+    o.phaseLog.push({phase:'prb', subphase:'jefe', label:'Prueba de ruta (Jefe)', from:fromTs, to:jefeTsR, minutes:businessMinutes(fromTs, jefeTsR)});
+    o.phaseLog.push({phase:'prb', subphase:'tecnico', label:'Inspeccion final (Tecnico)', from:jefeTsR, to:toTsR, minutes:businessMinutes(jefeTsR, toTsR)});
+  } else {
+    o.phaseLog.push({phase:oldPhase, label:oldLbl, from:fromTs, to:toTsR, minutes:businessMinutes(fromTs, toTsR)});
+  }
+  if (o.sigsTs) { delete o.sigsTs.jefe; delete o.sigsTs.tecnico; }
   save(); renderBoard(); closeDrw(); toast('Reproceso registrado — Causa: ' + causa);
 }
 
