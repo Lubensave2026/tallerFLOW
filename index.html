@@ -3156,29 +3156,46 @@ function _findReprocesoCausa(o, phaseEntry) {
   }
   return null;
 }
+// Excel en configuracion regional de Guatemala/Latinoamerica usa punto y coma
+// como separador de columnas en CSV (reserva la coma para separar decimales)
+// — por eso el export usa ';' como delimitador y ',' como separador decimal,
+// para que Excel lo abra directo en columnas, con los numeros como numeros.
+var CSV_DELIM = ';';
+function _csvNum(n) {
+  return String(n).replace('.', ',');
+}
 function _csvCell(v) {
   var s = (v === null || v === undefined) ? '' : String(v);
-  if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+  if (s.indexOf('"') !== -1 || s.indexOf(CSV_DELIM) !== -1 || s.indexOf('\n') !== -1) {
+    s = '"' + s.replace(/"/g, '""') + '"';
+  }
   return s;
 }
 function _buildPhaseLogCSV(allOrders) {
   var fmtDT = function(ts) {
     return new Date(ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   };
-  var rows = [['Placa','OT','Cliente','Tecnico','Prioridad','Fase','Entra','Sale','Duracion_horas','Nota']];
-  for (var i = 0; i < allOrders.length; i++) {
-    var o = allOrders[i];
+  // Orden correlativo por numero de orden (OT), no alfabetico — asi el 9 no
+  // queda despues del 10.
+  var sorted = allOrders.slice().sort(function(a, b) {
+    return (parseInt(a.ot, 10) || 0) - (parseInt(b.ot, 10) || 0);
+  });
+  var rows = [['OT','Placa','Vehiculo','Cliente','Tecnico','Fase','Entra','Sale','Duracion_horas','Nota','Monto_Total','Monto_MO']];
+  for (var i = 0; i < sorted.length; i++) {
+    var o = sorted[i];
     var tech = (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : '');
-    var prio = PRIO_LABELS[o.prio] || 'Normal';
+    var montoTotal = o.montoTotal ? _csvNum(Number(o.montoTotal).toFixed(2)) : '';
+    var montoMO = o.montoMO ? _csvNum(Number(o.montoMO).toFixed(2)) : '';
     var log = o.phaseLog || [];
     for (var j = 0; j < log.length; j++) {
       var pl = log[j];
       var causa = _findReprocesoCausa(o, pl);
       rows.push([
-        o.plate, o.ot, o.client, tech, prio,
+        o.ot, o.plate, o.model, o.client, tech,
         pl.label || pl.phase, fmtDT(pl.from), fmtDT(pl.to),
-        ((pl.minutes||0)/60).toFixed(2),
-        causa ? ('Reproceso: ' + causa) : ''
+        _csvNum(((pl.minutes||0)/60).toFixed(2)),
+        causa ? ('Reproceso: ' + causa) : '',
+        montoTotal, montoMO
       ]);
     }
     // Fase actual, si la orden sigue activa (no cerrada) — para no perder el
@@ -3188,13 +3205,14 @@ function _buildPhaseLogCSV(allOrders) {
       for (var k = 0; k < LANES.length; k++) { if (LANES[k].id === o.phase) { lane = LANES[k]; break; } }
       var mins = businessMinutes(o.timestamps[o.phase], Date.now());
       rows.push([
-        o.plate, o.ot, o.client, tech, prio,
+        o.ot, o.plate, o.model, o.client, tech,
         (lane ? lane.label : o.phase), fmtDT(o.timestamps[o.phase]), 'En curso',
-        (mins/60).toFixed(2), ''
+        _csvNum((mins/60).toFixed(2)), '',
+        montoTotal, montoMO
       ]);
     }
   }
-  return rows.map(function(r) { return r.map(_csvCell).join(','); }).join('\r\n');
+  return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
 }
 function _downloadCSV(csv, filename) {
   var blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8;'});
