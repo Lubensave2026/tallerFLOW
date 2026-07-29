@@ -1796,7 +1796,9 @@ function openDrw(id) {
     repuestosHtml += '<div style="background:var(--bg3);border:1px solid ' + (isDone ? 'var(--gnbd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (isDone ? 'opacity:.6' : '') + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
         '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
-        '<div style="display:flex;align-items:center;gap:5px">' + origenBadge + (isDone ? '' : elapsedRepBadge(rep.ts, origen)) + '</div>' +
+        '<div style="display:flex;align-items:center;gap:5px">' + origenBadge + (isDone ? '' : elapsedRepBadge(rep.ts, origen)) +
+          (role === 'jefe' ? '<button class="btn-rep-del" data-ri="' + ri + '" title="Eliminar repuesto" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
+        '</div>' +
       '</div>' +
       (role === 'jefe' ?
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
@@ -1920,6 +1922,25 @@ function openDrw(id) {
         save(); toast('Cambiado a ' + (nuevo==='importacion'?'Importacion':'Local')); openDrw(id);
       });
     })(origenBtns[obi]);
+  }
+  var delRepBtns = body.querySelectorAll('.btn-rep-del');
+  for (var dri = 0; dri < delRepBtns.length; dri++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar repuestos'); return; }
+        var ri4 = parseInt(this.getAttribute('data-ri'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.repuestos || !ox.repuestos[ri4]) return;
+        var descDel = ox.repuestos[ri4].desc;
+        if (!confirm('¿Eliminar el repuesto "' + descDel + '"? Esta accion no se puede deshacer.')) return;
+        ox.repuestos.splice(ri4, 1);
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'&#x2715; Repuesto eliminado: "' + esc(descDel) + '"', ts:Date.now()});
+        save(); toast('Repuesto eliminado'); openDrw(id);
+      });
+    })(delRepBtns[dri]);
   }
   var addRepBtn = document.getElementById('btn-add-rep');
   if (addRepBtn) {
