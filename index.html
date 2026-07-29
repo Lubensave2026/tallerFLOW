@@ -381,7 +381,7 @@ button{cursor:pointer}
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Reporte Repuestos</button>
-    <button class="btn-map" id="btn-export" onclick="exportPhaseLogCSV()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
+    <button class="btn-map" id="btn-export" onclick="exportOrderSummaryCSV()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
 
     <input class="srch" id="srch" placeholder="Buscar placa, vehiculo, No. OT o tecnico..." oninput="renderBoard()">
     <select class="srch" id="srch-tec" style="max-width:140px;flex:0 0 auto" onchange="renderBoard()">
@@ -3189,18 +3189,11 @@ function toast(msg) {
 }
 
 
-/* EXPORT — bitacora de tiempos por fase, formato "largo" (una fila por
-   cambio de fase) para tabla dinamica en Excel/Sheets. Lee lo mismo que ya
-   esta guardado (orders_by_id + taller/historial), sin agregar ningun dato
-   nuevo ni tocar la sincronizacion. */
-function _findReprocesoCausa(o, phaseEntry) {
-  if (phaseEntry.phase !== 'ab' || !o.reprocesoLog) return null;
-  for (var i = 0; i < o.reprocesoLog.length; i++) {
-    var rl = o.reprocesoLog[i];
-    if (Math.abs((phaseEntry.from||0) - (rl.ts||0)) < 5000) return rl.causa;
-  }
-  return null;
-}
+/* EXPORT — bitacora "Formato B": una fila por orden CERRADA, con una
+   columna de horas por cada fase (mas montos), segun el machote acordado.
+   Reemplaza al export anterior (una fila por cambio de fase). Lee lo mismo
+   que ya esta guardado (orders_by_id + taller/historial), sin agregar
+   ningun dato nuevo ni tocar la sincronizacion. */
 // Excel en configuracion regional de Guatemala/Latinoamerica usa punto y coma
 // como separador de columnas en CSV (reserva la coma para separar decimales)
 // — por eso el export usa ';' como delimitador y ',' como separador decimal,
@@ -3216,49 +3209,6 @@ function _csvCell(v) {
   }
   return s;
 }
-function _buildPhaseLogCSV(allOrders) {
-  var fmtDT = function(ts) {
-    return new Date(ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-  };
-  // Orden correlativo por numero de orden (OT), no alfabetico — asi el 9 no
-  // queda despues del 10.
-  var sorted = allOrders.slice().sort(function(a, b) {
-    return (parseInt(a.ot, 10) || 0) - (parseInt(b.ot, 10) || 0);
-  });
-  var rows = [['OT','Placa','Vehiculo','Cliente','Tecnico','Fase','Entra','Sale','Duracion_horas','Nota','Monto_Total','Monto_MO']];
-  for (var i = 0; i < sorted.length; i++) {
-    var o = sorted[i];
-    var tech = (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : '');
-    var montoTotal = o.montoTotal ? _csvNum(Number(o.montoTotal).toFixed(2)) : '';
-    var montoMO = o.montoMO ? _csvNum(Number(o.montoMO).toFixed(2)) : '';
-    var log = o.phaseLog || [];
-    for (var j = 0; j < log.length; j++) {
-      var pl = log[j];
-      var causa = _findReprocesoCausa(o, pl);
-      rows.push([
-        o.ot, o.plate, o.model, o.client, tech,
-        pl.label || pl.phase, fmtDT(pl.from), fmtDT(pl.to),
-        _csvNum(((pl.minutes||0)/60).toFixed(2)),
-        causa ? ('Reproceso: ' + causa) : '',
-        montoTotal, montoMO
-      ]);
-    }
-    // Fase actual, si la orden sigue activa (no cerrada) — para no perder el
-    // tiempo que lleva acumulado ahi aunque todavia no haya "cerrado" esa fase
-    if (o.phase !== 'cer' && o.timestamps && o.timestamps[o.phase]) {
-      var lane = null;
-      for (var k = 0; k < LANES.length; k++) { if (LANES[k].id === o.phase) { lane = LANES[k]; break; } }
-      var mins = businessMinutes(o.timestamps[o.phase], Date.now());
-      rows.push([
-        o.ot, o.plate, o.model, o.client, tech,
-        (lane ? lane.label : o.phase), fmtDT(o.timestamps[o.phase]), 'En curso',
-        _csvNum((mins/60).toFixed(2)), '',
-        montoTotal, montoMO
-      ]);
-    }
-  }
-  return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
-}
 function _downloadCSV(csv, filename) {
   var blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8;'});
   var url = URL.createObjectURL(blob);
@@ -3270,12 +3220,98 @@ function _downloadCSV(csv, filename) {
   document.body.removeChild(a);
   setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
 }
-function exportPhaseLogCSV() {
+// Suma las horas de todas las entradas de phaseLog que pertenecen a una
+// fase — esto ya junta solas las 2 partes de Prueba/Insp.Final (Jefe +
+// Tecnico) en un solo total, y tambien suma repeticiones (ej. "Trabajando"
+// si hubo reproceso, o varias detenciones).
+function _sumPhaseHours(o, phaseId) {
+  var total = 0;
+  var log = o.phaseLog || [];
+  for (var i = 0; i < log.length; i++) {
+    if (log[i].phase === phaseId) total += (log[i].minutes || 0);
+  }
+  return total / 60;
+}
+var _ORDER_SUMMARY_PHASE_COLS = ['aa','ab','pa','pb','ea','er','det','ext','prb','lav','lst','ent'];
+function _buildOrderSummaryCSV(allOrders) {
+  var fmtDate = function(ts) {
+    return new Date(ts).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'});
+  };
+  // Solo ordenes ya cerradas — asi DIAS y los promedios representan ciclos
+  // completos y comparables (las activas ya se ven en tiempo real en el board).
+  var cerradas = allOrders.filter(function(o){ return o.phase === 'cer' && o.timestamps && o.timestamps.cer && o.cat; });
+  // Orden correlativo por numero de orden (OT), no alfabetico.
+  var sorted = cerradas.slice().sort(function(a, b) {
+    return (parseInt(a.ot, 10) || 0) - (parseInt(b.ot, 10) || 0);
+  });
+
+  var header = ['OT','Ingreso','Salida','Dias','Cliente','Vehiculo','Placa','Tecnico',
+    'Asig_espera','Trabajando','Presup_partes','Presup_MO','Esp_autorizacion','Esp_repuestos',
+    'Detenido','Trabajo_externo','Prueba_Insp_Final','Lavado','Listo_pEntrega','Entregado',
+    'Monto_Total','Monto_MO'];
+  var rows = [header];
+
+  var sumDias = 0;
+  var sumHoras = {};
+  _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) { sumHoras[ph] = 0; });
+  var sumMontoTotal = 0, sumMontoMO = 0;
+
+  for (var i = 0; i < sorted.length; i++) {
+    var o = sorted[i];
+    var tech = (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : '');
+    var ingreso = o.cat;
+    var salida = o.timestamps.cer;
+    var dias = (salida - ingreso) / (24 * 3600 * 1000);
+    var montoTotal = o.montoTotal ? Number(o.montoTotal) : 0;
+    var montoMO = o.montoMO ? Number(o.montoMO) : 0;
+
+    var horas = {};
+    _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) {
+      horas[ph] = _sumPhaseHours(o, ph);
+      sumHoras[ph] += horas[ph];
+    });
+    sumDias += dias;
+    sumMontoTotal += montoTotal;
+    sumMontoMO += montoMO;
+
+    rows.push([
+      o.ot, fmtDate(ingreso), fmtDate(salida), _csvNum(dias.toFixed(1)),
+      o.client, o.model, o.plate, tech,
+      _csvNum(horas.aa.toFixed(2)), _csvNum(horas.ab.toFixed(2)),
+      _csvNum(horas.pa.toFixed(2)), _csvNum(horas.pb.toFixed(2)),
+      _csvNum(horas.ea.toFixed(2)), _csvNum(horas.er.toFixed(2)),
+      _csvNum(horas.det.toFixed(2)), _csvNum(horas.ext.toFixed(2)),
+      _csvNum(horas.prb.toFixed(2)), _csvNum(horas.lav.toFixed(2)),
+      _csvNum(horas.lst.toFixed(2)), _csvNum(horas.ent.toFixed(2)),
+      montoTotal ? _csvNum(montoTotal.toFixed(2)) : '',
+      montoMO ? _csvNum(montoMO.toFixed(2)) : ''
+    ]);
+  }
+
+  // Fila de resumen: cantidad de ordenes, promedio de dias, promedio de
+  // horas por fase, y el TOTAL (no promedio) de los montos del periodo.
+  var n = sorted.length;
+  var footer = [
+    'No. OTs: ' + n, '', '', n ? _csvNum((sumDias / n).toFixed(1)) : '0',
+    '', '', '', ''
+  ];
+  _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) {
+    footer.push(n ? _csvNum((sumHoras[ph] / n).toFixed(2)) : '0');
+  });
+  footer.push(_csvNum(sumMontoTotal.toFixed(2)));
+  footer.push(_csvNum(sumMontoMO.toFixed(2)));
+  rows.push(footer);
+
+  return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
+}
+function exportOrderSummaryCSV() {
   if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar'); return; }
   var finish = function(allOrders) {
-    var csv = _buildPhaseLogCSV(allOrders);
+    var closedCount = allOrders.filter(function(o){ return o.phase === 'cer'; }).length;
+    if (!closedCount) { toast('No hay ordenes cerradas para exportar todavia'); return; }
+    var csv = _buildOrderSummaryCSV(allOrders);
     _downloadCSV(csv, 'tallerflow_bitacora_' + _todayKey() + '.csv');
-    toast('Exportado: ' + (allOrders.length) + ' orden(es)');
+    toast('Exportado: ' + closedCount + ' orden(es) cerrada(s)');
   };
   if (fbReady && db) {
     toast('Preparando exportacion...');
