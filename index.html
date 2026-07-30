@@ -1878,11 +1878,17 @@ function openDrw(id) {
   }
   for (var twi2 = 0; twi2 < trabajosList.length; twi2++) {
     var tw = trabajosList[twi2];
+    var hrsVal = parseFloat(tw.horas) || 0;
+    var hrsBadge = hrsVal > 0
+      ? '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para ajustar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:9px;padding:2px 7px;border-radius:8px;background:var(--bg4);color:var(--tx2);border:1px solid var(--bd);white-space:nowrap">' + hrsVal.toFixed(2).replace('.', ',') + ' hrs. com.' + (role==='jefe'?' &#8635;':'') + '</span>'
+      : (role === 'jefe'
+        ? '<span class="btn-trab-hrs jf" data-ti="' + twi2 + '" title="Toca para asignar horas" style="cursor:pointer;font-size:9px;padding:2px 7px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px solid var(--orbd);white-space:nowrap">Asignar hrs. com. &#8635;</span>'
+        : '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:var(--bg4);color:var(--tx3);border:1px solid var(--bd);white-space:nowrap;font-style:italic">Hrs. com. pendiente</span>');
     trabajosHtml += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
         '<div style="font-size:12px;font-weight:500">' + tw.desc + '</div>' +
         '<div style="display:flex;align-items:center;gap:5px">' +
-          '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:var(--bg4);color:var(--tx2);border:1px solid var(--bd);white-space:nowrap">' + (parseFloat(tw.horas) || 0).toFixed(2).replace('.', ',') + ' hrs</span>' +
+          hrsBadge +
           (role === 'jefe' ? '<button class="btn-trab-del" data-ti="' + twi2 + '" title="Eliminar trabajo" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
         '</div>' +
       '</div>' +
@@ -1895,10 +1901,11 @@ function openDrw(id) {
     if (!ordTecs.length) tecOptions = '<option value="">Sin tecnico asignado</option>';
     trabajosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
       '<input id="trab-inp" class="cin" placeholder="Descripcion del trabajo realizado..." style="flex:1;min-width:140px">' +
-      '<input id="trab-horas" class="cin" type="number" min="0" step="0.25" placeholder="Hrs" style="flex:0 0 70px">' +
+      (role === 'jefe' ? '<input id="trab-horas" class="cin" type="number" min="0" step="0.25" placeholder="Hrs. com." style="flex:0 0 80px">' : '') +
       '<select id="trab-tec" class="cin" style="flex:0 0 auto">' + tecOptions + '</select>' +
       '<button id="btn-add-trab" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
-    '</div>';
+    '</div>' +
+    (role !== 'jefe' ? '<div style="font-size:9px;color:var(--tx3);margin-top:5px;font-style:italic">&#128274; Las horas de comision (hrs. com.) las asigna el Jefe de taller.</div>' : '');
   } else {
     trabajosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">&#128274; Solo el Jefe de taller, el Asesor, o el tecnico asignado pueden registrar trabajos.</div>';
   }
@@ -2036,6 +2043,28 @@ function openDrw(id) {
   }
 
   /* trabajos realizados events */
+  var hrsTrabBtns = body.querySelectorAll('.btn-trab-hrs.jf');
+  for (var hti = 0; hti < hrsTrabBtns.length; hti++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede asignar las horas de comision'); return; }
+        var ti3 = parseInt(this.getAttribute('data-ti'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.trabajos || !ox.trabajos[ti3]) return;
+        var actualHrs = parseFloat(ox.trabajos[ti3].horas) || 0;
+        var input = prompt('Horas de comision (hrs. com.) para "' + ox.trabajos[ti3].desc + '":', actualHrs || '');
+        if (input === null) return;
+        var nuevasHrs = parseFloat(input);
+        if (isNaN(nuevasHrs) || nuevasHrs < 0) { toast('Ingresa un numero valido de horas'); return; }
+        ox.trabajos[ti3].horas = nuevasHrs;
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'&#9203; Hrs. com. asignadas a "' + esc(ox.trabajos[ti3].desc) + '": ' + nuevasHrs.toFixed(2).replace('.', ',') + ' hrs', ts:Date.now(), type:'system'});
+        save(); toast('Horas de comision actualizadas'); openDrw(id);
+      });
+    })(hrsTrabBtns[hti]);
+  }
   var delTrabBtns = body.querySelectorAll('.btn-trab-del');
   for (var dti = 0; dti < delTrabBtns.length; dti++) {
     (function(btn) {
@@ -3409,13 +3438,13 @@ function _buildOrderSummaryCSV(allOrders) {
   var header = ['OT','Ingreso','Salida','Dias','Cliente','Vehiculo','Placa','Tecnico',
     'Asig_espera','Trabajando','Presup_partes','Presup_MO','Esp_autorizacion','Esp_repuestos',
     'Detenido','Trabajo_externo','Prueba_Insp_Final','Lavado','Listo_pEntrega','Entregado',
-    'Monto_Total','Monto_MO'];
+    'Monto_Total','Monto_MO','Hrs_Com'];
   var rows = [header];
 
   var sumDias = 0;
   var sumHoras = {};
   _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) { sumHoras[ph] = 0; });
-  var sumMontoTotal = 0, sumMontoMO = 0;
+  var sumMontoTotal = 0, sumMontoMO = 0, sumHrsCom = 0;
 
   for (var i = 0; i < sorted.length; i++) {
     var o = sorted[i];
@@ -3425,6 +3454,8 @@ function _buildOrderSummaryCSV(allOrders) {
     var dias = (salida - ingreso) / (24 * 3600 * 1000);
     var montoTotal = o.montoTotal ? Number(o.montoTotal) : 0;
     var montoMO = o.montoMO ? Number(o.montoMO) : 0;
+    var hrsCom = 0;
+    (o.trabajos || []).forEach(function(tw) { hrsCom += parseFloat(tw.horas) || 0; });
 
     var horas = {};
     _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) {
@@ -3434,6 +3465,7 @@ function _buildOrderSummaryCSV(allOrders) {
     sumDias += dias;
     sumMontoTotal += montoTotal;
     sumMontoMO += montoMO;
+    sumHrsCom += hrsCom;
 
     rows.push([
       o.ot, fmtDate(ingreso), fmtDate(salida), _csvNum(dias.toFixed(1)),
@@ -3445,12 +3477,14 @@ function _buildOrderSummaryCSV(allOrders) {
       _csvNum(horas.prb.toFixed(2)), _csvNum(horas.lav.toFixed(2)),
       _csvNum(horas.lst.toFixed(2)), _csvNum(horas.ent.toFixed(2)),
       montoTotal ? _csvNum(montoTotal.toFixed(2)) : '',
-      montoMO ? _csvNum(montoMO.toFixed(2)) : ''
+      montoMO ? _csvNum(montoMO.toFixed(2)) : '',
+      hrsCom ? _csvNum(hrsCom.toFixed(2)) : ''
     ]);
   }
 
   // Fila de resumen: cantidad de ordenes, promedio de dias, promedio de
-  // horas por fase, y el TOTAL (no promedio) de los montos del periodo.
+  // horas por fase, y el TOTAL (no promedio) de los montos y de las horas
+  // de comision del periodo.
   var n = sorted.length;
   var footer = [
     'No. OTs: ' + n, '', '', n ? _csvNum((sumDias / n).toFixed(1)) : '0',
@@ -3461,6 +3495,7 @@ function _buildOrderSummaryCSV(allOrders) {
   });
   footer.push(_csvNum(sumMontoTotal.toFixed(2)));
   footer.push(_csvNum(sumMontoMO.toFixed(2)));
+  footer.push(_csvNum(sumHrsCom.toFixed(2)));
   rows.push(footer);
 
   return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
