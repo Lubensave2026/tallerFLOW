@@ -158,12 +158,18 @@ button{cursor:pointer}
 .drw{position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-radius:18px 18px 0 0;border:1px solid var(--bd);border-bottom:none;z-index:101;transform:translateY(100%);transition:transform .3s cubic-bezier(.25,.8,.25,1);max-height:92vh;display:flex;flex-direction:column}
 .drw.on{transform:translateY(0)}
 .drw-hnd{width:36px;height:4px;border-radius:2px;background:var(--bd2);margin:10px auto 0;flex-shrink:0}
-.drw-hdr{padding:.75rem 1rem;border-bottom:1px solid var(--bd);flex-shrink:0;display:flex;justify-content:space-between;align-items:flex-start}
+.drw-hdr{padding:.75rem 1rem;border-bottom:1px solid var(--bd);flex-shrink:0;display:flex;justify-content:space-between;align-items:flex-start;position:relative}
 .drw-pl{font-size:24px;font-weight:800;font-family:var(--mo);letter-spacing:.6px;color:var(--ac)}
 .drw-mo{font-size:12px;color:var(--tx2);margin-top:2px}
 .drw-bg{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
 .dbg{font-size:10px;padding:2px 9px;border-radius:10px}
 .drw-cl{width:30px;height:30px;border-radius:50%;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);font-size:15px;flex-shrink:0}
+.np-sys{position:absolute;top:100%;right:1rem;margin-top:6px;width:280px;max-width:80vw;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);z-index:20;display:none;max-height:50vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.np-sys.on{display:block}
+.np-sys-h{padding:10px 12px;border-bottom:1px solid var(--bd);font-size:12px;font-weight:600}
+.np-sys-i{padding:8px 12px;border-bottom:1px solid var(--bd);font-size:12px}
+.np-sys-i:last-child{border-bottom:none}
+.np-sys-t{font-size:10px;color:var(--tx3);margin-top:2px}
 .drw-body{overflow-y:auto;flex:1;padding:1rem}
 .sec{margin-bottom:1.25rem}
 .sec-l{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--tx3);margin-bottom:8px}
@@ -1406,6 +1412,18 @@ function openDrw(id) {
   var confirmBadge = (o.pendingConfirm && role === 'jefe')
     ? '<span class="dbg" style="background:#2E1F0A;color:#F39C12;border:1px solid #6B4510">&#9888; Confirmar movimiento de ' + o.pendingConfirm.by + '</span>'
     : '';
+  var sysMsgsAll = (o.msgs || []).filter(function(m) { return _msgIsSystem(m); });
+  var newestSysTs = sysMsgsAll.length ? sysMsgsAll[sysMsgsAll.length - 1].ts : 0;
+  var sysUnread = newestSysTs > (o._lrSys || 0);
+  var sysPanelItems = '';
+  if (sysMsgsAll.length) {
+    for (var si5 = sysMsgsAll.length - 1; si5 >= 0; si5--) {
+      var sm = sysMsgsAll[si5];
+      sysPanelItems += '<div class="np-sys-i"><div>' + sm.txt + '</div><div class="np-sys-t">' + sm.who + ' · ' + msgTs(sm.ts) + '</div></div>';
+    }
+  } else {
+    sysPanelItems = '<div class="np-sys-i" style="color:var(--tx3);text-align:center">Sin avisos todavia</div>';
+  }
   hdr.innerHTML =
     '<div style="display:flex;align-items:flex-start;gap:10px;width:100%">' +
     '<div style="flex:1">' +
@@ -1417,7 +1435,14 @@ function openDrw(id) {
         prio + spBadge + confirmBadge +
       '</div>' +
     '</div>' +
-    '<button class="drw-cl" onclick="closeDrw()">&#x2715;</button>' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
+      '<button class="btn-nb" id="drw-bell-btn" style="width:30px;height:30px;font-size:14px" onclick="toggleSysBell(' + o.id + ')">&#128276;<span class="nb-dot' + (sysUnread ? ' on' : '') + '" id="drw-bell-dot"></span></button>' +
+      '<button class="drw-cl" onclick="closeDrw()">&#x2715;</button>' +
+    '</div>' +
+    '</div>' +
+    '<div class="np-sys" id="np-sys">' +
+      '<div class="np-sys-h">Avisos de la orden</div>' +
+      sysPanelItems +
     '</div>';
     '<button class="drw-cl" onclick="closeDrw()">✕</button>';
 
@@ -1835,15 +1860,60 @@ function openDrw(id) {
     repuestosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">' + noAddMsg + '</div>';
   }
 
-  /* chat */
+  /* trabajos realizados (registro de operaciones + tiempo flat rate) */
+  var trabajosHtml = '';
+  var ordTecs = [];
+  if (o.tech && ordTecs.indexOf(o.tech) === -1) ordTecs.push(o.tech);
+  if (o.tech2 && ordTecs.indexOf(o.tech2) === -1) ordTecs.push(o.tech2);
+  var canAddTrabajo = (role === 'jefe') || (role === 'asesor') || (r.tec && ordTecs.indexOf(r.tn) !== -1);
+  var trabajosList = o.trabajos || [];
+  var totalHoras = 0;
+  for (var twi = 0; twi < trabajosList.length; twi++) { totalHoras += parseFloat(trabajosList[twi].horas) || 0; }
+  trabajosHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+    '<span style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px">Trabajos realizados</span>' +
+    '<span style="font-size:10px;color:var(--tx3)">' + trabajosList.length + ' operacion(es) · ' + totalHoras.toFixed(2).replace('.', ',') + ' hrs</span>' +
+  '</div>';
+  if (trabajosList.length === 0) {
+    trabajosHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Sin trabajos registrados</div>';
+  }
+  for (var twi2 = 0; twi2 < trabajosList.length; twi2++) {
+    var tw = trabajosList[twi2];
+    trabajosHtml += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+        '<div style="font-size:12px;font-weight:500">' + tw.desc + '</div>' +
+        '<div style="display:flex;align-items:center;gap:5px">' +
+          '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:var(--bg4);color:var(--tx2);border:1px solid var(--bd);white-space:nowrap">' + (parseFloat(tw.horas) || 0).toFixed(2).replace('.', ',') + ' hrs</span>' +
+          (role === 'jefe' ? '<button class="btn-trab-del" data-ti="' + twi2 + '" title="Eliminar trabajo" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + tw.tecnico + ' · ' + msgTs(tw.ts) + '</div>' +
+    '</div>';
+  }
+  if (canAddTrabajo) {
+    var tecOptions = '';
+    for (var toi = 0; toi < ordTecs.length; toi++) { tecOptions += '<option value="' + esc(ordTecs[toi]) + '"' + (r.tec && r.tn === ordTecs[toi] ? ' selected' : '') + '>' + esc(ordTecs[toi]) + '</option>'; }
+    if (!ordTecs.length) tecOptions = '<option value="">Sin tecnico asignado</option>';
+    trabajosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
+      '<input id="trab-inp" class="cin" placeholder="Descripcion del trabajo realizado..." style="flex:1;min-width:140px">' +
+      '<input id="trab-horas" class="cin" type="number" min="0" step="0.25" placeholder="Hrs" style="flex:0 0 70px">' +
+      '<select id="trab-tec" class="cin" style="flex:0 0 auto">' + tecOptions + '</select>' +
+      '<button id="btn-add-trab" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
+    '</div>';
+  } else {
+    trabajosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">&#128274; Solo el Jefe de taller, el Asesor, o el tecnico asignado pueden registrar trabajos.</div>';
+  }
+
+  /* chat — solo notas escritas a mano; los avisos automaticos van en la
+     campanita de la orden (ver mas abajo) */
   var msgsHtml = '';
-  if (o.msgs && o.msgs.length) {
-    for (var i = 0; i < o.msgs.length; i++) {
-      var m = o.msgs[i];
+  var noteMsgs = (o.msgs || []).filter(function(m) { return !_msgIsSystem(m); });
+  if (noteMsgs.length) {
+    for (var i = 0; i < noteMsgs.length; i++) {
+      var m = noteMsgs[i];
       msgsHtml += '<div class="cmsg"><div class="cw">' + m.who + '</div><div class="ct">' + m.txt + '</div><div class="cts">' + msgTs(m.ts) + '</div></div>';
     }
   } else {
-    msgsHtml = '<div class="cemp">Sin mensajes</div>';
+    msgsHtml = '<div class="cemp">Sin notas — usa la campanita &#128276; para ver los avisos de cambios de la orden</div>';
   }
   var msgsBoxInner =
     '<div class="chat-box" id="chat-box">' + msgsHtml + '</div>' +
@@ -1857,7 +1927,8 @@ function openDrw(id) {
     secBox('02', 'Firmas y cambios de fase', firmasHtml, 'firmas') +
     secBox(null, 'Mensajes internos', msgsBoxInner, null) +
     secBox('03', 'Solicitud de repuestos', repuestosHtml, 'reps') +
-    secBox('04', 'Bitacora', phaseLogHtml, 'bitacora');
+    secBox('04', 'Bitacora', phaseLogHtml, 'bitacora') +
+    secBox('05', 'Trabajos realizados', trabajosHtml, 'trabajos');
 
   /* seccion collapse/expand */
   var secBoxes = body.querySelectorAll('.sec-box[data-sec-key]');
@@ -1900,7 +1971,7 @@ function openDrw(id) {
         var who = ROLES[role] ? ROLES[role].label : role;
         var ckLabel = ck === 'ck1' ? 'Mensajero' : ck === 'ck2' ? 'Partes' : 'Instalado';
         ox.msgs = ox.msgs || [];
-        ox.msgs.push({who:who, txt:'Repuesto "' + ox.repuestos[ri2].desc + '" — ' + ckLabel + ': ' + (ox.repuestos[ri2][ck] ? '&#10003;' : 'desmarcado'), ts:Date.now()});
+        ox.msgs.push({who:who, txt:'Repuesto "' + ox.repuestos[ri2].desc + '" — ' + ckLabel + ': ' + (ox.repuestos[ri2][ck] ? '&#10003;' : 'desmarcado'), ts:Date.now(), type:'system'});
         save(); toast('Actualizado'); openDrw(id);
       });
     })(repCks[rci]);
@@ -1918,7 +1989,7 @@ function openDrw(id) {
         ox.repuestos[ri3].origen = nuevo;
         var who = ROLES[role] ? ROLES[role].label : role;
         ox.msgs = ox.msgs || [];
-        ox.msgs.push({who:who, txt:'Repuesto "' + ox.repuestos[ri3].desc + '" cambiado a: ' + (nuevo==='importacion'?'Importacion':'Local'), ts:Date.now()});
+        ox.msgs.push({who:who, txt:'Repuesto "' + ox.repuestos[ri3].desc + '" cambiado a: ' + (nuevo==='importacion'?'Importacion':'Local'), ts:Date.now(), type:'system'});
         save(); toast('Cambiado a ' + (nuevo==='importacion'?'Importacion':'Local')); openDrw(id);
       });
     })(origenBtns[obi]);
@@ -1937,7 +2008,7 @@ function openDrw(id) {
         ox.repuestos.splice(ri4, 1);
         var who = ROLES[role] ? ROLES[role].label : role;
         ox.msgs = ox.msgs || [];
-        ox.msgs.push({who:who, txt:'&#x2715; Repuesto eliminado: "' + esc(descDel) + '"', ts:Date.now()});
+        ox.msgs.push({who:who, txt:'&#x2715; Repuesto eliminado: "' + esc(descDel) + '"', ts:Date.now(), type:'system'});
         save(); toast('Repuesto eliminado'); openDrw(id);
       });
     })(delRepBtns[dri]);
@@ -1956,12 +2027,56 @@ function openDrw(id) {
       var origen = origenSel ? origenSel.value : 'local';
       ox.repuestos.push({desc:esc(desc), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen});
       ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + esc(desc), ts:Date.now()});
+      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + esc(desc), ts:Date.now(), type:'system'});
       addNotif('Repuesto pendiente en ' + ox.plate + ': ' + desc, id);
       save(); toast('Repuesto agregado'); openDrw(id);
     });
     var repInp = document.getElementById('rep-inp');
     if (repInp) repInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addRepBtn.click(); });
+  }
+
+  /* trabajos realizados events */
+  var delTrabBtns = body.querySelectorAll('.btn-trab-del');
+  for (var dti = 0; dti < delTrabBtns.length; dti++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar trabajos'); return; }
+        var ti2 = parseInt(this.getAttribute('data-ti'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.trabajos || !ox.trabajos[ti2]) return;
+        var descDelT = ox.trabajos[ti2].desc;
+        if (!confirm('¿Eliminar el trabajo "' + descDelT + '"? Esta accion no se puede deshacer.')) return;
+        ox.trabajos.splice(ti2, 1);
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'&#x2715; Trabajo eliminado: "' + esc(descDelT) + '"', ts:Date.now(), type:'system'});
+        save(); toast('Trabajo eliminado'); openDrw(id);
+      });
+    })(delTrabBtns[dti]);
+  }
+  var addTrabBtn = document.getElementById('btn-add-trab');
+  if (addTrabBtn) {
+    addTrabBtn.addEventListener('click', function() {
+      var inpT = document.getElementById('trab-inp');
+      var descT = inpT ? inpT.value.trim() : '';
+      if (!descT) { toast('Escribe la descripcion del trabajo'); return; }
+      var horasEl = document.getElementById('trab-horas');
+      var horasT = horasEl ? (parseFloat(horasEl.value) || 0) : 0;
+      var tecEl = document.getElementById('trab-tec');
+      var tecT = tecEl ? tecEl.value : '';
+      if (!tecT) { toast('No hay tecnico asignado a esta orden'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      ox.trabajos = ox.trabajos || [];
+      ox.trabajos.push({desc:esc(descT), horas:horasT, tecnico:esc(tecT), by:ROLES[role]?ROLES[role].label:role, ts:Date.now()});
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128295; Trabajo registrado: ' + esc(descT) + ' (' + horasT.toFixed(2).replace('.', ',') + ' hrs — ' + esc(tecT) + ')', ts:Date.now(), type:'system'});
+      save(); toast('Trabajo agregado'); openDrw(id);
+    });
+    var trabInp = document.getElementById('trab-inp');
+    if (trabInp) trabInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addTrabBtn.click(); });
   }
 
   /* montos ahora se editan junto con "Editar" — ver btn-save-edit */
@@ -2025,7 +2140,7 @@ function openDrw(id) {
       if (changes.length) {
         var who = ROLES[role] ? ROLES[role].label : role;
         ox.msgs = ox.msgs || [];
-        ox.msgs.push({who:who, txt:'Datos editados: ' + changes.join(', '), ts:Date.now()});
+        ox.msgs.push({who:who, txt:'Datos editados: ' + changes.join(', '), ts:Date.now(), type:'system'});
       }
       save(); toast('Datos actualizados'); openDrw(id);
     });
@@ -2063,7 +2178,7 @@ function openDrw(id) {
       var who = ROLES[role] ? ROLES[role].label : role;
       var msg = tec1 ? ('Tecnico asignado: ' + tec1 + (tec2 ? ' + ' + tec2 : '')) : 'Tecnico removido';
       o2.msgs = o2.msgs || [];
-      o2.msgs.push({who:who, txt:msg, ts:Date.now()});
+      o2.msgs.push({who:who, txt:msg, ts:Date.now(), type:'system'});
       addNotif(msg + ' en orden ' + o2.plate, id);
       save();
       toast('Asignacion guardada');
@@ -2081,7 +2196,7 @@ function openDrw(id) {
       o2.pending_confirm = false;
       var who = ROLES[role] ? ROLES[role].label : role;
       o2.msgs = o2.msgs || [];
-      o2.msgs.push({who:who, txt:'✅ Jefe confirmo el avance de fase', ts:Date.now()});
+      o2.msgs.push({who:who, txt:'✅ Jefe confirmo el avance de fase', ts:Date.now(), type:'system'});
       addNotif('Jefe confirmo avance en ' + o2.plate, id);
       save(); toast('Avance confirmado'); openDrw(id);
     });
@@ -2095,7 +2210,7 @@ function openDrw(id) {
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (ox) {
         ox.pendingConfirm = null;
-        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#10003; Movimiento confirmado', ts:Date.now()});
+        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#10003; Movimiento confirmado', ts:Date.now(), type:'system'});
         save(); toast('Movimiento confirmado'); openDrw(id);
       }
     });
@@ -2114,7 +2229,7 @@ function openDrw(id) {
         ox.phase = prevPhase;
         ox.sigs = {};
         ox.pendingConfirm = null;
-        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#10005; Movimiento revertido a fase anterior', ts:Date.now()});
+        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#10005; Movimiento revertido a fase anterior', ts:Date.now(), type:'system'});
         save(); toast('Movimiento revertido'); closeDrw();
       }
     });
@@ -2134,7 +2249,7 @@ function openDrw(id) {
         ox.phase = 'det';
         ox.sigs = {};
         ox.detMotivo = motivo;
-        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#128683; DETENIDO — Motivo: ' + esc(motivo), ts:Date.now()});
+        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#128683; DETENIDO — Motivo: ' + esc(motivo), ts:Date.now(), type:'system'});
         addNotif('Orden ' + ox.plate + ' DETENIDA: ' + motivo, id);
         save(); toast('Orden marcada como DETENIDA'); closeDrw();
       }
@@ -2249,7 +2364,7 @@ function setSpace(id, sp) {
   o.space = sp;
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'Espacio asignado: ' + sp, ts:Date.now()});
+  o.msgs.push({who:who, txt:'Espacio asignado: ' + sp, ts:Date.now(), type:'system'});
   addNotif('Espacio ' + sp + ' asignado a ' + o.plate, id);
   save(); toast('Espacio ' + sp + ' asignado'); openDrw(id);
 }
@@ -2263,7 +2378,7 @@ function marcarNoAut(id) {
   o.noAutorizado = true;
   o.noAutorizadoBy = who;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'&#x2715; Cliente NO autorizo nada — puede continuar sin repuestos', ts:Date.now()});
+  o.msgs.push({who:who, txt:'&#x2715; Cliente NO autorizo nada — puede continuar sin repuestos', ts:Date.now(), type:'system'});
   save();
   toast('Registrado: cliente no autorizo nada');
   openDrw(id);
@@ -2277,7 +2392,7 @@ function deshacerNoAut(id) {
   delete o.noAutorizadoBy;
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'Se deshizo el marcado de "cliente no autorizo nada"', ts:Date.now()});
+  o.msgs.push({who:who, txt:'Se deshizo el marcado de "cliente no autorizo nada"', ts:Date.now(), type:'system'});
   save();
   toast('Deshecho');
   openDrw(id);
@@ -2295,7 +2410,7 @@ function delSig(id, sigId) {
   if (o.sigsTs) delete o.sigsTs[sigId];
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'&#x2715; Firma eliminada: ' + lb, ts:Date.now()});
+  o.msgs.push({who:who, txt:'&#x2715; Firma eliminada: ' + lb, ts:Date.now(), type:'system'});
   save();
   toast('Firma eliminada');
   openDrw(id);
@@ -2359,7 +2474,7 @@ function doSign(id, sigId) {
   var lb = sigId;
   for (var i = 0; i < sigs.length; i++) { if (sigs[i].id === sigId) { lb = sigs[i].lb; break; } }
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'Firma: ' + lb, ts:Date.now()});
+  o.msgs.push({who:who, txt:'Firma: ' + lb, ts:Date.now(), type:'system'});
   addNotif(who + ' firmo en ' + o.plate, id);
   _recentSignAt = Date.now();
   save(); toast('Firma registrada'); openDrw(id);
@@ -2459,7 +2574,7 @@ function advance(id, newPhase) {
   }
   o.phaseStart = Date.now();
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt: isReproceso ? ('&#9851; REPROCESO — Regresa a Trabajando (' + esc(o.tech) + ')') : ('Avance: ' + oldLbl + ' → ' + newLbl), ts:Date.now()});
+  o.msgs.push({who:who, txt: isReproceso ? ('&#9851; REPROCESO — Regresa a Trabajando (' + esc(o.tech) + ')') : ('Avance: ' + oldLbl + ' → ' + newLbl), ts:Date.now(), type:'system'});
   // If tech made the change, flag it for jefe confirmation
   if (r && r.tec) {
     o.pendingConfirm = {by: who, phase: newPhase, label: newLbl, ts: Date.now()};
@@ -2479,18 +2594,19 @@ function sendMsg(id) {
   if (!o) return;
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:esc(txt), ts:Date.now()});
+  o.msgs.push({who:who, txt:esc(txt), ts:Date.now(), type:'note'});
   o._lr = Date.now();
   inp.value = '';
   save();
   var cb = document.getElementById('chat-box');
   if (cb) {
     var html = '';
-    for (var i = 0; i < o.msgs.length; i++) {
-      var m = o.msgs[i];
+    var noteMsgs2 = o.msgs.filter(function(m) { return !_msgIsSystem(m); });
+    for (var i = 0; i < noteMsgs2.length; i++) {
+      var m = noteMsgs2[i];
       html += '<div class="cmsg"><div class="cw">' + m.who + '</div><div class="ct">' + m.txt + '</div><div class="cts">' + msgTs(m.ts) + '</div></div>';
     }
-    cb.innerHTML = html;
+    cb.innerHTML = html || '<div class="cemp">Sin notas — usa la campanita &#128276; para ver los avisos de cambios de la orden</div>';
     cb.scrollTop = cb.scrollHeight;
   }
 }
@@ -2557,7 +2673,7 @@ function saveNO() {
       no.repuestos = _noRepDraft.map(function(desc0) {
         return {desc:desc0, ck1:false, ck2:false, ck3:false, by:who, ts:Date.now()};
       });
-      no.msgs.push({who:who, txt:'&#128230; ' + _noRepDraft.length + ' repuesto(s) solicitado(s) desde Recepcion', ts:Date.now()});
+      no.msgs.push({who:who, txt:'&#128230; ' + _noRepDraft.length + ' repuesto(s) solicitado(s) desde Recepcion', ts:Date.now(), type:'system'});
     }
     orders.push(no);
     addNotif('Nueva orden: ' + plate + ' - ' + model, no.id);
@@ -2636,6 +2752,30 @@ function clearNP() { notifs = []; save(); toggleNP(); }
 document.addEventListener('click', function(e) {
   var p = document.getElementById('np');
   var b = document.getElementById('btn-nb');
+  if (p && p.classList.contains('on') && !p.contains(e.target) && b && !b.contains(e.target)) {
+    p.classList.remove('on');
+  }
+});
+
+/* SYS BELL (avisos de sistema por ficha) */
+function toggleSysBell(id) {
+  var p = document.getElementById('np-sys');
+  if (!p) return;
+  p.classList.toggle('on');
+  if (p.classList.contains('on')) {
+    var o = null;
+    for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+    if (o) {
+      o._lrSys = Date.now();
+      save();
+      var dot = document.getElementById('drw-bell-dot');
+      if (dot) dot.className = 'nb-dot';
+    }
+  }
+}
+document.addEventListener('click', function(e) {
+  var p = document.getElementById('np-sys');
+  var b = document.getElementById('drw-bell-btn');
   if (p && p.classList.contains('on') && !p.contains(e.target) && b && !b.contains(e.target)) {
     p.classList.remove('on');
   }
@@ -3143,6 +3283,27 @@ function ago(ts) {
   if (d < 3600000) return 'hace ' + Math.floor(d/60000) + ' min';
   if (d < 86400000) return 'hace ' + Math.floor(d/3600000) + ' h';
   return 'hace ' + Math.floor(d/86400000) + ' d';
+}
+
+// Distingue avisos automaticos (firmas, avances de fase, repuestos, etc.)
+// de notas escritas a mano — para separar la campanita de la orden (avisos)
+// de "Mensajes internos" (solo notas). Los mensajes nuevos ya traen 'type'
+// explicito; los guardados antes de este cambio no lo tienen, asi que se
+// clasifican por texto conocido como respaldo.
+function _msgIsSystem(m) {
+  if (m.type === 'note') return false;
+  if (m.type === 'system') return true;
+  var t = (m.txt || '').toLowerCase();
+  var systemPatterns = [
+    'firma:', 'firma eliminada', 'avance:', 'reproceso', 'repuesto',
+    'espacio asignado', 'cliente no autorizo', 'datos editados',
+    'movimiento confirmado', 'movimiento revertido', 'detenido',
+    'tecnico asignado', 'tecnico removido', 'jefe confirmo el avance'
+  ];
+  for (var i = 0; i < systemPatterns.length; i++) {
+    if (t.indexOf(systemPatterns[i]) !== -1) return true;
+  }
+  return false;
 }
 
 // Hora/fecha para mensajes internos (bitacora de chat): solo hora si es de
@@ -3662,7 +3823,7 @@ function buildRepsContent() {
         var who = ROLES[role] ? ROLES[role].label : role;
         var ckLabel = ck === 'ck1' ? 'Mensajero confirma' : ck === 'ck2' ? 'Partes confirma' : 'Tecnico confirma instalacion';
         ox.msgs = ox.msgs || [];
-        ox.msgs.push({who:who, txt:'Repuesto "' + rep2.desc + '" — ' + ckLabel, ts:Date.now()});
+        ox.msgs.push({who:who, txt:'Repuesto "' + rep2.desc + '" — ' + ckLabel, ts:Date.now(), type:'system'});
         save();
         toast('Actualizado');
         buildRepsContent();
@@ -3960,11 +4121,12 @@ function openHistDetail(o) {
     '</div>';
   }
 
-  // ── Mensajes internos ──
-  if (o.msgs && o.msgs.length) {
+  // ── Mensajes internos (solo notas, sin avisos de sistema) ──
+  var histNoteMsgs = (o.msgs || []).filter(function(m) { return !_msgIsSystem(m); });
+  if (histNoteMsgs.length) {
     html += '<div class="sec"><div class="sec-l">Mensajes internos</div><div class="chat-box">';
-    for (var mi = 0; mi < o.msgs.length; mi++) {
-      var msg = o.msgs[mi];
+    for (var mi = 0; mi < histNoteMsgs.length; mi++) {
+      var msg = histNoteMsgs[mi];
       html += '<div class="cmsg"><div class="cw">' + msg.who + '</div><div class="ct">' + msg.txt + '</div><div class="cts">' + msgTs(msg.ts) + '</div></div>';
     }
     html += '</div></div>';
@@ -4003,7 +4165,7 @@ function advanceReproceso(id, causa) {
   o.timestamps['ab'] = Date.now();
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'&#9851; REPROCESO — Causa: ' + causa + ' (desde ' + oldLbl + ')', ts:Date.now()});
+  o.msgs.push({who:who, txt:'&#9851; REPROCESO — Causa: ' + causa + ' (desde ' + oldLbl + ')', ts:Date.now(), type:'system'});
   if (!o.phaseLog) o.phaseLog = [];
   var fromTs = o.timestamps[oldPhase] || o.cat;
   var toTsR = Date.now();
