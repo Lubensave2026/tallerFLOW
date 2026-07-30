@@ -4354,8 +4354,9 @@ function buildSemContent() {
   var META_REP = META_TOTAL - META_MO;
   var totalRep = data.totalRep;
 
-  // Semaforo por logro: rojo debajo de 50%, amarillo 51-75%, verde 76%+.
-  function semColor(pct) { return pct >= 76 ? '#27AE60' : pct >= 51 ? '#F39C12' : '#E74C3C'; }
+  // Semaforo por logro (color de las BARRAS, no de los montos): rojo hasta
+  // 50%, amarillo apenas se pasa de 50% y hasta 75%, verde arriba de 75%.
+  function semColor(pct) { return pct > 75 ? '#27AE60' : pct > 50 ? '#F39C12' : '#E74C3C'; }
 
   var pctTotal = Math.min(100, (totalFact/META_TOTAL)*100);
   var pctMO    = Math.min(100, (totalMO/META_MO)*100);
@@ -4388,11 +4389,11 @@ function buildSemContent() {
   // KPI bars — meta del mes vs cerrado
   html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
     '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128200; Meta del mes (ya cerrado / facturado)</div>' +
-    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Total general</span><span style="color:'+colTotal+';font-weight:700">'+fmt(totalFact)+' / '+fmt(META_TOTAL)+'</span></div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Total general</span><span style="color:var(--gn);font-weight:700">'+fmt(totalFact)+' / '+fmt(META_TOTAL)+'</span></div>' +
     bar(pctTotal, colTotal) +
-    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Mano de obra</span><span style="color:'+colMO+';font-weight:700">'+fmt(totalMO)+' / '+fmt(META_MO)+'</span></div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Mano de obra</span><span style="color:var(--ac);font-weight:700">'+fmt(totalMO)+' / '+fmt(META_MO)+'</span></div>' +
     bar(pctMO, colMO) +
-    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Rep./Lub/Mat/Tr. Ext.</span><span style="color:'+colRep+';font-weight:700">'+fmt(totalRep)+' / '+fmt(META_REP)+'</span></div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Rep./Lub/Mat/Tr. Ext.</span><span style="color:#F39C12;font-weight:700">'+fmt(totalRep)+' / '+fmt(META_REP)+'</span></div>' +
     bar(pctRep, colRep) +
     '<div style="display:flex;gap:16px;font-size:10px;color:var(--tx3);margin-top:6px">' +
       '<span>Ordenes cerradas: <strong style="color:var(--tx)">'+data.countCerradas+'</strong></span>' +
@@ -4407,7 +4408,7 @@ function buildSemContent() {
     '<div style="display:flex;gap:20px;flex-wrap:wrap">' +
       '<div><div style="font-size:17px;font-weight:700;color:var(--tx2)">'+fmt(data.potTotal)+'</div><div style="font-size:10px;color:var(--tx3)">Total — '+data.countPotencial+' ordenes</div></div>' +
       '<div><div style="font-size:17px;font-weight:700;color:var(--tx)">'+fmt(data.potMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
-      '<div><div style="font-size:17px;font-weight:700;color:var(--rd)">'+fmt(data.potRep)+'</div><div style="font-size:10px;color:var(--tx3)">Rep./Lub/Mat/Tr. Ext.</div></div>' +
+      '<div><div style="font-size:17px;font-weight:700;color:var(--tx3)">'+fmt(data.potRep)+'</div><div style="font-size:10px;color:var(--tx3)">Rep./Lub/Mat/Tr. Ext.</div></div>' +
     '</div>' +
   '</div>';
 
