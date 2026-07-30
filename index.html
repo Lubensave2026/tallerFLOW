@@ -1456,7 +1456,7 @@ function openDrw(id) {
   if (o.timestamps && o.timestamps[o.phase]) {
     timeInPhase = businessHours(o.timestamps[o.phase], Date.now()) + ' (horas habiles)';
   }
-  var canEdit = (role === 'jefe' || role === 'asesor');
+  var canEdit = (role === 'jefe');
   if (canEdit) {
     html += '<div class="sec">' +
       '<div class="sec-l" style="display:flex;justify-content:space-between;align-items:center">' +
@@ -1933,7 +1933,7 @@ function openDrw(id) {
     secBox('01', 'Informacion', infoHtml, 'info') +
     secBox('02', 'Firmas y cambios de fase', firmasHtml, 'firmas') +
     secBox(null, 'Mensajes internos', msgsBoxInner, null) +
-    secBox('03', 'Solicitud de repuestos', repuestosHtml, 'reps') +
+    secBox('03', 'Solicitud de repuestos y subcontratos', repuestosHtml, 'reps') +
     secBox('04', 'Bitacora', phaseLogHtml, 'bitacora') +
     secBox('05', 'Trabajos realizados', trabajosHtml, 'trabajos');
 
@@ -2127,6 +2127,7 @@ function openDrw(id) {
   var saveEditBtn = document.getElementById('btn-save-edit');
   if (saveEditBtn) {
     saveEditBtn.addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede editar la informacion de la orden'); return; }
       var newPlate  = document.getElementById('e-plate').value.trim();
       var newOt     = document.getElementById('e-ot').value.trim();
       var newModel  = document.getElementById('e-model').value.trim();
@@ -3021,6 +3022,39 @@ function buildRepContent() {
 
   if (myName) {
     html += '<div style="background:var(--blbg);border:1px solid var(--blbd);border-radius:var(--r);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--ac)">Mostrando solo tus casos asignados</div>';
+
+    // Productividad: horas de comision (flat rate) acumuladas vs. horas
+    // reales trabajadas (fase Trabajando). En ordenes con 2 tecnicos, el
+    // tiempo real se reparte 50/50 entre ambos. Solo considera lo que
+    // sigue visible en el board (hasta que el Jefe archiva ordenes viejas
+    // desde 📁 Historial — ver archiveOld()); no incluye historial archivado.
+    var hrsFlat = 0, hrsReal = 0;
+    for (var pi = 0; pi < orders.length; pi++) {
+      var po = orders[pi];
+      var isTech1 = po.tech === myName;
+      var isTech2 = po.tech2 === myName;
+      if (!isTech1 && !isTech2) continue;
+      var share = (po.tech && po.tech2) ? 0.5 : 1;
+      var abMin = 0;
+      (po.phaseLog || []).forEach(function(pl) { if (pl.phase === 'ab') abMin += (pl.minutes || 0); });
+      var abHoras = abMin / 60;
+      if (po.phase === 'ab' && po.timestamps && po.timestamps.ab) {
+        abHoras += businessMinutes(po.timestamps.ab, Date.now()) / 60;
+      }
+      hrsReal += abHoras * share;
+      (po.trabajos || []).forEach(function(tw) { if (tw.tecnico === myName) hrsFlat += (parseFloat(tw.horas) || 0); });
+    }
+    var prodPct = hrsReal > 0 ? (hrsFlat / hrsReal * 100) : null;
+    var prodColor = prodPct === null ? 'var(--tx3)' : (prodPct >= 100 ? 'var(--gn)' : (prodPct >= 70 ? 'var(--or)' : 'var(--rd)'));
+    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px;margin-bottom:10px">' +
+      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">&#128202; Mi productividad (hrs. com. vs. horas reales trabajadas)</div>' +
+      '<div style="display:flex;gap:18px;flex-wrap:wrap">' +
+        '<div><div style="font-size:18px;font-weight:700;color:var(--tx2)">' + hrsFlat.toFixed(2).replace('.', ',') + '</div><div style="font-size:10px;color:var(--tx3)">Hrs. com. acumuladas</div></div>' +
+        '<div><div style="font-size:18px;font-weight:700;color:var(--tx2)">' + hrsReal.toFixed(2).replace('.', ',') + '</div><div style="font-size:10px;color:var(--tx3)">Horas reales trabajadas</div></div>' +
+        '<div><div style="font-size:18px;font-weight:700;color:' + prodColor + '">' + (prodPct === null ? '—' : prodPct.toFixed(0) + '%') + '</div><div style="font-size:10px;color:var(--tx3)">% Productividad</div></div>' +
+      '</div>' +
+      '<div style="font-size:9px;color:var(--tx3);margin-top:6px;font-style:italic">Solo ordenes activas en el tablero — las ya archivadas desde 📁 Historial no se incluyen todavia.</div>' +
+    '</div>';
   }
 
   // Filter controls
@@ -3626,19 +3660,34 @@ function renderHist(q) {
 
 function archiveOld() {
   if (role !== 'jefe') { toast('Solo el Jefe de taller puede archivar ordenes'); return; }
-  var cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days
+  var cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 dias desde el CIERRE (no desde la apertura)
   var toArchive = [];
   var remaining = [];
+  var skippedPendingRep = 0;
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
-    if (o.phase === 'cer' && (o.cat||0) < cutoff) {
-      toArchive.push(o);
-    } else {
-      remaining.push(o);
+    if (o.phase === 'cer') {
+      var closeTs = (o.timestamps && o.timestamps.cer) ? o.timestamps.cer : (o.cat || 0);
+      if (closeTs < cutoff) {
+        // No archivar si todavia hay un repuesto sin confirmar como
+        // instalado (ej. importacion pendiente) — la orden debe seguir
+        // visible en "cerradas" hasta que el tecnico/jefe lo marque.
+        var pendingRep = (o.repuestos || []).some(function(r) { return !r.ck3; });
+        if (pendingRep) {
+          skippedPendingRep++;
+          remaining.push(o);
+        } else {
+          toArchive.push(o);
+        }
+        continue;
+      }
     }
+    remaining.push(o);
   }
   if (!toArchive.length) {
-    toast('No hay ordenes cerradas de mas de 7 dias');
+    toast(skippedPendingRep
+      ? ('No hay ordenes listas para archivar — ' + skippedPendingRep + ' con repuesto pendiente de confirmar')
+      : 'No hay ordenes cerradas de mas de 7 dias');
     return;
   }
   for (var i = 0; i < toArchive.length; i++) archived.push(toArchive[i]);
@@ -3653,7 +3702,7 @@ function archiveOld() {
   save();
   renderHist('');
   renderBoard();
-  toast(toArchive.length + ' orden(es) archivada(s)');
+  toast(toArchive.length + ' orden(es) archivada(s)' + (skippedPendingRep ? (' — ' + skippedPendingRep + ' con repuesto pendiente se mantienen en cerradas') : ''));
 }
 
 function loadArch() {
