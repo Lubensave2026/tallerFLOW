@@ -1867,7 +1867,11 @@ function openDrw(id) {
   var ordTecs = [];
   if (o.tech && ordTecs.indexOf(o.tech) === -1) ordTecs.push(o.tech);
   if (o.tech2 && ordTecs.indexOf(o.tech2) === -1) ordTecs.push(o.tech2);
-  var canAddTrabajo = (role === 'jefe') || (role === 'asesor') || (r.tec && ordTecs.indexOf(r.tn) !== -1);
+  // El tecnico solo puede registrar trabajos mientras la orden esta en
+  // "Trabajando" (ab) — asi anota lo realizado antes de firmar y pasar de
+  // fase. Jefe y Asesor pueden hacerlo en cualquier fase (correcciones,
+  // registro posterior, etc.).
+  var canAddTrabajo = (role === 'jefe') || (role === 'asesor') || (r.tec && ordTecs.indexOf(r.tn) !== -1 && o.phase === 'ab');
   var trabajosList = o.trabajos || [];
   var totalHoras = 0;
   for (var twi = 0; twi < trabajosList.length; twi++) { totalHoras += parseFloat(trabajosList[twi].horas) || 0; }
@@ -1909,7 +1913,10 @@ function openDrw(id) {
     '</div>' +
     (role !== 'jefe' ? '<div style="font-size:9px;color:var(--tx3);margin-top:5px;font-style:italic">&#128274; Las horas de comision (hrs. com.) las asigna el Jefe de taller.</div>' : '');
   } else {
-    trabajosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">&#128274; Solo el Jefe de taller, el Asesor, o el tecnico asignado pueden registrar trabajos.</div>';
+    var noAddTrabMsg = (r.tec && ordTecs.indexOf(r.tn) !== -1 && o.phase !== 'ab')
+      ? '&#128274; Los tecnicos solo pueden registrar trabajos mientras la orden esta en Trabajando.'
+      : '&#128274; Solo el Jefe de taller, el Asesor, o el tecnico asignado (mientras la orden esta en Trabajando) pueden registrar trabajos.';
+    trabajosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">' + noAddTrabMsg + '</div>';
   }
 
   /* chat — solo notas escritas a mano; los avisos automaticos van en la
@@ -2089,6 +2096,14 @@ function openDrw(id) {
   var addTrabBtn = document.getElementById('btn-add-trab');
   if (addTrabBtn) {
     addTrabBtn.addEventListener('click', function() {
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      var rMe = ROLES[role];
+      if (role !== 'jefe' && role !== 'asesor' && rMe && rMe.tec && ox.phase !== 'ab') {
+        toast('Los tecnicos solo pueden registrar trabajos mientras la orden esta en Trabajando');
+        return;
+      }
       var inpT = document.getElementById('trab-inp');
       var descT = inpT ? inpT.value.trim() : '';
       if (!descT) { toast('Escribe la descripcion del trabajo'); return; }
@@ -2097,9 +2112,6 @@ function openDrw(id) {
       var tecEl = document.getElementById('trab-tec');
       var tecT = tecEl ? tecEl.value : '';
       if (!tecT) { toast('No hay tecnico asignado a esta orden'); return; }
-      var ox = null;
-      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
-      if (!ox) return;
       ox.trabajos = ox.trabajos || [];
       ox.trabajos.push({desc:esc(descT), horas:horasT, tecnico:esc(tecT), by:ROLES[role]?ROLES[role].label:role, ts:Date.now()});
       ox.msgs = ox.msgs || [];
