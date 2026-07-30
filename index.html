@@ -383,7 +383,7 @@ button{cursor:pointer}
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
     <button class="btn-map" onclick="openMap()">🗺 Mapa</button>
-    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS</button>
+    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; FIRMAS REPUESTOS Y SUBCONTRATOS</button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Reporte Repuestos</button>
@@ -1572,9 +1572,11 @@ function openDrw(id) {
     html += '<div class="sec"><div class="sec-l">Espacio de trabajo</div><div class="sp-grid" id="sp-grid">' + cells + '</div></div>';
   }
 
-  /* desc */
+  /* desc — solo Asesor de servicio y Jefe de taller pueden editar; el
+     resto del personal (tecnicos, mensajero, partes) solo lectura. */
+  var canEditDesc = (role === 'jefe' || role === 'asesor');
   html += '<div class="sec"><div class="sec-l">Descripcion del trabajo</div>' +
-    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')">' + esc(o.desc) + '</textarea>' +
+    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')"' + (canEditDesc ? '' : ' readonly style="opacity:.75;cursor:default"') + '>' + esc(o.desc) + '</textarea>' +
   '</div>';
 
   // Seccion 01) INFORMACION lista — todo lo de arriba (edicion, datos,
@@ -2381,6 +2383,7 @@ function closeDrw() {
 }
 
 function saveDesc(id) {
+  if (role !== 'jefe' && role !== 'asesor') return;
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   var el = document.getElementById('d-desc');
@@ -3255,7 +3258,7 @@ function buildRepPartsContent() {
       '<div style="font-size:11px;color:var(--tx3);text-transform:uppercase;margin-bottom:12px;font-weight:600;text-align:center">Elige que reporte ver</div>' +
       '<div onclick="repPartsChoose(\'local\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
         '<span style="font-size:22px">&#127968;</span>' +
-        '<div><div style="font-size:14px;font-weight:600">Repuestos Locales</div><div style="font-size:11px;color:var(--tx3)">' + nLocal + ' pendiente(s)</div></div>' +
+        '<div><div style="font-size:14px;font-weight:600">Repuestos Locales y Subcontratos</div><div style="font-size:11px;color:var(--tx3)">' + nLocal + ' pendiente(s)</div></div>' +
       '</div>' +
       '<div onclick="repPartsChoose(\'importacion\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);cursor:pointer">' +
         '<span style="font-size:22px">&#9992;</span>' +
@@ -4475,7 +4478,7 @@ window.addEventListener('load', function() {
 <!-- REPUESTOS MODAL -->
 <div class="mwrap" id="m-reps">
   <div class="rep-modal">
-    <div class="modal-t">&#128230; REPUESTOS Y SUBCONTRATOS
+    <div class="modal-t">&#128230; FIRMAS REPUESTOS Y SUBCONTRATOS
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeReps()">&#x2715;</button>
     </div>
     <div id="reps-body"></div>
