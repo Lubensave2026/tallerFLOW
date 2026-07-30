@@ -172,7 +172,7 @@ button{cursor:pointer}
 .np-sys-t{font-size:10px;color:var(--tx3);margin-top:2px}
 .drw-body{overflow-y:auto;flex:1;padding:1rem}
 .sec{margin-bottom:1.25rem}
-.sec-l{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--tx3);margin-bottom:8px}
+.sec-l{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--tx2);margin-bottom:8px}
 .sec-box{border:1px solid var(--bd2);border-radius:var(--r);background:var(--bg3);margin-bottom:14px;overflow:hidden}
 .sec-box-hdr{display:flex;align-items:center;gap:9px;padding:13px 14px;cursor:pointer;user-select:none}
 .sec-box-hdr:active{background:var(--bg4)}
@@ -1786,8 +1786,8 @@ function openDrw(id) {
   var canAddRep = (role === 'jefe') || (role === 'asesor') || (r.tec && o.phase === 'ab');
   var repList = o.repuestos || [];
   repuestosHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-    '<span style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px">Repuestos y subcontratos pendientes</span>' +
-    '<span style="font-size:10px;color:var(--tx3)">' + repList.filter(function(r){return !r.ck3;}).length + ' pendiente(s)</span>' +
+    '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Repuestos y subcontratos pendientes</span>' +
+    '<span style="font-size:11px;font-weight:700;color:var(--tx)">' + repList.filter(function(r){return !r.ck3;}).length + ' pendiente(s)</span>' +
   '</div>';
   if (repList.length === 0) {
     repuestosHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Sin repuestos registrados</div>';
@@ -1876,8 +1876,8 @@ function openDrw(id) {
   var totalHoras = 0;
   for (var twi = 0; twi < trabajosList.length; twi++) { totalHoras += parseFloat(trabajosList[twi].horas) || 0; }
   trabajosHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-    '<span style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px">Trabajos realizados</span>' +
-    '<span style="font-size:10px;color:var(--tx3)">' + trabajosList.length + ' operacion(es) · ' + totalHoras.toFixed(2).replace('.', ',') + ' hrs</span>' +
+    '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Trabajos realizados</span>' +
+    '<span style="font-size:11px;font-weight:700;color:var(--tx)">' + trabajosList.length + ' operacion(es) · ' + totalHoras.toFixed(2).replace('.', ',') + ' hrs</span>' +
   '</div>';
   if (trabajosList.length === 0) {
     trabajosHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Sin trabajos registrados</div>';
@@ -1886,10 +1886,10 @@ function openDrw(id) {
     var tw = trabajosList[twi2];
     var hrsVal = parseFloat(tw.horas) || 0;
     var hrsBadge = hrsVal > 0
-      ? '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para ajustar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:9px;padding:2px 7px;border-radius:8px;background:var(--bg4);color:var(--tx2);border:1px solid var(--bd);white-space:nowrap">' + hrsVal.toFixed(2).replace('.', ',') + ' hrs. com.' + (role==='jefe'?' &#8635;':'') + '</span>'
+      ? '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para ajustar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--bg4);color:var(--tx);border:1px solid var(--tx2);white-space:nowrap">' + hrsVal.toFixed(2).replace('.', ',') + ' hrs. com.' + (role==='jefe'?' &#8635;':'') + '</span>'
       : (role === 'jefe'
-        ? '<span class="btn-trab-hrs jf" data-ti="' + twi2 + '" title="Toca para asignar horas" style="cursor:pointer;font-size:9px;padding:2px 7px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px solid var(--orbd);white-space:nowrap">Asignar hrs. com. &#8635;</span>'
-        : '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:var(--bg4);color:var(--tx3);border:1px solid var(--bd);white-space:nowrap;font-style:italic">Hrs. com. pendiente</span>');
+        ? '<span class="btn-trab-hrs jf" data-ti="' + twi2 + '" title="Toca para asignar horas" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px solid var(--orbd);white-space:nowrap">Asignar hrs. com. &#8635;</span>'
+        : '<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:8px;background:var(--bg4);color:var(--tx2);border:1px solid var(--bd);white-space:nowrap;font-style:italic">Hrs. com. pendiente</span>');
     trabajosHtml += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
         '<div style="font-size:12px;font-weight:500">' + tw.desc + '</div>' +
