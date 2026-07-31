@@ -387,7 +387,7 @@ button{cursor:pointer}
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Reporte Repuestos</button>
-    <button class="btn-map" id="btn-export" onclick="exportOrderSummaryCSV()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
+    <button class="btn-map" id="btn-export" onclick="openExportPicker()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
 
     <input class="srch" id="srch" placeholder="Buscar placa, vehiculo, No. OT o tecnico..." oninput="renderBoard()">
     <select class="srch" id="srch-tec" style="max-width:140px;flex:0 0 auto" onchange="renderBoard()">
@@ -492,6 +492,14 @@ button{cursor:pointer}
   <div class="rep-modal">
     <div class="modal-t"><span style="display:flex;align-items:center;gap:10px">📦 Repuestos pendientes</span><button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeRepParts()">✕</button></div>
     <div id="repparts-body"></div>
+  </div>
+</div>
+
+<!-- EXPORTAR: ELEGIR BITACORA O REPROCESOS -->
+<div class="mwrap" id="m-export-pick" style="align-items:flex-end">
+  <div class="rep-modal" style="max-width:340px">
+    <div class="modal-t">&#11015; Exportar <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeExportPicker()">&#x2715;</button></div>
+    <div id="export-pick-body"></div>
   </div>
 </div>
 
@@ -2590,7 +2598,7 @@ function advance(id, newPhase) {
   if (isReproceso) {
     newPhase = 'ab';
     // Ask for reproceso cause before proceeding
-    var causas = ['Falla tecnica del tecnico','Repuesto incorrecto','Diagnostico errado','Trabajo incompleto','Otro'];
+    var causas = ['Calidad de mano de obra','Diagnostico incompleto','Reporte incompleto','Trabajo incompleto','Otros'];
     var causaHtml = '<div style="padding:1rem"><div style="font-weight:600;margin-bottom:10px;color:var(--rd)">&#9851; Registrar causa del reproceso</div>';
     for (var ci=0; ci<causas.length; ci++) {
       causaHtml += '<button class="btn-causa" data-causa="'+causas[ci]+'" style="display:block;width:100%;text-align:left;padding:8px 12px;margin-bottom:6px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg3);color:var(--tx);cursor:pointer;font-size:12px">'+causas[ci]+'</button>';
@@ -2603,6 +2611,21 @@ function advance(id, newPhase) {
     tempDiv.querySelectorAll('.btn-causa').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var causa = this.getAttribute('data-causa');
+        if (causa === 'Otros') {
+          // Pide una breve anotacion antes de confirmar el reproceso
+          var notaHtml = '<div style="padding:1rem">' +
+            '<div style="font-weight:600;margin-bottom:10px;color:var(--rd)">&#9851; Otros &mdash; breve anotacion</div>' +
+            '<textarea id="reproceso-nota" class="dta" placeholder="Describe brevemente el motivo..." style="width:100%;min-height:70px;margin-bottom:10px"></textarea>' +
+            '<button id="btn-confirm-otros" style="width:100%;padding:8px;border-radius:8px;border:none;background:var(--or);color:#000;font-weight:600;cursor:pointer">Confirmar</button>' +
+          '</div>';
+          tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:340px;width:90%">'+notaHtml+'</div>';
+          document.getElementById('btn-confirm-otros').addEventListener('click', function() {
+            var nota = document.getElementById('reproceso-nota').value.trim();
+            document.body.removeChild(tempDiv);
+            advanceReproceso(id, causa, nota);
+          });
+          return;
+        }
         document.body.removeChild(tempDiv);
         advanceReproceso(id, causa);
       });
@@ -3634,6 +3657,99 @@ function exportOrderSummaryCSV() {
   }
 }
 
+/* EXPORTAR: selector entre Bitacora y Reprocesos, disparado desde el mismo
+   boton "Exportar bitacora (CSV)". */
+function openExportPicker() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar'); return; }
+  var body = document.getElementById('export-pick-body');
+  body.innerHTML =
+    '<div style="max-width:300px;margin:0 auto;padding-bottom:.5rem">' +
+      '<div style="font-size:11px;color:var(--tx3);text-transform:uppercase;margin-bottom:12px;font-weight:600;text-align:center">Elige que exportar</div>' +
+      '<div id="exp-pick-bitacora" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
+        '<span style="font-size:22px">&#128203;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">Bitacora</div><div style="font-size:11px;color:var(--tx3)">Una fila por orden cerrada, con tiempos por fase</div></div>' +
+      '</div>' +
+      '<div id="exp-pick-reprocesos" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);cursor:pointer">' +
+        '<span style="font-size:22px">&#9851;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">Reprocesos</div><div style="font-size:11px;color:var(--tx3)">Una fila por reproceso, con causa y fecha</div></div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('m-export-pick').classList.add('on');
+  document.getElementById('exp-pick-bitacora').addEventListener('click', function() {
+    closeExportPicker();
+    exportOrderSummaryCSV();
+  });
+  document.getElementById('exp-pick-reprocesos').addEventListener('click', function() {
+    closeExportPicker();
+    exportReprocesosCSV();
+  });
+}
+function closeExportPicker() {
+  document.getElementById('m-export-pick').classList.remove('on');
+}
+
+// Reprocesos: una fila por CADA reproceso registrado (no por orden), leyendo
+// o.reprocesoLog[] que ya se captura desde advanceReproceso() — no agrega
+// ningun dato nuevo, solo lo exporta. Igual que Bitacora, incluye tambien
+// las ordenes ya archivadas en taller/historial.
+function _buildReprocesosCSV(allOrders) {
+  var fmtDateTime = function(ts) {
+    return new Date(ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  };
+  var header = ['OT','Fecha_reproceso','Placa','Vehiculo','Cliente','Tecnico','Fase_origen','Causa','Nota'];
+  var allRows = [];
+  for (var i = 0; i < allOrders.length; i++) {
+    var o = allOrders[i];
+    var log = o.reprocesoLog || [];
+    for (var j = 0; j < log.length; j++) {
+      var rp = log[j];
+      allRows.push({
+        ot: o.ot, ts: rp.ts, plate: o.plate, model: o.model, client: o.client,
+        tech: o.tech || 'Sin asignar',
+        fromPhase: (PHASE_COLORS[rp.from] || {label: rp.from}).label,
+        causa: rp.causa, nota: rp.nota || ''
+      });
+    }
+  }
+  allRows.sort(function(a, b) {
+    var otDiff = (parseInt(a.ot, 10) || 0) - (parseInt(b.ot, 10) || 0);
+    if (otDiff !== 0) return otDiff;
+    return a.ts - b.ts;
+  });
+  var rows = [header];
+  for (var k = 0; k < allRows.length; k++) {
+    var r = allRows[k];
+    rows.push([r.ot, fmtDateTime(r.ts), r.plate, r.model, r.client, r.tech, r.fromPhase, r.causa, r.nota]);
+  }
+  rows.push(['Total de reprocesos: ' + allRows.length, '', '', '', '', '', '', '', '']);
+  return rows.map(function(rr) { return rr.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
+}
+function exportReprocesosCSV() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar'); return; }
+  var finish = function(allOrders) {
+    var totalReprocesos = 0;
+    for (var i = 0; i < allOrders.length; i++) { totalReprocesos += (allOrders[i].reprocesoLog || []).length; }
+    if (!totalReprocesos) { toast('No hay reprocesos registrados todavia'); return; }
+    var csv = _buildReprocesosCSV(allOrders);
+    _downloadCSV(csv, 'tallerflow_reprocesos_' + _todayKey() + '.csv');
+    toast('Exportado: ' + totalReprocesos + ' reproceso(s)');
+  };
+  if (fbReady && db) {
+    toast('Preparando exportacion...');
+    db.ref('taller/historial').once('value').then(function(snap) {
+      var data = snap.val() || {};
+      var histArr = Object.keys(data).map(function(k) { return data[k]; }).filter(Boolean);
+      finish(orders.concat(histArr));
+    }).catch(function(e) {
+      console.log('Error al leer historial para exportar reprocesos:', e);
+      toast('No se pudo leer el historial completo — exportando solo lo activo');
+      finish(orders.slice());
+    });
+  } else {
+    finish(orders.concat(archived || []));
+  }
+}
+
 /* HISTORY */
 function openHist() {
   document.getElementById('m-hist').classList.add('on');
@@ -3701,17 +3817,20 @@ function renderHist(q) {
   var max = all.length < 50 ? all.length : 50;
   for (var i = 0; i < max; i++) {
     var o = all[i];
-    var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT') : '—';
+    var fechaApertura = o.cat ? new Date(o.cat).toLocaleDateString('es-GT') : '—';
+    var closeTsH = o.timestamps && o.timestamps.cer;
+    var fechaCierre = closeTsH ? new Date(closeTsH).toLocaleDateString('es-GT') : '—';
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:9px 11px;margin-bottom:6px;cursor:pointer" class="hist-card" data-idx="' + i + '">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
         '<span style="font-size:13px;font-weight:600;font-family:var(--mo)">' + esc(o.plate) + '</span>' +
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          '<span style="font-size:10px;color:var(--tx3)">' + fecha + '</span>' +
-          '<span style="font-size:10px;color:var(--ac);border:1px solid var(--blbd);background:var(--blbg);padding:1px 8px;border-radius:8px">Ver detalle</span>' +
-        '</div>' +
+        '<span style="font-size:10px;color:var(--ac);border:1px solid var(--blbd);background:var(--blbg);padding:1px 8px;border-radius:8px">Ver detalle</span>' +
       '</div>' +
       '<div style="font-size:11px;color:var(--tx2);margin-top:2px">' + esc(o.model) + ' · ' + esc(o.client) + '</div>' +
       '<div style="font-size:10px;color:var(--tx3);margin-top:2px">' + esc(o.tech||'—') + ' · ' + esc(o.ot) + (o._arch ? ' · <span style="color:var(--tx3)">Archivado</span>' : '') + '</div>' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:4px;display:flex;gap:12px">' +
+        '<span>&#128198; Apertura: ' + fechaApertura + '</span>' +
+        '<span style="color:var(--gn)">&#9989; Cierre: ' + fechaCierre + '</span>' +
+      '</div>' +
     '</div>';
   }
   if (all.length > 50) html += '<div style="font-size:11px;color:var(--tx3);text-align:center;padding:8px">Mostrando 50 de ' + all.length + ' resultados. Usa el buscador para filtrar.</div>';
@@ -4340,16 +4459,17 @@ function closeHistDetail() {
 }
 
 
-function advanceReproceso(id, causa) {
+function advanceReproceso(id, causa, nota) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
   var oldPhase = o.phase;
   var oldLbl = (PHASE_COLORS[oldPhase]||{label:oldPhase}).label;
+  var notaEsc = nota ? esc(nota) : '';
   o.phase = 'ab';
   o.reprocesos = (o.reprocesos || 0) + 1;
   if (!o.reprocesoLog) o.reprocesoLog = [];
-  o.reprocesoLog.push({causa:causa, ts:Date.now(), from:oldPhase});
+  o.reprocesoLog.push({causa:causa, nota:notaEsc, ts:Date.now(), from:oldPhase});
   if (!o.sigs) o.sigs = {};
   var phaseSigsR = SIGS['ab'] || [];
   for (var sr=0; sr<phaseSigsR.length; sr++) { delete o.sigs[phaseSigsR[sr].id]; }
@@ -4358,7 +4478,7 @@ function advanceReproceso(id, causa) {
   o.timestamps['ab'] = Date.now();
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'&#9851; REPROCESO — Causa: ' + causa + ' (desde ' + oldLbl + ')', ts:Date.now(), type:'system'});
+  o.msgs.push({who:who, txt:'&#9851; REPROCESO — Causa: ' + causa + (notaEsc ? ' — ' + notaEsc : '') + ' (desde ' + oldLbl + ')', ts:Date.now(), type:'system'});
   if (!o.phaseLog) o.phaseLog = [];
   var fromTs = o.timestamps[oldPhase] || o.cat;
   var toTsR = Date.now();
