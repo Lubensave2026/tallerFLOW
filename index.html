@@ -1820,6 +1820,20 @@ function openDrw(id) {
     var origenBadge = origen === 'importacion'
       ? '<span' + origenBadgeAttrs + 'font-size:9px;padding:2px 7px;border-radius:8px;background:#3a2a1a;color:var(--or);border:1px solid #8B5A00;font-weight:600;white-space:nowrap">&#9992; IMPORTACION' + (role==='jefe'?' &#8635;':'') + '</span>'
       : '<span' + origenBadgeAttrs + 'font-size:9px;padding:2px 7px;border-radius:8px;background:#1a3a1a;color:#4ADE80;border:1px solid #2E7D32;font-weight:600;white-space:nowrap">LOCAL' + (role==='jefe'?' &#8635;':'') + '</span>';
+    // Vo.Bo. del Jefe: obligatorio solo para repuestos que el TECNICO pidio
+    // (el jefe/asesor ya son quienes autorizan, asi que no aplica). Mientras
+    // no tenga Vo.Bo., el paso de Mensajero (ck1) queda bloqueado.
+    var needsVobo = !!rep.addedByTec;
+    var voboGiven = !!rep.vobo;
+    var voboBlocksCk1 = needsVobo && !voboGiven;
+    var voboRow = '';
+    if (needsVobo) {
+      voboRow = voboGiven
+        ? '<div style="margin-bottom:6px"><span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Vo.Bo. Jefe</span></div>'
+        : (role === 'jefe'
+          ? '<div style="margin-bottom:6px"><button class="btn-rep-vobo" data-ri="' + ri + '" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. — pedido por tecnico</button></div>'
+          : '<div style="margin-bottom:6px"><span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Pendiente Vo.Bo. Jefe</span></div>');
+    }
     repuestosHtml += '<div style="background:var(--bg3);border:1px solid ' + (isDone ? 'var(--gnbd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (isDone ? 'opacity:.6' : '') + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
         '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
@@ -1827,9 +1841,10 @@ function openDrw(id) {
           (role === 'jefe' ? '<button class="btn-rep-del" data-ri="' + ri + '" title="Eliminar repuesto" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
         '</div>' +
       '</div>' +
+      voboRow +
       (role === 'jefe' ?
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck1" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
+          '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck1"' + (voboBlocksCk1 ? ' disabled title="Falta el Vo.Bo. del Jefe"' : '') + ' style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : (voboBlocksCk1 ? 'var(--tx3)' : 'var(--tx3)')) + ';cursor:' + (voboBlocksCk1 ? 'not-allowed' : 'pointer') + (voboBlocksCk1 ? ';opacity:.5' : '') + '">' + (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
           '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck2" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck2 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck2 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck2 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</button>' +
           '<button class="btn-rep-ck" data-ri="' + ri + '" data-ck="ck3" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid ' + (rep.ck3 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck3 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck3 ? 'var(--gn)' : 'var(--tx3)') + ';cursor:pointer">' + (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</button>' +
         '</div>'
@@ -1841,7 +1856,7 @@ function openDrw(id) {
           '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--bd);background:var(--bg4);color:' + (rep.ck2 ? 'var(--gn)' : 'var(--tx3)') + '">' + (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</span>' +
           '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--bd);background:var(--bg4);color:' + (rep.ck3 ? 'var(--gn)' : 'var(--tx3)') + '">' + (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</span>' +
         '</div>' +
-        '<div style="font-size:9px;color:var(--tx3);margin-top:5px;font-style:italic">&#128274; Firma desde &#128230; REPUESTOS Y SUBCONTRATOS</div>'
+        '<div style="font-size:9px;color:var(--tx3);margin-top:5px;font-style:italic">&#128274; Firma desde &#128230; FIRMAS REPUESTOS Y SUBCONTRATOS</div>'
       ) +
       (repTimingHtml ? '<div style="margin-top:7px;padding-top:6px;border-top:1px solid var(--bd)">' + repTimingHtml + '</div>' : '') +
     '</div>';
@@ -1978,6 +1993,8 @@ function openDrw(id) {
         if (ck === 'ck3' && role !== 'jefe' && !(ROLES[role] && ROLES[role].tec)) { toast('Solo el tecnico o jefe puede confirmar instalacion'); return; }
         // ck1 only for mensajero or jefe
         if (ck === 'ck1' && role !== 'jefe' && role !== 'mensajero' && role !== 'partes') { toast('Solo el mensajero o asesor de partes puede confirmar este paso'); return; }
+        // ck1: si el tecnico pidio este repuesto, primero necesita el Vo.Bo. del Jefe
+        if (ck === 'ck1' && ox.repuestos[ri2].addedByTec && !ox.repuestos[ri2].vobo) { toast('Este repuesto lo pidio el tecnico — falta el Vo.Bo. del Jefe de taller'); return; }
         // ck2 only for partes or jefe
         if (ck === 'ck2' && role !== 'jefe' && role !== 'partes') { toast('Solo el asesor de partes puede confirmar este paso'); return; }
         ox.repuestos[ri2][ck] = !ox.repuestos[ri2][ck];
@@ -2010,6 +2027,24 @@ function openDrw(id) {
       });
     })(origenBtns[obi]);
   }
+  var voboBtns = body.querySelectorAll('.btn-rep-vobo');
+  for (var vbi = 0; vbi < voboBtns.length; vbi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede dar el Vo.Bo.'); return; }
+        var ri5 = parseInt(this.getAttribute('data-ri'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.repuestos || !ox.repuestos[ri5]) return;
+        ox.repuestos[ri5].vobo = true;
+        ox.repuestos[ri5].voboTs = Date.now();
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'&#10003; Vo.Bo. Jefe: "' + esc(ox.repuestos[ri5].desc) + '"', ts:Date.now(), type:'system'});
+        save(); toast('Vo.Bo. otorgado'); openDrw(id);
+      });
+    })(voboBtns[vbi]);
+  }
   var delRepBtns = body.querySelectorAll('.btn-rep-del');
   for (var dri = 0; dri < delRepBtns.length; dri++) {
     (function(btn) {
@@ -2041,10 +2076,11 @@ function openDrw(id) {
       ox.repuestos = ox.repuestos || [];
       var origenSel = document.getElementById('rep-origen');
       var origen = origenSel ? origenSel.value : 'local';
-      ox.repuestos.push({desc:esc(desc), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen});
+      var addedByTec = !!(r && r.tec);
+      ox.repuestos.push({desc:esc(desc), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen, addedByTec:addedByTec});
       ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + esc(desc), ts:Date.now(), type:'system'});
-      addNotif('Repuesto pendiente en ' + ox.plate + ': ' + desc, id);
+      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + esc(desc) + (addedByTec ? ' — requiere Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
+      addNotif('Repuesto pendiente en ' + ox.plate + ': ' + desc + (addedByTec ? ' (requiere Vo.Bo. del Jefe)' : ''), id);
       save(); toast('Repuesto agregado'); openDrw(id);
     });
     var repInp = document.getElementById('rep-inp');
@@ -3861,17 +3897,29 @@ function buildRepsContent() {
     for (var ri = 0; ri < repList.length; ri++) {
       var rep = repList[ri];
       if (rep.ck3) continue;
-      var canCk1 = (role === 'mensajero' || role === 'jefe' || role === 'partes');
+      var needsVobo2 = !!rep.addedByTec;
+      var voboGiven2 = !!rep.vobo;
+      var canCk1 = (role === 'mensajero' || role === 'jefe' || role === 'partes') && (!needsVobo2 || voboGiven2);
       var canCk2 = (role === 'partes' || role === 'jefe') && rep.ck1;
       var canCk3 = (role === 'jefe' || (ROLES[role] && ROLES[role].tec)) && rep.ck2;
+
+      var voboRow2 = '';
+      if (needsVobo2) {
+        voboRow2 = voboGiven2
+          ? '<div style="margin-bottom:7px"><span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Vo.Bo. Jefe</span></div>'
+          : (role === 'jefe'
+            ? '<div style="margin-bottom:7px"><button class="btn-reps-vobo" data-oid="' + o.id + '" data-ri="' + ri + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. — pedido por tecnico</button></div>'
+            : '<div style="margin-bottom:7px"><span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Pendiente Vo.Bo. Jefe</span></div>');
+      }
 
       html += '<div style="background:var(--bg2);border:1px solid var(--orbd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px">' +
           '<div style="font-size:12px;font-weight:500">' + rep.desc + '</div>' +
           elapsedRepBadge(rep.ts, rep.origen || 'local') +
         '</div>' +
+        voboRow2 +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          '<button class="btn-reps-ck" data-oid="' + o.id + '" data-ri="' + ri + '" data-ck="ck1"' +
+          '<button class="btn-reps-ck" data-oid="' + o.id + '" data-ri="' + ri + '" data-ck="ck1"' + (!canCk1 ? ' disabled' : '') +
             ' style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid ' + (rep.ck1 ? 'var(--gnbd)' : 'var(--bd)') + ';background:' + (rep.ck1 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck1 ? 'var(--gn)' : (canCk1 ? 'var(--tx2)' : 'var(--tx3)')) + ';cursor:' + (canCk1 ? 'pointer' : 'not-allowed') + '">' +
             (rep.ck1 ? '&#10003;' : '&#9675;') + ' Mensajero</button>' +
           '<button class="btn-reps-ck" data-oid="' + o.id + '" data-ri="' + ri + '" data-ck="ck2"' +
@@ -3907,6 +3955,7 @@ function buildRepsContent() {
         var rep2 = ox.repuestos[ri2];
         // Sequential check
         if (ck === 'ck1' && role !== 'mensajero' && role !== 'jefe' && role !== 'partes') { toast('Solo el mensajero o asesor de partes puede confirmar este paso'); return; }
+        if (ck === 'ck1' && rep2.addedByTec && !rep2.vobo) { toast('Este repuesto lo pidio el tecnico — falta el Vo.Bo. del Jefe de taller'); return; }
         if (ck === 'ck2') {
           if (role !== 'partes' && role !== 'jefe') { toast('Solo el asesor de partes puede confirmar este paso'); return; }
           if (!rep2.ck1) { toast('El mensajero debe confirmar primero'); return; }
@@ -3928,6 +3977,27 @@ function buildRepsContent() {
         buildRepsContent();
       });
     })(cks[ci]);
+  }
+  var voboBtns2 = body.querySelectorAll('.btn-reps-vobo');
+  for (var vbi2 = 0; vbi2 < voboBtns2.length; vbi2++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede dar el Vo.Bo.'); return; }
+        var oid2 = parseInt(this.getAttribute('data-oid'));
+        var ri3 = parseInt(this.getAttribute('data-ri'));
+        var ox2 = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oid2) { ox2 = orders[j]; break; } }
+        if (!ox2 || !ox2.repuestos || !ox2.repuestos[ri3]) return;
+        ox2.repuestos[ri3].vobo = true;
+        ox2.repuestos[ri3].voboTs = Date.now();
+        var who2 = ROLES[role] ? ROLES[role].label : role;
+        ox2.msgs = ox2.msgs || [];
+        ox2.msgs.push({who:who2, txt:'&#10003; Vo.Bo. Jefe: "' + esc(ox2.repuestos[ri3].desc) + '"', ts:Date.now(), type:'system'});
+        save();
+        toast('Vo.Bo. otorgado');
+        buildRepsContent();
+      });
+    })(voboBtns2[vbi2]);
   }
 }
 
