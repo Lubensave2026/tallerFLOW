@@ -803,7 +803,7 @@ var PINS = {
 
 var ROLES = {
   jefe:       {label:'Byron - Jefe taller',    ico:'👨‍💼', tec:false, lanes:'all'},
-  asesor:     {label:'Ricardo - Asesor serv.',  ico:'🗣️',  tec:false, lanes:['rec','aa','ab','prb','pa','pb','ea','er','ext','lav','lst','ent','cer','det']},
+  asesor:     {label:'Ricardo - Asesor serv.',  ico:'🗣️',  tec:false, lanes:['rec','aa','ab','prb','pa','pb','ea','er','ext','lav','lst','ent','det']},
   partes:     {label:'Mario - Asesor partes',   ico:'📦',  tec:false, lanes:['pa','er','ext']},
   lavador:    {label:'Wilmer - Lavador',         ico:'💧',  tec:false, lanes:['lav']},
   mensajero:  {label:'William - Mensajero',      ico:'🛵',  tec:false, lanes:['er']},
@@ -901,8 +901,8 @@ var PRIO_LABELS = {
 };
 
 var NL = {
-  aa:'Asignado-espera',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',reproceso:'REPROCESO (regresa a Trabajando)',pa:'Regresar a Presup. Partes',
-  pa:'Regresar a Presup. Partes',pb:'Presup. M/O',ea:'Esp. autorizacion',
+  aa:'Asignado-espera',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',reproceso:'REPROCESO (regresa a Trabajando)',
+  pa:'Elaboracion de presupuesto',pb:'Presup. M/O',ea:'Esp. autorizacion',
   er:'Esp. repuestos',ext:'Trabajo externo',lst:'Listo p/entrega',
   ent:'Entregado',cer:'Cerrar orden'
 };
@@ -1631,6 +1631,19 @@ function openDrw(id) {
       sigRows += '<div class="sg-item"><div><div class="sg-n">' + s.lb + '</div><div class="sg-r">' + s.id + '</div></div>' + btn + '</div>';
     }
     html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + prbStatusBlock + eaRepBlock + sigRows + '</div>';
+  }
+
+  /* lst: opcion para regresar a Lavado si el asesor (o jefe) nota que el
+     vehiculo necesita que le repasen el lavado antes de entregarlo. Es
+     opcional — si no se usa, el flujo normal sigue siendo elegir Entregado
+     entre los botones de "Avanzar a fase". */
+  if (o.phase === 'lst' && (role === 'asesor' || role === 'jefe')) {
+    html += '<div class="sec">' +
+      '<button id="btn-vobo-lav" class="ph-btn" style="border-color:var(--orbd);background:var(--orbg);color:var(--or)" data-oid="' + id + '">' +
+        '<span>&#128167; Vo.Bo. lavado &mdash; regresar a Lavado</span><span>&#8635;</span>' +
+      '</button>' +
+      '<div style="font-size:9px;color:var(--tx3);margin-top:-2px;padding:0 2px">Usalo solo si el vehiculo necesita que le repasen el lavado. Si no, elige Entregado abajo.</div>' +
+    '</div>';
   }
 
   /* phase btns */
@@ -2393,8 +2406,9 @@ function openDrw(id) {
     })(sgBtns[i]);
   }
 
-  /* phase buttons */
-  var phBtns2 = body.querySelectorAll('.ph-btn');
+  /* phase buttons — [data-phase] excluye botones especiales que comparten
+     la clase ph-btn pero tienen su propio wiring (btn-det, btn-vobo-lav) */
+  var phBtns2 = body.querySelectorAll('.ph-btn[data-phase]');
   for (var i = 0; i < phBtns2.length; i++) {
     (function(btn) {
       btn.addEventListener('click', function() {
@@ -2406,6 +2420,16 @@ function openDrw(id) {
         advance(parseInt(this.getAttribute('data-oid')), targetPhase);
       });
     })(phBtns2[i]);
+  }
+
+  /* boton especial: Vo.Bo. lavado (regresar de Listo p/entrega a Lavado) */
+  var voboLavBtn = document.getElementById('btn-vobo-lav');
+  if (voboLavBtn) {
+    voboLavBtn.addEventListener('click', function() {
+      if (role !== 'asesor' && role !== 'jefe') { toast('Solo el Asesor o el Jefe de taller pueden regresar la orden a Lavado'); return; }
+      if (!confirm('¿Regresar esta orden a Lavado para que repasen el lavado del vehiculo?')) return;
+      advance(parseInt(this.getAttribute('data-oid')), 'lav');
+    });
   }
 
   /* send button */
