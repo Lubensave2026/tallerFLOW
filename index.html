@@ -1107,7 +1107,7 @@ function doLogin(rk) {
   document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-repparts').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || rk === 'mensajero') ? 'inline-flex' : 'none';
   document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
-  document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
+  document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-export').style.display = (rk === 'jefe') ? 'inline-flex' : 'none';
   document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
@@ -3800,6 +3800,13 @@ function renderHist(q) {
   for (var i = 0; i < archived.length; i++) {
     archived[i]._arch = true;
     all.push(archived[i]);
+  }
+  // Un tecnico solo ve el historial de sus propias ordenes (tech/tech2) —
+  // mismo criterio ya usado en el reporte 📊 y en FIRMAS REPUESTOS Y SUBCONTRATOS.
+  var rMeHist = role ? ROLES[role] : null;
+  var myNameHist = rMeHist && rMeHist.tec ? rMeHist.tn : null;
+  if (myNameHist) {
+    all = all.filter(function(o) { return o.tech === myNameHist || o.tech2 === myNameHist; });
   }
   // sort newest first by cat
   all.sort(function(a,b) { return (b.cat||0) - (a.cat||0); });
