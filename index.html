@@ -491,7 +491,7 @@ button{cursor:pointer}
           <option value="verde">&#128994; Verde</option>
         </select></div>
     </div>
-    <div class="fg"><label class="fl">Trabajo solicitado</label><textarea class="fi dta" id="f-dc" placeholder="Descripcion..."></textarea></div>
+    <div class="fg"><label class="fl">Trabajos solicitados por el cliente</label><textarea class="fi dta" id="f-dc" placeholder="Descripcion..."></textarea></div>
     <div class="fg"><label class="fl">Tiempo estimado de trabajo (hrs) <span style="color:var(--tx3);font-weight:400">— opcional, solo para reparaciones</span></label><input class="fi" id="f-hrs" type="number" min="0.5" max="999" step="0.5" placeholder="Ej: 4.5"></div>
     <div class="fg">
       <label class="fl">&#128230; Repuestos necesarios <span style="color:var(--tx3);font-weight:400">— opcional, quedan visibles para Partes desde ya</span></label>
@@ -1612,8 +1612,8 @@ function openDrw(id) {
   /* desc — solo Asesor de servicio y Jefe de taller pueden editar; el
      resto del personal (tecnicos, mensajero, partes) solo lectura. */
   var canEditDesc = (role === 'jefe' || role === 'asesor');
-  html += '<div class="sec"><div class="sec-l">Descripcion del trabajo</div>' +
-    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')"' + (canEditDesc ? '' : ' readonly style="opacity:.75;cursor:default"') + '>' + esc(o.desc) + '</textarea>' +
+  html += '<div class="sec"><div class="sec-l" style="color:var(--ac)">&#128221; Trabajos solicitados por el cliente</div>' +
+    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')" style="border-left:3px solid var(--ac)' + (canEditDesc ? '' : ';opacity:.75;cursor:default') + '"' + (canEditDesc ? '' : ' readonly') + '>' + esc(o.desc) + '</textarea>' +
   '</div>';
 
   // Seccion 01) INFORMACION lista — todo lo de arriba (edicion, datos,
@@ -4470,6 +4470,8 @@ function openHistDetail(o) {
 
   // ── Info general ──
   var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+  var closeTsDetail = o.timestamps && o.timestamps.cer;
+  var fechaCierreDetail = closeTsDetail ? new Date(closeTsDetail).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
   html += '<div class="sec"><div class="sec-l">Informacion general</div>' +
     '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
@@ -4477,6 +4479,7 @@ function openHistDetail(o) {
     '<div class="irow"><span class="ik">Placa</span><span style="font-family:var(--mo)">' + esc(o.plate||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">No. OT</span><span style="font-family:var(--mo)">' + esc(o.ot||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Fecha ingreso</span><span>' + fecha + '</span></div>' +
+    '<div class="irow"><span class="ik">Fecha de cierre</span><span>' + fechaCierreDetail + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
@@ -4486,10 +4489,11 @@ function openHistDetail(o) {
     : '') +
   '</div>';
 
-  // ── Descripcion ──
+  // ── Descripcion — mismo nombre y estilo que en la ficha en vivo y en el
+  // formulario de Nueva orden, para que sea el mismo concepto en todos lados ──
   if (o.desc) {
-    html += '<div class="sec"><div class="sec-l">Descripcion del trabajo</div>' +
-      '<div style="font-size:12px;color:var(--tx2);background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:9px 11px;line-height:1.5">' + esc(o.desc) + '</div>' +
+    html += '<div class="sec"><div class="sec-l" style="color:var(--ac)">&#128221; Trabajos solicitados por el cliente</div>' +
+      '<div style="font-size:12px;color:var(--tx2);background:var(--bg3);border:1px solid var(--bd);border-left:3px solid var(--ac);border-radius:var(--rs);padding:9px 11px;line-height:1.5">' + esc(o.desc) + '</div>' +
     '</div>';
   }
 
