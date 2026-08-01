@@ -3129,7 +3129,10 @@ function mapPick(sp) {
 }
 
 /* REPORT */
+var _repProdMonthOffset = 0; // 0 = mes actual, 1 = mes anterior, etc. — solo para la tarjeta "Mi productividad (cerradas)"
+
 function openRep() {
+  _repProdMonthOffset = 0; // siempre abre mostrando el mes actual
   // Auto-refresh every 30 seconds while report is open
   if (window._repInterval) clearInterval(window._repInterval);
   window._repInterval = setInterval(function() {
@@ -3242,12 +3245,14 @@ function buildRepContent() {
       '<div style="font-size:9px;color:var(--tx3);margin-top:6px;font-style:italic">Solo ordenes activas en el tablero — las ya archivadas desde 📁 Historial no se incluyen todavia.</div>' +
     '</div>';
 
-    // Productividad de ordenes ya CERRADAS este mes — dato final y definitivo
-    // (a diferencia de las activas, aqui ya no se puede seguir agregando
-    // trabajos) que cuenta para el cierre de mes y el pago de comisiones.
-    // Incluye tambien lo ya archivado (mismo criterio que semComputeFromOrders).
-    var nowProdC = new Date();
-    var curYc = nowProdC.getFullYear(), curMc = nowProdC.getMonth();
+    // Productividad de ordenes ya CERRADAS de un mes especifico — dato final
+    // y definitivo (a diferencia de las activas, aqui ya no se puede seguir
+    // agregando trabajos) que cuenta para el cierre de mes y el pago de
+    // comisiones. Incluye tambien lo ya archivado (mismo criterio que
+    // semComputeFromOrders). Se puede navegar a meses anteriores con ◀ / ▶,
+    // igual que en el Semaforo Financiero.
+    var prodTargetDate = new Date(new Date().getFullYear(), new Date().getMonth() - _repProdMonthOffset, 1);
+    var curYc = prodTargetDate.getFullYear(), curMc = prodTargetDate.getMonth();
     var seenClosedIds = {};
     var hrsFlatClosed = 0, hrsRealClosed = 0, closedCountThisMonth = 0;
     var allForClosedProd = orders.concat(archived || []);
@@ -3271,13 +3276,20 @@ function buildRepContent() {
     }
     var prodPctClosed = hrsRealClosed > 0 ? (hrsFlatClosed / hrsRealClosed * 100) : null;
     var prodColorClosed = prodPctClosed === null ? 'var(--tx3)' : (prodPctClosed >= 100 ? 'var(--gn)' : (prodPctClosed >= 70 ? 'var(--or)' : 'var(--rd)'));
-    var monthLabelClosed = nowProdC.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+    var monthLabelClosed = prodTargetDate.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+    var isCurrentProdMonth = (_repProdMonthOffset === 0);
     html += '<div style="background:var(--bg3);border:1px solid var(--gnbd);border-radius:var(--r);padding:10px 16px;margin-bottom:10px">' +
-      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">&#9989; Mi productividad — ordenes CERRADAS de ' + monthLabelClosed + ' (' + closedCountThisMonth + ')</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
+        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">&#9989; Mi productividad — ordenes CERRADAS de ' + monthLabelClosed + (isCurrentProdMonth ? ' (actual)' : '') + ' (' + closedCountThisMonth + ')</div>' +
+        '<div style="display:flex;gap:4px;flex-shrink:0">' +
+          '<button onclick="repProdChangeMonth(1)" title="Mes anterior" style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx);cursor:pointer;font-size:10px">&#9664;</button>' +
+          '<button onclick="repProdChangeMonth(-1)" title="Mes siguiente" ' + (isCurrentProdMonth ? 'disabled' : '') + ' style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:' + (isCurrentProdMonth ? 'var(--bg3)' : 'var(--bg4)') + ';color:' + (isCurrentProdMonth ? 'var(--tx3)' : 'var(--tx)') + ';cursor:' + (isCurrentProdMonth ? 'not-allowed' : 'pointer') + ';font-size:10px">&#9654;</button>' +
+        '</div>' +
+      '</div>' +
       '<div style="font-size:24px;font-weight:700;color:' + prodColorClosed + '">' + (prodPctClosed === null ? '—' : prodPctClosed.toFixed(0) + '%') +
         (prodPctClosed !== null ? ' <span style="font-size:13px;font-weight:500;color:var(--tx3)">(' + hrsFlatClosed.toFixed(2).replace('.', ',') + ' vs ' + hrsRealClosed.toFixed(2).replace('.', ',') + ' hrs)</span>' : '') +
       '</div>' +
-      '<div style="font-size:9px;color:var(--tx3);margin-top:6px;font-style:italic">Dato final del mes para el pago de comisiones — solo cambia cuando cierras nuevas ordenes.</div>' +
+      '<div style="font-size:9px;color:var(--tx3);margin-top:6px;font-style:italic">' + (isCurrentProdMonth ? 'Dato final del mes para el pago de comisiones — solo cambia cuando cierras nuevas ordenes.' : 'Dato ya cerrado de un mes anterior — no cambia.') + '</div>' +
     '</div>';
   }
 
@@ -4953,6 +4965,11 @@ function repClearFilters() {
   if (t) t.value = '';
   if (p) p.value = '';
   repApplyFilters();
+}
+
+function repProdChangeMonth(delta) {
+  _repProdMonthOffset = Math.max(0, _repProdMonthOffset + delta); // nunca hacia el futuro
+  buildRepContent();
 }
 
 /* INIT */
