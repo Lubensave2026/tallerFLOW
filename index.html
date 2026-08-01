@@ -307,6 +307,24 @@ button{cursor:pointer}
   100% { transform:scale(1);   opacity:1; }
 }
 .sig-urgent { animation:pulse-badge 1.2s ease-in-out infinite; background:var(--rd) !important; }
+
+/* Impresion del reporte de una orden (Historial -> Ver detalle -> Imprimir).
+   Redefine las variables de color a una paleta clara/legible en papel —
+   como casi todo el HTML de la app usa var(--xx) en estilos inline, esto
+   alcanza para que todo el reporte se imprima en claro sin tener que tocar
+   cada seccion una por una. */
+@media print {
+  #ap, .np, .ov, .mwrap:not(#m-hist-detail) { display:none !important; }
+  #m-hist-detail .rep-modal { box-shadow:none; max-width:100%; width:100%; border-radius:0; border:none; max-height:none }
+  #m-hist-detail #hist-detail-body { max-height:none; overflow:visible }
+  #hist-detail-title button { display:none }
+  :root {
+    --bg:#fff; --bg2:#fff; --bg3:#f2f2f2; --bg4:#e8e8e8;
+    --tx:#111; --tx2:#333; --tx3:#666;
+    --bd:#ccc; --bd2:#ccc;
+    --ac:#1a56db; --gn:#157347; --or:#b45309; --rd:#b91c1c;
+  }
+}
 </style>
 </head>
 <body>
@@ -4430,8 +4448,12 @@ function buildSigsContent() {
 function openHistDetail(o) {
   // Header
   var titleEl = document.getElementById('hist-detail-title');
+  var printBtnHtml = (role === 'jefe' || role === 'asesor')
+    ? '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>'
+    : '';
   if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
-    ' <button class="btn-s" style="padding:4px 10px;font-size:12px;margin-left:auto" onclick="closeHistDetail()">&#x2715;</button>';
+    '<span style="margin-left:auto;display:flex;gap:6px">' + printBtnHtml +
+    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeHistDetail()">&#x2715;</button></span>';
 
   var html = '';
 
@@ -4516,6 +4538,19 @@ function openHistDetail(o) {
       '</div>';
     }
     html += '</div>';
+  }
+
+  // ── Avisos (registro automatico: firmas, avances de fase, repuestos,
+  // Vo.Bo., fecha de cierre, etc.) — mismo contenido que la campanita de
+  // la ficha en vivo, aqui en orden cronologico para el reporte completo. ──
+  var histSysMsgs = (o.msgs || []).filter(function(m) { return _msgIsSystem(m); });
+  if (histSysMsgs.length) {
+    html += '<div class="sec"><div class="sec-l">&#128276; Avisos</div><div class="chat-box">';
+    for (var si6 = 0; si6 < histSysMsgs.length; si6++) {
+      var smsg = histSysMsgs[si6];
+      html += '<div class="cmsg"><div class="cw">' + smsg.who + '</div><div class="ct">' + smsg.txt + '</div><div class="cts">' + msgTs(smsg.ts) + '</div></div>';
+    }
+    html += '</div></div>';
   }
 
   // ── Mensajes internos (solo notas, sin avisos de sistema) ──
