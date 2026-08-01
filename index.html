@@ -1688,6 +1688,10 @@ function openDrw(id) {
           '<input type="date" id="close-date-inp" class="fi" value="' + cdStr + '" max="' + cdTodayStr + '" style="flex:1;font-size:12px">' +
           '<button id="btn-set-close-date" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Fijar fecha</button>' +
         '</div>' +
+        '<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd);cursor:pointer">' +
+          '<input type="checkbox" id="chk-presupuesto-pendiente"' + (o.presupuestoPendiente ? ' checked' : '') + '>' +
+          '<span>&#128221; Queda presupuesto pendiente para este vehiculo (avisar a Partes)</span>' +
+        '</label>' +
       '</div>';
     }
     html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + prbStatusBlock + eaRepBlock + sigRows + closeDateBlock + '</div>';
@@ -1810,6 +1814,25 @@ function openDrw(id) {
       '<span style="font-size:10px;color:var(--gn);text-transform:uppercase;letter-spacing:.3px">&#9989; Fecha de cierre</span>' +
       '<span style="font-size:12px;font-weight:700;color:var(--gn)">' + fmtFullDate(o.timestamps.cer) + '</span>' +
     '</div>';
+    // "Ya facturada": permite congelar el monto actual como facturacion
+    // definitiva de ESTE mes (cierre prematuro para cumplir el minimo del
+    // mes, aunque la orden se reabra despues para seguir el trabajo real).
+    // Solo Jefe. El monto congelado ya no se recalcula si se editan los
+    // montos en vivo despues — solo lo ADICIONAL cuenta en un cierre futuro.
+    if (role === 'jefe') {
+      if (o.montoFacturadoTotal || o.montoFacturadoMO) {
+        phaseLogHtml += '<div style="background:#2a1f3d;border:1px solid #8B5CF6;border-radius:var(--rs);padding:8px 10px;margin-top:8px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+            '<span style="font-size:10px;color:#B794F6;text-transform:uppercase;letter-spacing:.3px">&#128176; Ya facturada (congelado)</span>' +
+            '<button id="btn-desmarcar-facturada" style="font-size:10px;color:var(--tx3);background:none;border:none;text-decoration:underline;cursor:pointer;white-space:nowrap">deshacer</button>' +
+          '</div>' +
+          '<div style="font-size:12px;font-weight:700;color:#B794F6">Q.' + Number(o.montoFacturadoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' contado en ' + new Date(o.montoFacturadoTs).toLocaleDateString('es-GT', {month:'long', year:'numeric'}) + '</div>' +
+        '</div>';
+      } else {
+        phaseLogHtml += '<button id="btn-marcar-facturada" class="btn-s" style="width:100%;margin-top:8px;font-size:12px;padding:8px;border-color:#8B5CF6;color:#B794F6;background:#2a1f3d">&#128176; Marcar como Ya Facturada (congelar monto de este mes)</button>' +
+          '<div style="font-size:9px;color:var(--tx3);margin-top:4px;padding:0 2px">Usalo si esta orden se cerro para cumplir el minimo del mes pero el trabajo real sigue. El monto actual queda contado en este mes aunque despues reabras la orden y la cierres de nuevo con otro monto.</div>';
+      }
+    }
   }
 
 /* jefe pending confirmation */
@@ -2520,6 +2543,57 @@ function openDrw(id) {
       if (!ox) return;
       delete ox._closeDateOverride;
       save(); toast('Se usara la fecha de hoy al cerrar'); openDrw(id);
+    });
+  }
+  var presPendChk = document.getElementById('chk-presupuesto-pendiente');
+  if (presPendChk) {
+    presPendChk.addEventListener('change', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede marcar esto'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      ox.presupuestoPendiente = this.checked;
+      if (this.checked) {
+        // Reinicia el flujo por si quedaba un ciclo anterior ya completado/con Vo.Bo.
+        delete ox.presupuestoListoPartes; delete ox.presupuestoListoPartesTs;
+        delete ox.presupuestoVobo; delete ox.presupuestoVoboTs;
+      }
+      var who10 = ROLES[role] ? ROLES[role].label : role;
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:who10, txt: this.checked ? '&#128221; Marcado: presupuesto pendiente al cerrar (aviso para Partes)' : 'Se quito la marca de presupuesto pendiente', ts:Date.now(), type:'system'});
+      save(); toast(this.checked ? 'Se avisara a Partes cuando se cierre' : 'Marca quitada');
+    });
+  }
+  var marcarFacturadaBtn = document.getElementById('btn-marcar-facturada');
+  if (marcarFacturadaBtn) {
+    marcarFacturadaBtn.addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede marcar esto'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      if (!confirm('Se congelara el monto actual (Q.' + Number(ox.montoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ') como facturado de este mes. Si despues reabres la orden y la cierras de nuevo, solo se contara lo ADICIONAL. Continuar?')) return;
+      ox.montoFacturadoTotal = ox.montoTotal || 0;
+      ox.montoFacturadoMO = ox.montoMO || 0;
+      ox.montoFacturadoTs = Date.now();
+      var who11 = ROLES[role] ? ROLES[role].label : role;
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:who11, txt:'&#128176; Marcada como Ya Facturada — Q.' + Number(ox.montoFacturadoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' contado este mes', ts:Date.now(), type:'system'});
+      save(); toast('Monto congelado para este mes'); openDrw(id);
+    });
+  }
+  var desmarcarFacturadaBtn = document.getElementById('btn-desmarcar-facturada');
+  if (desmarcarFacturadaBtn) {
+    desmarcarFacturadaBtn.addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede deshacer esto'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      if (!confirm('¿Deshacer "Ya facturada"? El monto dejara de contarse como facturado en ese mes.')) return;
+      delete ox.montoFacturadoTotal; delete ox.montoFacturadoMO; delete ox.montoFacturadoTs;
+      var who12 = ROLES[role] ? ROLES[role].label : role;
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:who12, txt:'Se deshizo la marca "Ya facturada"', ts:Date.now(), type:'system'});
+      save(); toast('Marca quitada'); openDrw(id);
     });
   }
 
@@ -4178,6 +4252,59 @@ function buildRepsContent() {
   var rMe = role ? ROLES[role] : null;
   var myName = rMe && rMe.tec ? rMe.tn : null;
 
+  // ── Presupuestos pendientes de ordenes YA CERRADAS (el vehiculo ya se
+  // entrego, pero el cliente pidio que se le siguiera armando un
+  // presupuesto). NO se reabre la orden como activa — es la MISMA orden,
+  // solo se muestra aqui mientras el flag este activo (sin alterar su
+  // trazabilidad ni duplicar nada). Flujo: Partes agrega/edita items y
+  // marca "completado" -> Jefe da el Vo.Bo. final -> desaparece de esta
+  // lista (deja de cumplir el filtro de abajo). ──
+  var pendingPresqCount = 0;
+  if (role === 'jefe' || role === 'partes') {
+    var pendingPresq = orders.filter(function(po) { return po.phase === 'cer' && po.presupuestoPendiente && !po.presupuestoVobo; });
+    pendingPresqCount = pendingPresq.length;
+    if (pendingPresq.length) {
+      html += '<div style="font-size:11px;font-weight:700;color:#8B5CF6;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">&#128221; Presupuestos pendientes (vehiculo ya entregado)</div>';
+      for (var pqi = 0; pqi < pendingPresq.length; pqi++) {
+        var po2 = pendingPresq[pqi];
+        var poRepList = po2.repuestos || [];
+        html += '<div style="background:var(--bg3);border:1px solid #8B5CF6;border-left:4px solid #8B5CF6;border-radius:var(--r);padding:10px 12px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.3)">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+            '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px">' + esc(po2.plate) + '</span>' +
+            '<span style="font-size:11px;color:var(--tx2)">' + esc(po2.model) + '</span>' +
+            '<span style="font-size:10px;color:var(--tx3);font-family:var(--mo);margin-left:auto">' + esc(po2.ot) + '</span>' +
+          '</div>';
+        for (var pri = 0; pri < poRepList.length; pri++) {
+          var prItem = poRepList[pri];
+          html += '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 9px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+            '<div style="font-size:12px">' + prItem.desc + '</div>' +
+            (role === 'jefe' ? '<button class="btn-presq-del" data-oid="' + po2.id + '" data-ri="' + pri + '" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
+          '</div>';
+        }
+        if (!poRepList.length) {
+          html += '<div style="font-size:11px;color:var(--tx3);padding:2px 0 8px">Aun sin items del presupuesto</div>';
+        }
+        html += '<div style="display:flex;gap:6px;margin-top:4px;margin-bottom:8px;flex-wrap:wrap">' +
+          '<input id="presq-inp-' + po2.id + '" class="cin" placeholder="Item del presupuesto..." style="flex:1;min-width:140px">' +
+          '<button class="btn-presq-add" data-oid="' + po2.id + '" style="padding:6px 12px;border-radius:var(--rs);background:#8B5CF6;border:none;color:#fff;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
+        '</div>';
+        if (!po2.presupuestoListoPartes) {
+          html += (role === 'partes'
+            ? '<button class="btn-presq-completado" data-oid="' + po2.id + '" style="width:100%;padding:8px;border-radius:var(--rs);border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600;font-size:12px;cursor:pointer">&#10003; Marcar presupuesto completado</button>'
+            : '<div style="font-size:10px;color:var(--tx3);font-style:italic">&#128274; Esperando que Partes complete el presupuesto.</div>');
+        } else {
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+            '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Completado por Partes</span>' +
+            (role === 'jefe'
+              ? '<button class="btn-presq-vobo" data-oid="' + po2.id + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. final</button>'
+              : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Esperando Vo.Bo. Jefe</span>') +
+          '</div>';
+        }
+        html += '</div>';
+      }
+    }
+  }
+
   // Collect all orders with pending repuestos
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
@@ -4244,7 +4371,7 @@ function buildRepsContent() {
     html += '</div>';
   }
 
-  if (!found) {
+  if (!found && !pendingPresqCount) {
     html = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Sin repuestos pendientes</div>';
   }
 
@@ -4308,6 +4435,85 @@ function buildRepsContent() {
         buildRepsContent();
       });
     })(voboBtns2[vbi2]);
+  }
+
+  /* presupuestos pendientes de ordenes ya cerradas */
+  var presqAddBtns = body.querySelectorAll('.btn-presq-add');
+  for (var pai = 0; pai < presqAddBtns.length; pai++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe' && role !== 'partes') { toast('Solo el Jefe de taller o Partes pueden agregar items al presupuesto'); return; }
+        var oidP = parseInt(this.getAttribute('data-oid'));
+        var oxP = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidP) { oxP = orders[j]; break; } }
+        if (!oxP) return;
+        var inpP = document.getElementById('presq-inp-' + oidP);
+        var descP = inpP ? inpP.value.trim() : '';
+        if (!descP) { toast('Escribe el item del presupuesto'); return; }
+        oxP.repuestos = oxP.repuestos || [];
+        oxP.repuestos.push({desc:esc(descP), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:'local'});
+        var whoP = ROLES[role] ? ROLES[role].label : role;
+        oxP.msgs = oxP.msgs || [];
+        oxP.msgs.push({who:whoP, txt:'&#128221; Item de presupuesto agregado: ' + esc(descP), ts:Date.now(), type:'system'});
+        save(); toast('Item agregado'); buildRepsContent();
+      });
+    })(presqAddBtns[pai]);
+  }
+  var presqDelBtns = body.querySelectorAll('.btn-presq-del');
+  for (var pdi = 0; pdi < presqDelBtns.length; pdi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar items del presupuesto'); return; }
+        var oidD = parseInt(this.getAttribute('data-oid'));
+        var riD = parseInt(this.getAttribute('data-ri'));
+        var oxD = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidD) { oxD = orders[j]; break; } }
+        if (!oxD || !oxD.repuestos || !oxD.repuestos[riD]) return;
+        var descDelP = oxD.repuestos[riD].desc;
+        if (!confirm('¿Eliminar el item "' + descDelP + '" del presupuesto?')) return;
+        oxD.repuestos.splice(riD, 1);
+        var whoD = ROLES[role] ? ROLES[role].label : role;
+        oxD.msgs = oxD.msgs || [];
+        oxD.msgs.push({who:whoD, txt:'&#x2715; Item de presupuesto eliminado: "' + esc(descDelP) + '"', ts:Date.now(), type:'system'});
+        save(); toast('Item eliminado'); buildRepsContent();
+      });
+    })(presqDelBtns[pdi]);
+  }
+  var presqCompletadoBtns = body.querySelectorAll('.btn-presq-completado');
+  for (var pci = 0; pci < presqCompletadoBtns.length; pci++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'partes') { toast('Solo Partes puede marcar el presupuesto como completado'); return; }
+        var oidC = parseInt(this.getAttribute('data-oid'));
+        var oxC = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidC) { oxC = orders[j]; break; } }
+        if (!oxC) return;
+        oxC.presupuestoListoPartes = true;
+        oxC.presupuestoListoPartesTs = Date.now();
+        var whoC = ROLES[role] ? ROLES[role].label : role;
+        oxC.msgs = oxC.msgs || [];
+        oxC.msgs.push({who:whoC, txt:'&#10003; Presupuesto completado por Partes — esperando Vo.Bo. del Jefe', ts:Date.now(), type:'system'});
+        save(); toast('Marcado como completado — esperando Vo.Bo. del Jefe'); buildRepsContent();
+      });
+    })(presqCompletadoBtns[pci]);
+  }
+  var presqVoboBtns = body.querySelectorAll('.btn-presq-vobo');
+  for (var pvi = 0; pvi < presqVoboBtns.length; pvi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede dar el Vo.Bo. final'); return; }
+        var oidV = parseInt(this.getAttribute('data-oid'));
+        var oxV = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidV) { oxV = orders[j]; break; } }
+        if (!oxV) return;
+        oxV.presupuestoVobo = true;
+        oxV.presupuestoVoboTs = Date.now();
+        var whoV = ROLES[role] ? ROLES[role].label : role;
+        oxV.msgs = oxV.msgs || [];
+        oxV.msgs.push({who:whoV, txt:'&#10003; Vo.Bo. final del presupuesto — pendiente resuelto', ts:Date.now(), type:'system'});
+        save(); toast('Vo.Bo. otorgado — el pendiente ya no aparecera en la lista'); buildRepsContent();
+      });
+    })(presqVoboBtns[pvi]);
   }
 }
 
@@ -4768,21 +4974,46 @@ function semComputeFromOrders(monthOffset) {
     var o = allClosedSource[i];
     if (seenIds[o.id]) continue;
     seenIds[o.id] = true;
+    var facTotal = o.montoFacturadoTotal || 0, facMO = o.montoFacturadoMO || 0;
+    // "Ya facturada" (congelado): un cierre prematuro (ej. para alcanzar el
+    // minimo del mes en una orden que en realidad sigue activa) se congela
+    // como un evento de facturacion propio, en el mes en que se congelo —
+    // independiente de que la orden se reabra o se vuelva a cerrar despues.
+    if (facTotal || facMO) {
+      var facTs = o.montoFacturadoTs || o.timestamps && o.timestamps.cer;
+      if (facTs) {
+        var fd = new Date(facTs);
+        if (fd.getFullYear() === y && fd.getMonth() === m) {
+          var facKey = String(fd.getDate()).padStart(2,'0') + '/' + String(fd.getMonth()+1).padStart(2,'0') + '/' + fd.getFullYear();
+          if (!byDay[facKey]) byDay[facKey] = {total:0, mo:0, count:0};
+          byDay[facKey].total += facTotal; byDay[facKey].mo += facMO; byDay[facKey].count++;
+          totalFact += facTotal; totalMO += facMO; countCerradas++;
+          if (isCurrentMonth && fd.getDate() === dToday) { hoyTotal += facTotal; hoyMO += facMO; hoyCount++; }
+        }
+      }
+    }
     if (o.phase === 'cer') {
       var ts = o.timestamps && o.timestamps['cer'];
       if (!ts) continue;
+      // Si ya se congelo un monto "Ya facturada", este cierre (el mismo u
+      // otro posterior tras reabrirla) solo aporta lo ADICIONAL — nunca
+      // vuelve a contar lo que ya se congelo en su propio mes.
+      var t = (o.montoTotal || 0) - facTotal;
+      var mo = (o.montoMO || 0) - facMO;
+      if (!t && !mo) continue; // nada adicional que registrar para este cierre
       var d = new Date(ts);
       if (d.getFullYear() !== y || d.getMonth() !== m) continue; // solo el mes que se esta consultando
       var key = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
       if (!byDay[key]) byDay[key] = {total:0, mo:0, count:0};
-      var t = o.montoTotal || 0, mo = o.montoMO || 0;
       byDay[key].total += t; byDay[key].mo += mo; byDay[key].count++;
       totalFact += t; totalMO += mo; countCerradas++;
       if (isCurrentMonth && d.getDate() === dToday) { hoyTotal += t; hoyMO += mo; hoyCount++; }
     } else if (o.montoTotal && isCurrentMonth) {
       // "Proyectado" son ordenes AUN activas — solo tiene sentido para el mes
-      // actual, no aplica retroactivamente a un mes ya cerrado.
-      potTotal += o.montoTotal; potMO += (o.montoMO || 0); countPotencial++;
+      // actual, no aplica retroactivamente a un mes ya cerrado. Si ya tiene
+      // un monto "Ya facturada" congelado (se reabrio despues de un cierre
+      // prematuro), solo se proyecta lo adicional, no lo ya congelado.
+      potTotal += (o.montoTotal - facTotal); potMO += ((o.montoMO || 0) - facMO); countPotencial++;
     }
   }
   var dias = Object.keys(byDay).map(function(k) {
