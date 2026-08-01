@@ -314,7 +314,7 @@ button{cursor:pointer}
    alcanza para que todo el reporte se imprima en claro sin tener que tocar
    cada seccion una por una. */
 @media print {
-  #ap, .np, .ov, .mwrap:not(#m-hist-detail) { display:none !important; }
+  #ap, .np, .ov, .drw, .mwrap:not(#m-hist-detail) { display:none !important; }
   /* .mwrap es position:fixed;inset:0 — eso recorta la impresion al tamano
      de una sola pantalla. Para que el contenido fluya y pagine normal, hay
      que sacarlo de fixed/flex durante la impresion. */
@@ -1473,6 +1473,7 @@ function openDrw(id) {
       '</div>' +
     '</div>' +
     '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
+      ((role === 'jefe' || role === 'asesor') ? '<button class="btn-nb" id="drw-print-btn" title="Imprimir reporte" style="width:30px;height:30px;font-size:14px" onclick="printOrderReport(' + o.id + ')">&#128424;</button>' : '') +
       '<button class="btn-nb" id="drw-bell-btn" style="width:30px;height:30px;font-size:14px" onclick="toggleSysBell(' + o.id + ')">&#128276;<span class="nb-dot' + (sysUnread ? ' on' : '') + '" id="drw-bell-dot"></span></button>' +
       '<button class="drw-cl" onclick="closeDrw()">&#x2715;</button>' +
     '</div>' +
@@ -4555,6 +4556,28 @@ function openHistDetail(o) {
     html += '</div>';
   }
 
+  // ── Repuestos solicitados (todos, no solo los pendientes — eso ya se
+  // consulta aparte en el boton "Reporte Repuestos") ──
+  if (o.repuestos && o.repuestos.length) {
+    html += '<div class="sec"><div class="sec-l">Repuestos solicitados</div>' +
+      '<div style="font-size:11px;font-weight:700;color:var(--tx);margin-bottom:6px">' + o.repuestos.length + ' repuesto(s)/subcontrato(s)</div>';
+    for (var ri7 = 0; ri7 < o.repuestos.length; ri7++) {
+      var rp7 = o.repuestos[ri7];
+      var isDone7 = !!rp7.ck3;
+      var origenLabel7 = (rp7.origen === 'importacion') ? '&#9992; Importacion' : 'Local';
+      var estadoLabel7 = isDone7 ? '&#10003; Instalado' : (rp7.ck2 ? 'Confirmado por Partes' : (rp7.ck1 ? 'Confirmado por Mensajero' : 'Pendiente'));
+      var estadoColor7 = isDone7 ? 'var(--gn)' : 'var(--or)';
+      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px' + (isDone7 ? ';opacity:.75' : '') + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:12px;font-weight:500' + (isDone7 ? ';text-decoration:line-through' : '') + '">' + rp7.desc + '</div>' +
+          '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:' + estadoColor7 + ';border:1px solid var(--bd);white-space:nowrap">' + estadoLabel7 + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + origenLabel7 + (rp7.ts ? ' &middot; ' + msgTs(rp7.ts) : '') + '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+
   // ── Avisos (registro automatico: firmas, avances de fase, repuestos,
   // Vo.Bo., fecha de cierre, etc.) — mismo contenido que la campanita de
   // la ficha en vivo, aqui en orden cronologico para el reporte completo. ──
@@ -4591,6 +4614,19 @@ function openHistDetail(o) {
 
 function closeHistDetail() {
   document.getElementById('m-hist-detail').classList.remove('on');
+}
+
+// Reutiliza el mismo reporte de solo lectura de Historial para imprimir el
+// reporte de una orden ACTIVA desde la ficha en vivo (boton de la impresora
+// en el header, Jefe/Asesor) — mismo codigo, sin duplicar nada. Cierra la
+// ficha primero para que no quede abierta detras del reporte.
+function printOrderReport(id) {
+  if (role !== 'jefe' && role !== 'asesor') { toast('Solo el Jefe de taller o el Asesor pueden imprimir el reporte'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  closeDrw();
+  openHistDetail(o);
 }
 
 
