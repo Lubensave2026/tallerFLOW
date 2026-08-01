@@ -315,8 +315,19 @@ button{cursor:pointer}
    cada seccion una por una. */
 @media print {
   #ap, .np, .ov, .mwrap:not(#m-hist-detail) { display:none !important; }
-  #m-hist-detail .rep-modal { box-shadow:none; max-width:100%; width:100%; border-radius:0; border:none; max-height:none }
-  #m-hist-detail #hist-detail-body { max-height:none; overflow:visible }
+  /* .mwrap es position:fixed;inset:0 — eso recorta la impresion al tamano
+     de una sola pantalla. Para que el contenido fluya y pagine normal, hay
+     que sacarlo de fixed/flex durante la impresion. */
+  #m-hist-detail {
+    position:static !important; display:block !important; inset:auto !important;
+    background:#fff !important; backdrop-filter:none !important;
+  }
+  #m-hist-detail .rep-modal {
+    box-shadow:none; max-width:100%; width:100%; border-radius:0; border:none;
+    max-height:none !important; overflow:visible !important; position:static;
+  }
+  #m-hist-detail #hist-detail-body { max-height:none !important; overflow:visible !important }
+  #m-hist-detail .chat-box { max-height:none !important; overflow:visible !important }
   #hist-detail-title button { display:none }
   :root {
     --bg:#fff; --bg2:#fff; --bg3:#f2f2f2; --bg4:#e8e8e8;
