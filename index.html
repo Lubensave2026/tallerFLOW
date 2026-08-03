@@ -3266,7 +3266,14 @@ function buildRepContent() {
     for (var ki=0; ki<orders.length; ki++) {
       var ko = orders[ki];
       if (ko.phase === 'cer') continue;
-      if (ko.montoTotal) { potTotal += ko.montoTotal; potMO += (ko.montoMO||0); conMonto++; }
+      if (ko.montoTotal) {
+        // Si ya se marco "Ya facturada", ese monto ya quedo contado en el mes
+        // en que se congelo — aqui solo cuenta lo ADICIONAL pendiente, para
+        // no duplicarlo en la facturacion potencial de este mes.
+        var koFacTotal = ko.montoFacturadoTotal || 0;
+        var koFacMO = ko.montoFacturadoMO || 0;
+        potTotal += (ko.montoTotal - koFacTotal); potMO += ((ko.montoMO||0) - koFacMO); conMonto++;
+      }
     }
     var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
     var semData = semComputeFromOrders();
