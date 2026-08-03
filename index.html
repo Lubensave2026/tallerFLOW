@@ -2571,14 +2571,19 @@ function openDrw(id) {
       var ox = null;
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (!ox) return;
-      if (!confirm('Se congelara el monto actual (Q.' + Number(ox.montoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ') como facturado de este mes. Si despues reabres la orden y la cierras de nuevo, solo se contara lo ADICIONAL. Continuar?')) return;
+      // Se congela con la fecha de CIERRE de la orden (no la fecha en que se
+      // hace clic) para que quede contabilizada en el mes al que realmente
+      // corresponde el cierre, aunque se marque dias despues.
+      var facTs = (ox.timestamps && ox.timestamps.cer) ? ox.timestamps.cer : Date.now();
+      var facMesLabel = new Date(facTs).toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+      if (!confirm('Se congelara el monto actual (Q.' + Number(ox.montoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ') como facturado de ' + facMesLabel + ' (el mes de su fecha de cierre). Si despues reabres la orden y la cierras de nuevo, solo se contara lo ADICIONAL. Continuar?')) return;
       ox.montoFacturadoTotal = ox.montoTotal || 0;
       ox.montoFacturadoMO = ox.montoMO || 0;
-      ox.montoFacturadoTs = Date.now();
+      ox.montoFacturadoTs = facTs;
       var who11 = ROLES[role] ? ROLES[role].label : role;
       ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:who11, txt:'&#128176; Marcada como Ya Facturada — Q.' + Number(ox.montoFacturadoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' contado este mes', ts:Date.now(), type:'system'});
-      save(); toast('Monto congelado para este mes'); openDrw(id);
+      ox.msgs.push({who:who11, txt:'&#128176; Marcada como Ya Facturada — Q.' + Number(ox.montoFacturadoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' contado en ' + facMesLabel, ts:Date.now(), type:'system'});
+      save(); toast('Monto congelado en ' + facMesLabel); openDrw(id);
     });
   }
   var desmarcarFacturadaBtn = document.getElementById('btn-desmarcar-facturada');
