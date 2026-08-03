@@ -1280,7 +1280,10 @@ function renderBoard() {
       }
       if (pendingPresqBoardCount > 0) {
         presqBadgeEl = document.createElement('div');
-        presqBadgeEl.style.cssText = 'background:#8B5CF6;color:#fff;font-size:10px;font-weight:800;padding:5px 8px;text-align:center;letter-spacing:.3px;cursor:pointer;flex-shrink:0';
+        // Mismos colores que el encabezado de la columna "07 Orden cerrada"
+        // (ver .l-cer .lane-hdr / PHASE_COLORS.cer) — para no confundirse
+        // con el morado de "Prueba/Insp.Final".
+        presqBadgeEl.style.cssText = 'background:#2A2A2A;color:#888888;font-size:10px;font-weight:800;padding:5px 8px;text-align:center;letter-spacing:.3px;cursor:pointer;flex-shrink:0';
         presqBadgeEl.textContent = '⚠ ' + pendingPresqBoardCount + ' PRESUPUESTO' + (pendingPresqBoardCount > 1 ? 'S' : '') + ' DE ORDEN CERRADA PENDIENTE' + (pendingPresqBoardCount > 1 ? 'S' : '');
         presqBadgeEl.addEventListener('click', function() { openReps(); });
       }
