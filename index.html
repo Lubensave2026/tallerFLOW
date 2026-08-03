@@ -3452,7 +3452,9 @@ function buildRepContent() {
         // no duplicarlo en la facturacion potencial de este mes.
         var koFacTotal = ko.montoFacturadoTotal || 0;
         var koFacMO = ko.montoFacturadoMO || 0;
-        potTotal += (ko.montoTotal - koFacTotal); potMO += ((ko.montoMO||0) - koFacMO); conMonto++;
+        // Math.max(0, ...) para que una correccion hacia abajo del monto
+        // despues de congelar nunca produzca un valor negativo aqui.
+        potTotal += Math.max(0, ko.montoTotal - koFacTotal); potMO += Math.max(0, (ko.montoMO||0) - koFacMO); conMonto++;
       }
     }
     var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
@@ -5355,9 +5357,13 @@ function semComputeFromOrders(monthOffset) {
       if (!ts) continue;
       // Si ya se congelo un monto "Ya facturada", este cierre (el mismo u
       // otro posterior tras reabrirla) solo aporta lo ADICIONAL — nunca
-      // vuelve a contar lo que ya se congelo en su propio mes.
-      var t = (o.montoTotal || 0) - facTotal;
-      var mo = (o.montoMO || 0) - facMO;
+      // vuelve a contar lo que ya se congelo en su propio mes. Se limita a
+      // un minimo de 0 (Math.max) para que, si el monto se corrige HACIA
+      // ABAJO despues de congelar (ej. al revisar la orden), el segundo
+      // cierre nunca reste del total ya contado en el mes congelado — a lo
+      // sumo aporta cero adicional, jamas un valor negativo.
+      var t = Math.max(0, (o.montoTotal || 0) - facTotal);
+      var mo = Math.max(0, (o.montoMO || 0) - facMO);
       if (!t && !mo) continue; // nada adicional que registrar para este cierre
       var d = new Date(ts);
       if (d.getFullYear() !== y || d.getMonth() !== m) continue; // solo el mes que se esta consultando
@@ -5370,8 +5376,9 @@ function semComputeFromOrders(monthOffset) {
       // "Proyectado" son ordenes AUN activas — solo tiene sentido para el mes
       // actual, no aplica retroactivamente a un mes ya cerrado. Si ya tiene
       // un monto "Ya facturada" congelado (se reabrio despues de un cierre
-      // prematuro), solo se proyecta lo adicional, no lo ya congelado.
-      potTotal += (o.montoTotal - facTotal); potMO += ((o.montoMO || 0) - facMO); countPotencial++;
+      // prematuro), solo se proyecta lo adicional, no lo ya congelado — nunca
+      // un valor negativo si el monto se corrigio hacia abajo.
+      potTotal += Math.max(0, o.montoTotal - facTotal); potMO += Math.max(0, (o.montoMO || 0) - facMO); countPotencial++;
     }
   }
   var dias = Object.keys(byDay).map(function(k) {
