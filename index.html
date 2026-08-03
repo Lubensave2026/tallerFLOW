@@ -412,7 +412,7 @@ button{cursor:pointer}
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
     <button class="btn-map" id="btn-map" onclick="openMap()" style="display:none">🗺 Mapa</button>
-    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; FIRMAS REPUESTOS Y SUBCONTRATOS</button>
+    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS</button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Reporte Repuestos</button>
@@ -1266,6 +1266,25 @@ function renderBoard() {
     var hdr = document.createElement('div');
     hdr.className = 'lane-hdr';
     hdr.innerHTML = '<span class="lt">' + lane.label + '</span><span class="lc">' + items.length + '</span>';
+    // Aviso visual (no una orden falsa) en la columna PRESUPUESTO/PARTES
+    // cuando hay ordenes YA CERRADAS con un presupuesto pendiente (ver
+    // buildRepsContent()) — se queda fijo hasta que el Jefe de una el
+    // Vo.Bo. final, para presionar visualmente a que se resuelva y no se
+    // pierda mezclado con repuestos y subcontratos normales.
+    var presqBadgeEl = null;
+    if (lane.id === 'pa') {
+      var pendingPresqBoardCount = 0;
+      for (var pbi = 0; pbi < orders.length; pbi++) {
+        var pbo = orders[pbi];
+        if (pbo.phase === 'cer' && pbo.presupuestoPendiente && !pbo.presupuestoVobo) pendingPresqBoardCount++;
+      }
+      if (pendingPresqBoardCount > 0) {
+        presqBadgeEl = document.createElement('div');
+        presqBadgeEl.style.cssText = 'background:#8B5CF6;color:#fff;font-size:10px;font-weight:800;padding:5px 8px;text-align:center;letter-spacing:.3px;cursor:pointer;flex-shrink:0';
+        presqBadgeEl.textContent = '⚠ ' + pendingPresqBoardCount + ' PRESUPUESTO' + (pendingPresqBoardCount > 1 ? 'S' : '') + ' DE ORDEN CERRADA PENDIENTE' + (pendingPresqBoardCount > 1 ? 'S' : '');
+        presqBadgeEl.addEventListener('click', function() { openReps(); });
+      }
+    }
     var body = document.createElement('div');
     body.className = 'lane-body';
 
@@ -1370,6 +1389,7 @@ function renderBoard() {
       }
     }
     laneEl.appendChild(hdr);
+    if (presqBadgeEl) laneEl.appendChild(presqBadgeEl);
     laneEl.appendChild(body);
     board.appendChild(laneEl);
   }
@@ -1968,7 +1988,7 @@ function openDrw(id) {
           '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--bd);background:var(--bg4);color:' + (rep.ck2 ? 'var(--gn)' : 'var(--tx3)') + '">' + (rep.ck2 ? '&#10003;' : '&#9675;') + ' Partes</span>' +
           '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--bd);background:var(--bg4);color:' + (rep.ck3 ? 'var(--gn)' : 'var(--tx3)') + '">' + (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</span>' +
         '</div>' +
-        '<div style="font-size:9px;color:var(--tx3);margin-top:5px;font-style:italic">&#128274; Firma desde &#128230; FIRMAS REPUESTOS Y SUBCONTRATOS</div>'
+        '<div style="font-size:9px;color:var(--tx3);margin-top:5px;font-style:italic">&#128274; Firma desde &#128230; REPUESTOS Y SUBCONTRATOS</div>'
       ) +
       (repTimingHtml ? '<div style="margin-top:7px;padding-top:6px;border-top:1px solid var(--bd)">' + repTimingHtml + '</div>' : '') +
     '</div>';
@@ -4085,7 +4105,7 @@ function renderHist(q) {
     all.push(archived[i]);
   }
   // Un tecnico solo ve el historial de sus propias ordenes (tech/tech2) —
-  // mismo criterio ya usado en el reporte 📊 y en FIRMAS REPUESTOS Y SUBCONTRATOS.
+  // mismo criterio ya usado en el reporte 📊 y en REPUESTOS Y SUBCONTRATOS.
   var rMeHist = role ? ROLES[role] : null;
   var myNameHist = rMeHist && rMeHist.tec ? rMeHist.tn : null;
   if (myNameHist) {
@@ -4108,8 +4128,13 @@ function renderHist(q) {
   for (var i = 0; i < max; i++) {
     var o = all[i];
     var fechaApertura = o.cat ? new Date(o.cat).toLocaleDateString('es-GT') : '—';
-    var closeTsH = o.timestamps && o.timestamps.cer;
+    // Cierre mostrado aqui = la fecha CONTABLE (montoFacturadoTs si la orden
+    // fue "Ya facturada", si no la fecha de cierre normal) — asi la lista no
+    // muestra un cierre distinto al que ya se ve en el detalle de la orden.
+    var closeTsH = o.montoFacturadoTs || (o.timestamps && o.timestamps.cer);
     var fechaCierre = closeTsH ? new Date(closeTsH).toLocaleDateString('es-GT') : '—';
+    var entregaTsH = o.timestamps && o.timestamps.ent;
+    var fechaEntregaH = entregaTsH ? new Date(entregaTsH).toLocaleDateString('es-GT') : null;
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:9px 11px;margin-bottom:6px;cursor:pointer" class="hist-card" data-idx="' + i + '">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
         '<span style="font-size:13px;font-weight:600;font-family:var(--mo)">' + esc(o.plate) + '</span>' +
@@ -4117,9 +4142,10 @@ function renderHist(q) {
       '</div>' +
       '<div style="font-size:11px;color:var(--tx2);margin-top:2px">' + esc(o.model) + ' · ' + esc(o.client) + '</div>' +
       '<div style="font-size:10px;color:var(--tx3);margin-top:2px">' + esc(o.tech||'—') + ' · ' + esc(o.ot) + (o._arch ? ' · <span style="color:var(--tx3)">Archivado</span>' : '') + '</div>' +
-      '<div style="font-size:10px;color:var(--tx3);margin-top:4px;display:flex;gap:12px">' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:4px;display:flex;gap:12px;flex-wrap:wrap">' +
         '<span>&#128198; Apertura: ' + fechaApertura + '</span>' +
         '<span style="color:var(--gn)">&#9989; Cierre: ' + fechaCierre + '</span>' +
+        (fechaEntregaH ? '<span style="color:var(--ac)">&#128666; Entrega: ' + fechaEntregaH + '</span>' : '') +
       '</div>' +
     '</div>';
   }
@@ -4148,6 +4174,7 @@ function archiveOld() {
   var toArchive = [];
   var remaining = [];
   var skippedPendingRep = 0;
+  var skippedPendingPresq = 0;
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.phase === 'cer') {
@@ -4157,8 +4184,14 @@ function archiveOld() {
         // instalado (ej. importacion pendiente) — la orden debe seguir
         // visible en "cerradas" hasta que el tecnico/jefe lo marque.
         var pendingRep = (o.repuestos || []).some(function(r) { return !r.ck3; });
-        if (pendingRep) {
-          skippedPendingRep++;
+        // Tampoco archivar si queda un presupuesto pendiente sin Vo.Bo. del
+        // Jefe (ver buildRepsContent()) — debe seguir siendo accesible para
+        // Partes/Asesor/Jefe hasta cerrar ese ciclo, no desaparecer al pasar
+        // a Historial.
+        var pendingPresq2 = o.presupuestoPendiente && !o.presupuestoVobo;
+        if (pendingRep || pendingPresq2) {
+          if (pendingRep) skippedPendingRep++;
+          if (pendingPresq2) skippedPendingPresq++;
           remaining.push(o);
         } else {
           toArchive.push(o);
@@ -4169,8 +4202,8 @@ function archiveOld() {
     remaining.push(o);
   }
   if (!toArchive.length) {
-    toast(skippedPendingRep
-      ? ('No hay ordenes listas para archivar — ' + skippedPendingRep + ' con repuesto pendiente de confirmar')
+    toast((skippedPendingRep || skippedPendingPresq)
+      ? ('No hay ordenes listas para archivar — ' + skippedPendingRep + ' con repuesto pendiente de confirmar, ' + skippedPendingPresq + ' con presupuesto pendiente de Vo.Bo.')
       : 'No hay ordenes cerradas de mas de 7 dias');
     return;
   }
@@ -4186,7 +4219,11 @@ function archiveOld() {
   save();
   renderHist('');
   renderBoard();
-  toast(toArchive.length + ' orden(es) archivada(s)' + (skippedPendingRep ? (' — ' + skippedPendingRep + ' con repuesto pendiente se mantienen en cerradas') : ''));
+  var skippedNote = '';
+  if (skippedPendingRep) skippedNote += ' — ' + skippedPendingRep + ' con repuesto pendiente';
+  if (skippedPendingPresq) skippedNote += (skippedNote ? ', ' : ' — ') + skippedPendingPresq + ' con presupuesto pendiente de Vo.Bo.';
+  if (skippedNote) skippedNote += ' se mantienen en cerradas';
+  toast(toArchive.length + ' orden(es) archivada(s)' + skippedNote);
 }
 
 function loadArch() {
@@ -4306,10 +4343,12 @@ function buildRepsContent() {
   // presupuesto). NO se reabre la orden como activa — es la MISMA orden,
   // solo se muestra aqui mientras el flag este activo (sin alterar su
   // trazabilidad ni duplicar nada). Flujo: Partes agrega/edita items y
-  // marca "completado" -> Jefe da el Vo.Bo. final -> desaparece de esta
-  // lista (deja de cumplir el filtro de abajo). ──
+  // marca "completado" -> Asesor de servicio lo envia al cliente -> Jefe da
+  // el Vo.Bo. final -> desaparece de esta lista (deja de cumplir el filtro
+  // de abajo) — misma ruta que sigue un presupuesto normal (Partes cotiza,
+  // Asesor lo entrega al cliente, Jefe cierra el ciclo). ──
   var pendingPresqCount = 0;
-  if (role === 'jefe' || role === 'partes') {
+  if (role === 'jefe' || role === 'partes' || role === 'asesor') {
     var pendingPresq = orders.filter(function(po) { return po.phase === 'cer' && po.presupuestoPendiente && !po.presupuestoVobo; });
     pendingPresqCount = pendingPresq.length;
     if (pendingPresq.length) {
@@ -4337,13 +4376,22 @@ function buildRepsContent() {
           '<input id="presq-inp-' + po2.id + '" class="cin" placeholder="Item del presupuesto..." style="flex:1;min-width:140px">' +
           '<button class="btn-presq-add" data-oid="' + po2.id + '" style="padding:6px 12px;border-radius:var(--rs);background:#8B5CF6;border:none;color:#fff;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
         '</div>';
+        // Ruta de 3 pasos: Partes completa -> Asesor lo envia al cliente ->
+        // Jefe da Vo.Bo. final (solo entonces desaparece del pendiente).
         if (!po2.presupuestoListoPartes) {
           html += (role === 'partes'
             ? '<button class="btn-presq-completado" data-oid="' + po2.id + '" style="width:100%;padding:8px;border-radius:var(--rs);border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600;font-size:12px;cursor:pointer">&#10003; Marcar presupuesto completado</button>'
             : '<div style="font-size:10px;color:var(--tx3);font-style:italic">&#128274; Esperando que Partes complete el presupuesto.</div>');
-        } else {
+        } else if (!po2.presupuestoEnviadoAsesor) {
           html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
             '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Completado por Partes</span>' +
+            (role === 'asesor'
+              ? '<button class="btn-presq-enviado" data-oid="' + po2.id + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600;cursor:pointer">&#9993; Ya lo envie al cliente</button>'
+              : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#128274; Esperando envio al cliente (Asesor)</span>') +
+          '</div>';
+        } else {
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+            '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#9993; Enviado al cliente</span>' +
             (role === 'jefe'
               ? '<button class="btn-presq-vobo" data-oid="' + po2.id + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. final</button>'
               : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Esperando Vo.Bo. Jefe</span>') +
@@ -4541,10 +4589,28 @@ function buildRepsContent() {
         oxC.presupuestoListoPartesTs = Date.now();
         var whoC = ROLES[role] ? ROLES[role].label : role;
         oxC.msgs = oxC.msgs || [];
-        oxC.msgs.push({who:whoC, txt:'&#10003; Presupuesto completado por Partes — esperando Vo.Bo. del Jefe', ts:Date.now(), type:'system'});
-        save(); toast('Marcado como completado — esperando Vo.Bo. del Jefe'); buildRepsContent();
+        oxC.msgs.push({who:whoC, txt:'&#10003; Presupuesto completado por Partes — esperando que Asesor lo envie al cliente', ts:Date.now(), type:'system'});
+        save(); toast('Marcado como completado — esperando envio al cliente'); buildRepsContent();
       });
     })(presqCompletadoBtns[pci]);
+  }
+  var presqEnviadoBtns = body.querySelectorAll('.btn-presq-enviado');
+  for (var pei = 0; pei < presqEnviadoBtns.length; pei++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'asesor') { toast('Solo el Asesor de servicio puede marcar el envio al cliente'); return; }
+        var oidE = parseInt(this.getAttribute('data-oid'));
+        var oxE = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidE) { oxE = orders[j]; break; } }
+        if (!oxE) return;
+        oxE.presupuestoEnviadoAsesor = true;
+        oxE.presupuestoEnviadoAsesorTs = Date.now();
+        var whoE = ROLES[role] ? ROLES[role].label : role;
+        oxE.msgs = oxE.msgs || [];
+        oxE.msgs.push({who:whoE, txt:'&#9993; Presupuesto enviado al cliente por Asesor — esperando Vo.Bo. del Jefe', ts:Date.now(), type:'system'});
+        save(); toast('Marcado como enviado — esperando Vo.Bo. del Jefe'); buildRepsContent();
+      });
+    })(presqEnviadoBtns[pei]);
   }
   var presqVoboBtns = body.querySelectorAll('.btn-presq-vobo');
   for (var pvi = 0; pvi < presqVoboBtns.length; pvi++) {
@@ -4555,6 +4621,7 @@ function buildRepsContent() {
         var oxV = null;
         for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidV) { oxV = orders[j]; break; } }
         if (!oxV) return;
+        if (!oxV.presupuestoEnviadoAsesor) { toast('El Asesor debe marcar que ya se envio al cliente antes del Vo.Bo.'); return; }
         oxV.presupuestoVobo = true;
         oxV.presupuestoVoboTs = Date.now();
         var whoV = ROLES[role] ? ROLES[role].label : role;
@@ -4799,7 +4866,25 @@ function openHistDetail(o) {
   // ── Info general ──
   var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
   var closeTsDetail = o.timestamps && o.timestamps.cer;
-  var fechaCierreDetail = closeTsDetail ? new Date(closeTsDetail).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+  // "Fecha de cierre" mostrada aqui es la fecha CONTABLE — la que cuenta para
+  // el mes de facturacion. Si la orden fue marcada "Ya facturada" (cierre
+  // anticipado para cumplir meta del mes, con la orden reabierta despues
+  // para terminar el trabajo real), esa fecha congelada (montoFacturadoTs)
+  // es la que importa, no la del cierre mas reciente.
+  var facTsDetail = o.montoFacturadoTs || null;
+  var fechaCierreContableTs = facTsDetail || closeTsDetail;
+  var fechaCierreDetail = fechaCierreContableTs ? new Date(fechaCierreContableTs).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+  // "Fecha de entrega": cuando el vehiculo realmente paso por Entregado —
+  // dato distinto e independiente de la fecha de cierre contable, para saber
+  // que dia se le entrego el vehiculo al cliente aunque el cierre contable
+  // haya sido anterior (por un cierre anticipado) o posterior.
+  var entregaTsDetail = o.timestamps && o.timestamps.ent;
+  var fechaEntregaDetail = entregaTsDetail ? new Date(entregaTsDetail).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+  // Si la orden se cerro una SEGUNDA vez (se reabrio tras quedar "Ya
+  // facturada" y se volvio a cerrar) se deja como dato secundario/informativo
+  // — lo que cuenta para contabilidad ya quedo fijo en "Fecha de cierre" arriba.
+  var esSegundoCierre = o.phase === 'cer' && facTsDetail && closeTsDetail && closeTsDetail !== facTsDetail;
+  var fechaSegundoCierreDetail = esSegundoCierre ? new Date(closeTsDetail).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : null;
   html += '<div class="sec"><div class="sec-l">Informacion general</div>' +
     '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
@@ -4808,6 +4893,8 @@ function openHistDetail(o) {
     '<div class="irow"><span class="ik">No. OT</span><span style="font-family:var(--mo)">' + esc(o.ot||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Fecha ingreso</span><span>' + fecha + '</span></div>' +
     '<div class="irow"><span class="ik">Fecha de cierre</span><span>' + fechaCierreDetail + '</span></div>' +
+    '<div class="irow"><span class="ik">Fecha de entrega</span><span>' + fechaEntregaDetail + '</span></div>' +
+    (esSegundoCierre ? '<div class="irow"><span class="ik" style="font-size:10px;color:var(--tx3)">&#8618; Cierre adicional (informativo)</span><span style="font-size:10px;color:var(--tx3)">' + fechaSegundoCierreDetail + '</span></div>' : '') +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
@@ -5288,7 +5375,7 @@ window.addEventListener('load', function() {
 <!-- REPUESTOS MODAL -->
 <div class="mwrap" id="m-reps">
   <div class="rep-modal">
-    <div class="modal-t">&#128230; FIRMAS REPUESTOS Y SUBCONTRATOS
+    <div class="modal-t">&#128230; REPUESTOS Y SUBCONTRATOS
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeReps()">&#x2715;</button>
     </div>
     <div id="reps-body"></div>
