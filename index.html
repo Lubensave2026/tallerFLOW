@@ -5194,6 +5194,15 @@ function openHistDetail(o) {
       var origenLabel7 = (rp7.origen === 'importacion') ? '&#9992; Importacion' : 'Local';
       var estadoLabel7 = isDone7 ? '&#10003; Instalado' : (rp7.ck2 ? 'Confirmado por Partes' : (rp7.ck1 ? 'Confirmado por Mensajero' : 'Pendiente'));
       var estadoColor7 = isDone7 ? 'var(--gn)' : 'var(--or)';
+      // Los items de un presupuesto adicional (vehiculo ya entregado, ver
+      // buildRepsContent()) nunca pasan por ck1/ck2/ck3 — no son repuestos
+      // fisicos en camino, son lineas de una cotizacion. Si esa orden ya
+      // recibio el Vo.Bo. final del Jefe, mostrar "Pendiente" es enganoso —
+      // el presupuesto (y por lo tanto estos items) ya quedo completado.
+      if (o.presupuestoPendiente && o.presupuestoVobo && !isDone7 && !rp7.ck1) {
+        estadoLabel7 = '&#10003; Presupuesto completado';
+        estadoColor7 = 'var(--gn)';
+      }
       html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px' + (isDone7 ? ';opacity:.75' : '') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
           '<div style="font-size:12px;font-weight:500' + (isDone7 ? ';text-decoration:line-through' : '') + '">' + rp7.desc + '</div>' +
