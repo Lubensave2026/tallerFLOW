@@ -411,7 +411,7 @@ button{cursor:pointer}
   </div>
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
-    <button class="btn-map" onclick="openMap()">🗺 Mapa</button>
+    <button class="btn-map" id="btn-map" onclick="openMap()" style="display:none">🗺 Mapa</button>
     <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; FIRMAS REPUESTOS Y SUBCONTRATOS</button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
@@ -1135,7 +1135,12 @@ function doLogin(rk) {
   document.getElementById('btn-new').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-repparts').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || rk === 'mensajero') ? 'inline-flex' : 'none';
-  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
+  document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
+  // Mapa: el Jefe lo usa para asignar espacios (funcional); los tecnicos solo
+  // lo ven para saber donde esta cada vehiculo (openMap() lo deja de solo
+  // lectura para ellos, ver mas abajo); el resto de roles (asesor, partes,
+  // mensajero, lavador) ya no lo necesitan.
+  document.getElementById('btn-map').style.display = (rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-export').style.display = (rk === 'jefe') ? 'inline-flex' : 'none';
@@ -1159,6 +1164,7 @@ function logout() {
   document.getElementById('btn-sigs').style.display = 'none';
   document.getElementById('btn-sem').style.display = 'none';
   document.getElementById('btn-export').style.display = 'none';
+  document.getElementById('btn-map').style.display = 'none';
   closeDrw(); closeNO(); closeRep(); closeMap();
   if (window._ri) clearInterval(window._ri);
   showSc('lg');
@@ -1809,9 +1815,15 @@ function openDrw(id) {
   } else {
     phaseLogHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Aun no hay movimientos de fase registrados.</div>';
   }
-  if (o.phase === 'cer' && o.timestamps && o.timestamps.cer) {
+  // Fecha de cierre: se muestra siempre que exista un registro (o.timestamps.cer
+  // nunca se borra al reabrir una orden), no solo mientras phase==='cer' —
+  // asi la bitacora conserva el dato aunque la orden se reabra para seguir
+  // el trabajo real despues de un cierre prematuro por meta de facturacion.
+  if (o.timestamps && o.timestamps.cer) {
+    var cierreEsActual = (o.phase === 'cer');
+    var cierreLabel = cierreEsActual ? 'Fecha de cierre' : 'Fecha del ultimo cierre (orden reabierta)';
     phaseLogHtml += '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--gnbg);border:1px solid var(--gnbd);border-radius:var(--rs);padding:7px 10px;margin-top:8px">' +
-      '<span style="font-size:10px;color:var(--gn);text-transform:uppercase;letter-spacing:.3px">&#9989; Fecha de cierre</span>' +
+      '<span style="font-size:10px;color:var(--gn);text-transform:uppercase;letter-spacing:.3px">&#9989; ' + cierreLabel + '</span>' +
       '<span style="font-size:12px;font-weight:700;color:var(--gn)">' + fmtFullDate(o.timestamps.cer) + '</span>' +
     '</div>';
     // "Ya facturada": permite congelar el monto actual como facturacion
@@ -1819,6 +1831,9 @@ function openDrw(id) {
     // mes, aunque la orden se reabra despues para seguir el trabajo real).
     // Solo Jefe. El monto congelado ya no se recalcula si se editan los
     // montos en vivo despues — solo lo ADICIONAL cuenta en un cierre futuro.
+    // El aviso de "congelada" (si aplica) se muestra SIEMPRE, este activa o
+    // no, para que quede claro en la bitacora que ya no cuenta completo para
+    // este mes; el boton para marcarla solo aparece mientras sigue cerrada.
     if (role === 'jefe') {
       if (o.montoFacturadoTotal || o.montoFacturadoMO) {
         phaseLogHtml += '<div style="background:#2a1f3d;border:1px solid #8B5CF6;border-radius:var(--rs);padding:8px 10px;margin-top:8px">' +
@@ -1827,8 +1842,9 @@ function openDrw(id) {
             '<button id="btn-desmarcar-facturada" style="font-size:10px;color:var(--tx3);background:none;border:none;text-decoration:underline;cursor:pointer;white-space:nowrap">deshacer</button>' +
           '</div>' +
           '<div style="font-size:12px;font-weight:700;color:#B794F6">Q.' + Number(o.montoFacturadoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' contado en ' + new Date(o.montoFacturadoTs).toLocaleDateString('es-GT', {month:'long', year:'numeric'}) + '</div>' +
+          (cierreEsActual ? '' : '<div style="font-size:10px;color:#B794F6;margin-top:4px;font-style:italic">&#9888; Orden activa de nuevo — este monto ya no cuenta para el mes en curso.</div>') +
         '</div>';
-      } else {
+      } else if (cierreEsActual) {
         phaseLogHtml += '<button id="btn-marcar-facturada" class="btn-s" style="width:100%;margin-top:8px;font-size:12px;padding:8px;border-color:#8B5CF6;color:#B794F6;background:#2a1f3d">&#128176; Marcar como Ya Facturada (congelar monto de este mes)</button>' +
           '<div style="font-size:9px;color:var(--tx3);margin-top:4px;padding:0 2px">Usalo si esta orden se cerro para cumplir el minimo del mes pero el trabajo real sigue. El monto actual queda contado en este mes aunque despues reabras la orden y la cierres de nuevo con otro monto.</div>';
       }
@@ -3080,6 +3096,10 @@ document.addEventListener('click', function(e) {
 function openMap() {
   var r = role ? ROLES[role] : null;
   var myTec = r && r.tec ? r.tn : null;
+  // Solo el Jefe de taller puede asignar espacios — los tecnicos ven el mapa
+  // para saber donde esta cada vehiculo, pero ya no pueden auto-asignarse un
+  // espacio (queda de solo lectura para ellos).
+  var readOnlyMap = (role !== 'jefe');
 
   var occ = {};
   for (var i = 0; i < orders.length; i++) {
@@ -3109,6 +3129,7 @@ function openMap() {
       if (isMine) { bc='#1A5C35'; bg='#0D2E1A'; tc2='#2ECC71'; }
       else { bc='#6B4510'; bg='#2E1F0A'; tc2='#F39C12'; cur='default'; clickable=false; }
     }
+    if (readOnlyMap) { clickable = false; cur = 'default'; }
 
     var lparts = spLabels[sp].split('\n');
     var div = document.createElement('div');
@@ -3164,7 +3185,9 @@ function openMap() {
 
   var note = document.createElement('div');
   note.style.cssText = 'font-size:11px;color:var(--tx3);padding:8px;background:var(--bg3);border-radius:var(--rs);border:1px solid var(--bd)';
-  note.textContent = 'Toca un espacio libre para asignarlo a una de tus ordenes activas.';
+  note.textContent = readOnlyMap
+    ? 'Solo el Jefe de taller puede asignar espacios — esta vista es de solo lectura.'
+    : 'Toca un espacio libre para asignarlo a una de las ordenes activas.';
   mapDiv.appendChild(note);
 
   var mapBody = document.getElementById('map-body');
