@@ -2022,6 +2022,13 @@ function openDrw(id) {
   var trabajosList = o.trabajos || [];
   var totalHoras = 0;
   for (var twi = 0; twi < trabajosList.length; twi++) { totalHoras += parseFloat(trabajosList[twi].horas) || 0; }
+  // Catalogo de operaciones que, por ahora, pueden marcarse como Subcontrato
+  // en vez de asignarles horas de comision (ej. alineacion mientras no hay
+  // alineadora) — pero conservan tambien la opcion normal de ponerles tiempo.
+  var TIPO_OPERACION_CATALOG = {
+    alineacion: '01 ALINEACION', diagnostico: '02 DIAGNOSTICO',
+    soldadura: '03 SOLDADURA', pinchazo: '04 PINCHAZO',
+  };
   trabajosHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
     '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Trabajos realizados</span>' +
     '<span style="font-size:11px;font-weight:700;color:var(--tx)">' + trabajosList.length + ' operacion(es) · ' + totalHoras.toFixed(2).replace('.', ',') + ' hrs</span>' +
@@ -2032,20 +2039,35 @@ function openDrw(id) {
   for (var twi2 = 0; twi2 < trabajosList.length; twi2++) {
     var tw = trabajosList[twi2];
     var hrsVal = parseFloat(tw.horas) || 0;
-    var hrsBadge = hrsVal > 0
-      ? '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para ajustar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--bg4);color:var(--tx);border:1px solid var(--tx2);white-space:nowrap">' + hrsVal.toFixed(2).replace('.', ',') + ' hrs. com.' + (role==='jefe'?' &#8635;':'') + '</span>'
-      : (role === 'jefe'
-        ? '<span class="btn-trab-hrs jf" data-ti="' + twi2 + '" title="Toca para asignar horas" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px solid var(--orbd);white-space:nowrap">Asignar hrs. com. &#8635;</span>'
+    var isCatalogOp = tw.tipoOperacion && TIPO_OPERACION_CATALOG[tw.tipoOperacion];
+    var hrsBadge;
+    if (tw.subcontrato) {
+      hrsBadge = '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para cambiar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:#2a1f3d;color:#B794F6;border:1px solid #8B5CF6;white-space:nowrap">&#128230; Subcontrato' + (role==='jefe'?' &#8635;':'') + '</span>';
+    } else if (hrsVal > 0) {
+      hrsBadge = '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para ajustar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--bg4);color:var(--tx);border:1px solid var(--tx2);white-space:nowrap">' + hrsVal.toFixed(2).replace('.', ',') + ' hrs. com.' + (role==='jefe'?' &#8635;':'') + '</span>';
+    } else {
+      hrsBadge = (role === 'jefe'
+        ? '<span class="btn-trab-hrs jf" data-ti="' + twi2 + '" title="Toca para asignar horas' + (isCatalogOp ? ' o marcar como subcontrato' : '') + '" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px solid var(--orbd);white-space:nowrap">Asignar hrs. com. &#8635;</span>'
         : '<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:8px;background:var(--bg4);color:var(--tx2);border:1px solid var(--bd);white-space:nowrap;font-style:italic">Hrs. com. pendiente</span>');
-    trabajosHtml += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
+    }
+    // Casilla de verificacion: el tecnico (u otro con permiso de registrar
+    // trabajos) la marca cuando confirma que ese trabajo especifico ya quedo
+    // realizado — es el requisito para poder firmar "Tecnico Finaliza".
+    var verChk = canAddTrabajo
+      ? '<input type="checkbox" class="chk-trab-verificado" data-ti="' + twi2 + '"' + (tw.verificado ? ' checked' : '') + ' title="Marcar como ya realizado" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">'
+      : '<span title="' + (tw.verificado ? 'Realizado' : 'Pendiente de verificar') + '" style="font-size:13px;flex-shrink:0">' + (tw.verificado ? '&#9989;' : '&#9075;') + '</span>';
+    trabajosHtml += '<div style="background:var(--bg3);border:1px solid ' + (tw.verificado ? 'var(--gnbd)' : 'var(--bd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-        '<div style="font-size:12px;font-weight:500">' + tw.desc + '</div>' +
-        '<div style="display:flex;align-items:center;gap:5px">' +
+        '<div style="display:flex;align-items:center;gap:8px;min-width:0">' +
+          verChk +
+          '<div style="font-size:12px;font-weight:500">' + tw.desc + '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">' +
           hrsBadge +
           (role === 'jefe' ? '<button class="btn-trab-del" data-ti="' + twi2 + '" title="Eliminar trabajo" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
         '</div>' +
       '</div>' +
-      '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + tw.tecnico + ' · ' + msgTs(tw.ts) + '</div>' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + tw.tecnico + ' · ' + msgTs(tw.ts) + (tw.verificado ? ' · <span style="color:var(--gn)">&#10003; Realizado</span>' : '') + '</div>' +
     '</div>';
   }
   if (canAddTrabajo) {
@@ -2053,6 +2075,13 @@ function openDrw(id) {
     for (var toi = 0; toi < ordTecs.length; toi++) { tecOptions += '<option value="' + esc(ordTecs[toi]) + '"' + (r.tec && r.tn === ordTecs[toi] ? ' selected' : '') + '>' + esc(ordTecs[toi]) + '</option>'; }
     if (!ordTecs.length) tecOptions = '<option value="">Sin tecnico asignado</option>';
     trabajosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
+      '<select id="trab-tipo" class="cin" style="flex:0 0 auto">' +
+        '<option value="">Personalizado...</option>' +
+        '<option value="alineacion">01 ALINEACION</option>' +
+        '<option value="diagnostico">02 DIAGNOSTICO</option>' +
+        '<option value="soldadura">03 SOLDADURA</option>' +
+        '<option value="pinchazo">04 PINCHAZO</option>' +
+      '</select>' +
       '<input id="trab-inp" class="cin" placeholder="Descripcion del trabajo realizado..." style="flex:1;min-width:140px">' +
       (role === 'jefe' ? '<input id="trab-horas" class="cin" type="number" min="0" step="0.25" placeholder="Hrs. com." style="flex:0 0 80px">' : '') +
       '<select id="trab-tec" class="cin" style="flex:0 0 auto">' + tecOptions + '</select>' +
@@ -2220,6 +2249,7 @@ function openDrw(id) {
   }
 
   /* trabajos realizados events */
+  var TIPO_OPERACION_SUBCONTRATABLE = {alineacion:1, diagnostico:1, soldadura:1, pinchazo:1};
   var hrsTrabBtns = body.querySelectorAll('.btn-trab-hrs.jf');
   for (var hti = 0; hti < hrsTrabBtns.length; hti++) {
     (function(btn) {
@@ -2229,18 +2259,55 @@ function openDrw(id) {
         var ox = null;
         for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
         if (!ox || !ox.trabajos || !ox.trabajos[ti3]) return;
-        var actualHrs = parseFloat(ox.trabajos[ti3].horas) || 0;
-        var input = prompt('Horas de comision (hrs. com.) para "' + ox.trabajos[ti3].desc + '":', actualHrs || '');
+        var twx = ox.trabajos[ti3];
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        // Solo para el catalogo de operaciones subcontratables (por ahora:
+        // alineacion, diagnostico, soldadura, pinchazo) se ofrece la opcion
+        // de marcar como Subcontrato en vez de ponerle horas de comision —
+        // el resto de trabajos (personalizados) solo tienen la opcion normal.
+        if (twx.tipoOperacion && TIPO_OPERACION_SUBCONTRATABLE[twx.tipoOperacion]) {
+          if (confirm('¿Marcar "' + twx.desc + '" como SUBCONTRATO (en vez de asignarle horas de comision)?\n\nAceptar = Subcontrato\nCancelar = Asignar horas normalmente')) {
+            twx.subcontrato = true;
+            twx.horas = 0;
+            ox.msgs.push({who:who, txt:'&#128230; "' + esc(twx.desc) + '" marcado como Subcontrato', ts:Date.now(), type:'system'});
+            save(); toast('Marcado como Subcontrato'); openDrw(id);
+            return;
+          }
+        }
+        var actualHrs = parseFloat(twx.horas) || 0;
+        var input = prompt('Horas de comision (hrs. com.) para "' + twx.desc + '":', actualHrs || '');
         if (input === null) return;
         var nuevasHrs = parseFloat(input);
         if (isNaN(nuevasHrs) || nuevasHrs < 0) { toast('Ingresa un numero valido de horas'); return; }
-        ox.trabajos[ti3].horas = nuevasHrs;
-        var who = ROLES[role] ? ROLES[role].label : role;
-        ox.msgs = ox.msgs || [];
-        ox.msgs.push({who:who, txt:'&#9203; Hrs. com. asignadas a "' + esc(ox.trabajos[ti3].desc) + '": ' + nuevasHrs.toFixed(2).replace('.', ',') + ' hrs', ts:Date.now(), type:'system'});
+        twx.horas = nuevasHrs;
+        twx.subcontrato = false;
+        ox.msgs.push({who:who, txt:'&#9203; Hrs. com. asignadas a "' + esc(twx.desc) + '": ' + nuevasHrs.toFixed(2).replace('.', ',') + ' hrs', ts:Date.now(), type:'system'});
         save(); toast('Horas de comision actualizadas'); openDrw(id);
       });
     })(hrsTrabBtns[hti]);
+  }
+  var verTrabChks = body.querySelectorAll('.chk-trab-verificado');
+  for (var vti = 0; vti < verTrabChks.length; vti++) {
+    (function(chk) {
+      chk.addEventListener('change', function() {
+        var ti4 = parseInt(this.getAttribute('data-ti'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.trabajos || !ox.trabajos[ti4]) return;
+        var rMe4 = ROLES[role];
+        var ordTecs4 = [];
+        if (ox.tech) ordTecs4.push(ox.tech);
+        if (ox.tech2) ordTecs4.push(ox.tech2);
+        var canVerify = (role === 'jefe') || (role === 'asesor') || (rMe4 && rMe4.tec && ordTecs4.indexOf(rMe4.tn) !== -1 && ox.phase === 'ab');
+        if (!canVerify) { toast('No tienes permiso para verificar este trabajo'); openDrw(id); return; }
+        ox.trabajos[ti4].verificado = this.checked;
+        var who4 = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who4, txt: (this.checked ? '&#9989; Verificado como realizado: "' : 'Se quito la verificacion de: "') + esc(ox.trabajos[ti4].desc) + '"', ts:Date.now(), type:'system'});
+        save(); openDrw(id);
+      });
+    })(verTrabChks[vti]);
   }
   var delTrabBtns = body.querySelectorAll('.btn-trab-del');
   for (var dti = 0; dti < delTrabBtns.length; dti++) {
@@ -2280,12 +2347,26 @@ function openDrw(id) {
       var tecEl = document.getElementById('trab-tec');
       var tecT = tecEl ? tecEl.value : '';
       if (!tecT) { toast('No hay tecnico asignado a esta orden'); return; }
+      var tipoEl = document.getElementById('trab-tipo');
+      var tipoT = tipoEl ? tipoEl.value : '';
       ox.trabajos = ox.trabajos || [];
-      ox.trabajos.push({desc:esc(descT), horas:horasT, tecnico:esc(tecT), by:ROLES[role]?ROLES[role].label:role, ts:Date.now()});
+      var nuevoTrabajo = {desc:esc(descT), horas:horasT, tecnico:esc(tecT), by:ROLES[role]?ROLES[role].label:role, ts:Date.now()};
+      if (tipoT) nuevoTrabajo.tipoOperacion = tipoT;
+      ox.trabajos.push(nuevoTrabajo);
       ox.msgs = ox.msgs || [];
       ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128295; Trabajo registrado: ' + esc(descT) + ' (' + horasT.toFixed(2).replace('.', ',') + ' hrs — ' + esc(tecT) + ')', ts:Date.now(), type:'system'});
       save(); toast('Trabajo agregado'); openDrw(id);
     });
+    var trabTipoEl = document.getElementById('trab-tipo');
+    if (trabTipoEl) {
+      // Autocompleta la descripcion con el nombre del catalogo al elegir una
+      // de las operaciones predefinidas — sigue siendo editable despues.
+      var TIPO_OPERACION_LABELS = {alineacion:'01 ALINEACION', diagnostico:'02 DIAGNOSTICO', soldadura:'03 SOLDADURA', pinchazo:'04 PINCHAZO'};
+      trabTipoEl.addEventListener('change', function() {
+        var inpT2 = document.getElementById('trab-inp');
+        if (inpT2 && TIPO_OPERACION_LABELS[this.value]) inpT2.value = TIPO_OPERACION_LABELS[this.value];
+      });
+    }
     var trabInp = document.getElementById('trab-inp');
     if (trabInp) trabInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addTrabBtn.click(); });
   }
@@ -2727,6 +2808,29 @@ function delSig(id, sigId) {
   openDrw(id);
 }
 var _recentSignAt = 0; // evita que un toque justo despues de firmar caiga sobre un boton de avance recien desbloqueado
+// Aviso bloqueante (overlay flotante, mismo patron que el modal de causa de
+// reproceso en advance()) que se muestra al tecnico cuando intenta firmar
+// "Finaliza" con trabajos de la seccion 05 aun sin marcar como realizados.
+// El boton "VER" abre esa seccion directamente (reutiliza _drwOpenSections,
+// el mismo mecanismo de acordeon que ya usan las demas secciones).
+function showVerificarTrabajosModal(orderId) {
+  var tempDiv = document.createElement('div');
+  tempDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--orbd);border-radius:var(--r);max-width:340px;width:90%;padding:1.2rem">' +
+    '<div style="font-size:13px;font-weight:700;color:var(--or);margin-bottom:10px;line-height:1.4">&#9888; VERIFICAR SI TODOS LOS TRABAJOS AUTORIZADOS YA ESTAN REALIZADOS</div>' +
+    '<div style="font-size:11px;color:var(--tx3);margin-bottom:14px">Marca cada trabajo como realizado en la seccion 05 antes de poder firmar.</div>' +
+    '<button class="btn-ver-trabajos" style="width:100%;padding:9px;border-radius:8px;border:none;background:var(--or);color:#000;font-weight:700;cursor:pointer">VER</button>' +
+  '</div>';
+  document.body.appendChild(tempDiv);
+  tempDiv.querySelectorAll('.btn-ver-trabajos').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.body.removeChild(tempDiv);
+      _drwOpenSections['trabajos'] = true;
+      openDrw(orderId);
+    });
+  });
+}
+
 function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
@@ -2737,6 +2841,19 @@ function doSign(id, sigId) {
     var eaR = (o.repuestos || []).filter(function(r){ return !r.ck3; });
     if (eaR.length === 0 && !o.noAutorizado) {
       toast('Agrega los repuestos necesarios antes de firmar, o marca "Cliente NO autorizo nada"'); return;
+    }
+  }
+  // ab phase, firma del tecnico: antes de dejarlo firmar, verificar que
+  // todos los trabajos registrados en la seccion 05 ya esten marcados como
+  // realizados — si hay al menos uno sin verificar, se bloquea la firma y se
+  // muestra un aviso con boton "VER" que abre esa seccion. Si aun no hay
+  // ningun trabajo registrado, no hay nada que verificar y se deja firmar.
+  if (sigId === 'tecnico' && o.phase === 'ab') {
+    var trabajosAVerificar = o.trabajos || [];
+    var hayPendientes = trabajosAVerificar.some(function(tw) { return !tw.verificado; });
+    if (trabajosAVerificar.length > 0 && hayPendientes) {
+      showVerificarTrabajosModal(id);
+      return;
     }
   }
   // Sequential signature check
