@@ -1266,17 +1266,25 @@ function renderBoard() {
     var hdr = document.createElement('div');
     hdr.className = 'lane-hdr';
     hdr.innerHTML = '<span class="lt">' + lane.label + '</span><span class="lc">' + items.length + '</span>';
-    // Aviso visual (no una orden falsa) en la columna PRESUPUESTO/PARTES
-    // cuando hay ordenes YA CERRADAS con un presupuesto pendiente (ver
-    // buildRepsContent()) — se queda fijo hasta que el Jefe de una el
-    // Vo.Bo. final, para presionar visualmente a que se resuelva y no se
-    // pierda mezclado con repuestos y subcontratos normales.
+    // Aviso visual (no una orden falsa) en la columna PRESUPUESTO/PARTES o
+    // PRESUP. M/O cuando hay ordenes YA CERRADAS con un presupuesto
+    // pendiente (ver buildRepsContent()) — sigue la misma ruta visual que un
+    // presupuesto normal: mientras Partes no lo ha completado se ve en
+    // "PRESUP. PARTES" (03a); una vez Partes lo completa y queda esperando
+    // que el Asesor lo envie al cliente, se "mueve" a "PRESUP. M/O" (03b),
+    // igual que un presupuesto normal pasa de fase pa a pb. En cuanto el
+    // Asesor marca que ya lo envio al cliente, desaparece del tablero por
+    // completo — a partir de ahi es seguimiento postventa del Asesor (sigue
+    // visible en el panel de Repuestos y Subcontratos hasta el Vo.Bo. del
+    // Jefe, pero ya no genera presion visual en el tablero).
     var presqBadgeEl = null;
-    if (lane.id === 'pa') {
+    if (lane.id === 'pa' || lane.id === 'pb') {
       var pendingPresqBoardCount = 0;
       for (var pbi = 0; pbi < orders.length; pbi++) {
         var pbo = orders[pbi];
-        if (pbo.phase === 'cer' && pbo.presupuestoPendiente && !pbo.presupuestoVobo) pendingPresqBoardCount++;
+        if (pbo.phase !== 'cer' || !pbo.presupuestoPendiente || pbo.presupuestoVobo || pbo.presupuestoEnviadoAsesor) continue;
+        if (lane.id === 'pa' && !pbo.presupuestoListoPartes) pendingPresqBoardCount++;
+        if (lane.id === 'pb' && pbo.presupuestoListoPartes) pendingPresqBoardCount++;
       }
       if (pendingPresqBoardCount > 0) {
         presqBadgeEl = document.createElement('div');
@@ -4510,8 +4518,12 @@ function buildRepsContent() {
               : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#128274; Esperando envio al cliente (Asesor)</span>') +
           '</div>';
         } else {
+          // Ya se envio al cliente: deja de presionar en el tablero (el
+          // aviso de la columna PRESUP. M/O ya no lo cuenta) y pasa a ser
+          // seguimiento postventa del Asesor mientras se espera el Vo.Bo.
+          // final del Jefe.
           html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-            '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#9993; Enviado al cliente</span>' +
+            '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#9993; Enviado al cliente — seguimiento postventa (Asesor)</span>' +
             (role === 'jefe'
               ? '<button class="btn-presq-vobo" data-oid="' + po2.id + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. final</button>'
               : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Esperando Vo.Bo. Jefe</span>') +
@@ -5023,6 +5035,34 @@ function openHistDetail(o) {
       '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>'
     : '') +
   '</div>';
+
+  // ── Presupuesto adicional (vehiculo ya entregado) — que en el historial
+  // quede registrado en que paso de la ruta Partes -> Asesor -> Jefe se
+  // quedo, o que ya se completo por completo. ──
+  if (o.presupuestoPendiente) {
+    var presqStatusLabel, presqStatusColor, presqStatusTs;
+    if (o.presupuestoVobo) {
+      presqStatusLabel = '&#10003; Completado — Vo.Bo. del Jefe';
+      presqStatusColor = 'var(--gn)';
+      presqStatusTs = o.presupuestoVoboTs;
+    } else if (o.presupuestoEnviadoAsesor) {
+      presqStatusLabel = '&#9993; Enviado al cliente — seguimiento postventa (Asesor), pendiente Vo.Bo. del Jefe';
+      presqStatusColor = 'var(--ac)';
+      presqStatusTs = o.presupuestoEnviadoAsesorTs;
+    } else if (o.presupuestoListoPartes) {
+      presqStatusLabel = 'Completado por Partes — esperando que el Asesor lo envie al cliente';
+      presqStatusColor = 'var(--or)';
+      presqStatusTs = o.presupuestoListoPartesTs;
+    } else {
+      presqStatusLabel = 'Pendiente — esperando que Partes lo complete';
+      presqStatusColor = 'var(--or)';
+      presqStatusTs = null;
+    }
+    html += '<div class="sec"><div class="sec-l" style="color:#8B5CF6">&#128221; Presupuesto adicional (vehiculo ya entregado)</div>' +
+      '<div class="irow"><span class="ik">Estado</span><span style="color:' + presqStatusColor + ';font-weight:600">' + presqStatusLabel + '</span></div>' +
+      (presqStatusTs ? '<div class="irow"><span class="ik">Fecha</span><span>' + new Date(presqStatusTs).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) + '</span></div>' : '') +
+    '</div>';
+  }
 
   // ── Descripcion — mismo nombre y estilo que en la ficha en vivo y en el
   // formulario de Nueva orden, para que sea el mismo concepto en todos lados ──
