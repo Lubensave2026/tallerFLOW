@@ -2594,20 +2594,16 @@ function openDrw(id) {
   var detBtn2 = document.getElementById('btn-det');
   if (detBtn2) {
     detBtn2.addEventListener('click', function() {
-      var motivo = prompt('Motivo por el que se detiene la orden:');
-      if (motivo === null) return;
-      if (!motivo.trim()) { toast('Debes ingresar un motivo'); return; }
-      var ox = null;
-      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
-      if (ox) {
-        ox.prevPhase = ox.phase;
-        ox.phase = 'det';
-        ox.sigs = {};
-        ox.detMotivo = motivo;
-        ox.msgs.push({who:'Byron - Jefe taller', txt:'&#128683; DETENIDO — Motivo: ' + esc(motivo), ts:Date.now(), type:'system'});
-        addNotif('Orden ' + ox.plate + ' DETENIDA: ' + motivo, id);
-        save(); toast('Orden marcada como DETENIDA'); closeDrw();
-      }
+      // Se reutiliza advance() (en vez de mutar o.phase a mano) para que esta
+      // detencion quede registrada en phaseLog/timestamps igual que
+      // cualquier otro avance de fase. Antes este atajo solo hacia
+      // ox.phase='det' directo, sin cerrar el tramo de la fase que se
+      // abandona (p.ej. Trabajando) ni fijar o.timestamps.det — eso perdia
+      // por completo ese tramo de la bitacora y hacia que el SIGUIENTE avance
+      // calculara la duracion de 'det' desde un timestamp viejo/obsoleto
+      // (ver caso real: orden 5284, "Trabajando" desaparecido y "Detenido"
+      // con 12.9h en vez de ~2h).
+      advance(id, 'det');
     });
   }
 
