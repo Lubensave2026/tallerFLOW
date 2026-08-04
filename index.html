@@ -1375,6 +1375,27 @@ function renderBoard() {
         var pendRep = (o.repuestos || []).filter(function(r){return !r.ck3;}).length;
         var repuestoHtml = pendRep > 0 ? '<span class="tag" style="background:var(--orbg);color:var(--or);border:1px solid var(--orbd)">&#128230; ' + pendRep + ' repuesto(s)</span>' : '';
 
+        // Productividad de la orden mientras esta en Trabajando: horas de
+        // comision pagadas vs horas reales transcurridas en esa fase (todas
+        // las visitas + tiempo en vivo) — badge en la esquina inferior
+        // derecha de la tarjeta, solo mientras phase==='ab', para que el
+        // tecnico vea la presion del tiempo en el board mismo.
+        var prodBadgeHtml = '';
+        if (o.phase === 'ab') {
+          var hrsRealCard = _sumPhaseHours(o, 'ab');
+          if (o.timestamps && o.timestamps.ab) hrsRealCard += businessMinutes(o.timestamps.ab, Date.now()) / 60;
+          var hrsComCard = 0;
+          (o.trabajos || []).forEach(function(tw) { hrsComCard += parseFloat(tw.horas) || 0; });
+          if (hrsRealCard > 0) {
+            // El color usa el mismo valor REDONDEADO que se muestra (no el
+            // crudo) — si no, un 99.6% se veria como "100%" en texto pero
+            // en color naranja/rojo, una inconsistencia visual confusa.
+            var pctCardRounded = Math.round((hrsComCard / hrsRealCard) * 100);
+            var pctColorCard = pctCardRounded >= 100 ? '#2ECC71' : (pctCardRounded >= 70 ? '#F39C12' : '#FF4444');
+            prodBadgeHtml = '<div title="Productividad de esta orden: horas de comision vs horas transcurridas en Trabajando" style="position:absolute;bottom:6px;right:8px;font-size:11px;font-weight:800;color:' + pctColorCard + ';background:rgba(0,0,0,.35);padding:2px 7px;border-radius:8px">' + pctCardRounded + '%</div>';
+          }
+        }
+
         var card = document.createElement('div');
         card.className = 'card' + (o.prio === 'urgente' ? ' urg' : '') + (o.prio === 'garantia' ? ' warranty' : '') + (needsConfirm ? ' needs-confirm' : '');
         if (unread) {
@@ -1397,7 +1418,8 @@ function renderBoard() {
           spHtml + numHtml +
           '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + '</div>' +
           motivoHtml +
-          '<div class="card-sg">' + sigHtml + '</div>';
+          '<div class="card-sg">' + sigHtml + '</div>' +
+          prodBadgeHtml;
         card.appendChild(inner);
         (function(oid) {
           card.addEventListener('click', function() { openDrw(oid); });
@@ -1596,6 +1618,28 @@ function openDrw(id) {
       '</div>' +
     '</div>';
   }
+  // Productividad de esta orden en la fase Trabajando: horas de comision
+  // pagadas vs horas reales transcurridas en esa fase (todas las visitas,
+  // mas el tiempo en vivo si sigue activa) — queda registrado aqui de forma
+  // permanente, sin importar en que fase este la orden ahora (el badge de
+  // la tarjeta del board solo se ve mientras esta en Trabajando, pero este
+  // dato se conserva visible despues tambien).
+  var hrsRealOrdenInfo = _sumPhaseHours(o, 'ab');
+  if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) hrsRealOrdenInfo += businessMinutes(o.timestamps.ab, Date.now()) / 60;
+  var hrsComOrdenInfo = 0;
+  (o.trabajos || []).forEach(function(tw) { hrsComOrdenInfo += parseFloat(tw.horas) || 0; });
+  var productividadOrdenHtml = '';
+  if (hrsRealOrdenInfo > 0) {
+    // Color segun el mismo valor REDONDEADO que se muestra (no el crudo) —
+    // evita que un 99.6% se vea como "100%" en texto pero en color rojo/naranja.
+    var pctProdOrdenRounded = Math.round((hrsComOrdenInfo / hrsRealOrdenInfo) * 100);
+    var pctProdOrdenColorInfo = pctProdOrdenRounded >= 100 ? 'var(--gn)' : (pctProdOrdenRounded >= 70 ? 'var(--or)' : 'var(--rd)');
+    productividadOrdenHtml =
+      '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128202; Productividad de esta orden (Trabajando)</div>' +
+      '<div class="irow"><span class="ik">Tiempo real trabajado</span><span style="color:var(--or)">' + hrsRealOrdenInfo.toFixed(2).replace('.', ',') + ' h</span></div>' +
+      '<div class="irow"><span class="ik">Hrs. comision</span><span style="font-family:var(--mo)">' + hrsComOrdenInfo.toFixed(2).replace('.', ',') + ' h</span></div>' +
+      '<div class="irow"><span class="ik">% Productividad</span><span style="color:' + pctProdOrdenColorInfo + ';font-weight:700">' + pctProdOrdenRounded + '%</span></div>';
+  }
   html += '<div class="sec"><div class="sec-l">Informacion</div>' +
     '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc || '—') + '</span></div>' +
@@ -1612,6 +1656,7 @@ function openDrw(id) {
       '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Editar montos desde el boton &#9999; Editar arriba</div>'
     : '') +
     (o.phaseStart ? '<div class="irow"><span class="ik">Tiempo en fase</span><span style="color:var(--or)">' + elapsed(o.phaseStart) + '</span></div>' : '') +
+    productividadOrdenHtml +
   '</div>';
 
   /* technician assignment — only jefe, only on aa phase */
