@@ -1391,7 +1391,7 @@ function renderBoard() {
             // crudo) — si no, un 99.6% se veria como "100%" en texto pero
             // en color naranja/rojo, una inconsistencia visual confusa.
             var pctCardRounded = Math.round((hrsComCard / hrsRealCard) * 100);
-            var pctColorCard = pctCardRounded >= 100 ? '#2ECC71' : (pctCardRounded >= 70 ? '#F39C12' : '#FF4444');
+            var pctColorCard = _productividadColor(pctCardRounded);
             prodBadgeHtml = '<div title="Productividad de esta orden: horas de comision vs horas transcurridas en Trabajando" style="position:absolute;bottom:6px;right:8px;font-size:11px;font-weight:800;color:' + pctColorCard + ';background:rgba(0,0,0,.35);padding:2px 7px;border-radius:8px">' + pctCardRounded + '%</div>';
           }
         }
@@ -1633,7 +1633,7 @@ function openDrw(id) {
     // Color segun el mismo valor REDONDEADO que se muestra (no el crudo) —
     // evita que un 99.6% se vea como "100%" en texto pero en color rojo/naranja.
     var pctProdOrdenRounded = Math.round((hrsComOrdenInfo / hrsRealOrdenInfo) * 100);
-    var pctProdOrdenColorInfo = pctProdOrdenRounded >= 100 ? 'var(--gn)' : (pctProdOrdenRounded >= 70 ? 'var(--or)' : 'var(--rd)');
+    var pctProdOrdenColorInfo = _productividadColor(pctProdOrdenRounded);
     productividadOrdenHtml =
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128202; Productividad de esta orden (Trabajando)</div>' +
       '<div class="irow"><span class="ik">Tiempo real trabajado</span><span style="color:var(--or)">' + hrsRealOrdenInfo.toFixed(2).replace('.', ',') + ' h</span></div>' +
@@ -4635,6 +4635,18 @@ function calcTecHoras(o, tecName) {
   var flat = 0;
   (o.trabajos || []).forEach(function(tw) { if (tw.tecnico === tecName) flat += (parseFloat(tw.horas) || 0); });
   return {real: abHoras, flat: flat, abVeces: abVeces};
+}
+
+// Color segun el % de productividad de una orden en Trabajando (hrs. de
+// comision vs hrs. reales) — misma escala de 4 niveles en la tarjeta del
+// board y en la ficha (seccion Informacion): 0-49% rojo, 50-65% amarillo,
+// 66-80% verde, 81%+ azul. Recibe el porcentaje ya REDONDEADO (no el crudo)
+// para que el color siempre coincida con el numero que se muestra.
+function _productividadColor(pctRounded) {
+  if (pctRounded <= 49) return '#FF4444';
+  if (pctRounded <= 65) return '#F9A825';
+  if (pctRounded <= 80) return '#2ECC71';
+  return '#3D7EFF';
 }
 
 var PHASE_COLORS = {
