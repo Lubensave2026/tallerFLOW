@@ -3641,47 +3641,9 @@ function buildRepContent() {
     // igual que en el Semaforo Financiero.
     var prodTargetDate = new Date(new Date().getFullYear(), new Date().getMonth() - _repProdMonthOffset, 1);
     var curYc = prodTargetDate.getFullYear(), curMc = prodTargetDate.getMonth();
-    var seenClosedIds = {};
-    var hrsFlatClosed = 0, hrsRealClosed = 0, closedCountThisMonth = 0, abVecesClosed = 0;
-    var allForClosedProd = orders.concat(archived || []);
-    for (var cpi = 0; cpi < allForClosedProd.length; cpi++) {
-      var co = allForClosedProd[cpi];
-      if (seenClosedIds[co.id]) continue;
-      seenClosedIds[co.id] = true;
-      if (co.phase !== 'cer') continue;
-      var closeTsRow = co.timestamps && co.timestamps.cer;
-      if (!closeTsRow) continue;
-      var isTech1c = co.tech === myName, isTech2c = co.tech2 === myName;
-      if (!isTech1c && !isTech2c) continue;
-      // Igual que con los montos ("Ya facturada"): si la orden se cerro para
-      // cumplir la meta de un mes anterior y se congelo, esas horas (reales y
-      // de comision) quedan fijas en el mes del congelamiento sin importar
-      // que la orden se haya reabierto despues. Lo que el tecnico trabaje DE
-      // MAS tras reabrirla se cuenta como evento aparte, en el mes en que
-      // finalmente vuelva a cerrarse — el tiempo en Trabajando se sigue
-      // acumulando sumando TODAS las veces que estuvo en esa fase (ver
-      // calcTecHoras), nunca se pierde ni se duplica entre meses.
-      var frozenHoras = co.horasFacturadoSnapshot && co.horasFacturadoSnapshot.porTecnico && co.horasFacturadoSnapshot.porTecnico[myName];
-      var currentHoras = calcTecHoras(co, myName);
-      var eventInMonth = false;
-      if (frozenHoras) {
-        var fd = new Date(co.horasFacturadoSnapshot.ts);
-        if (fd.getFullYear() === curYc && fd.getMonth() === curMc) {
-          hrsRealClosed += frozenHoras.real;
-          hrsFlatClosed += frozenHoras.flat;
-          abVecesClosed += frozenHoras.abVeces;
-          eventInMonth = true;
-        }
-      }
-      var cd = new Date(closeTsRow);
-      if (cd.getFullYear() === curYc && cd.getMonth() === curMc) {
-        hrsRealClosed += currentHoras.real - (frozenHoras ? frozenHoras.real : 0);
-        hrsFlatClosed += currentHoras.flat - (frozenHoras ? frozenHoras.flat : 0);
-        abVecesClosed += currentHoras.abVeces - (frozenHoras ? frozenHoras.abVeces : 0);
-        eventInMonth = true;
-      }
-      if (eventInMonth) closedCountThisMonth++;
-    }
+    var aggClosedProd = _calcTecHorasCerradasEnMes(myName, curYc, curMc);
+    var hrsFlatClosed = aggClosedProd.flat, hrsRealClosed = aggClosedProd.real,
+        closedCountThisMonth = aggClosedProd.count, abVecesClosed = aggClosedProd.abVeces;
     var prodPctClosed = hrsRealClosed > 0 ? (hrsFlatClosed / hrsRealClosed * 100) : null;
     var prodColorClosed = prodPctClosed === null ? 'var(--tx3)' : (prodPctClosed >= 100 ? 'var(--gn)' : (prodPctClosed >= 70 ? 'var(--or)' : 'var(--rd)'));
     var monthLabelClosed = prodTargetDate.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
@@ -3741,7 +3703,7 @@ function buildRepContent() {
   if (role === 'jefe' && _jefeShowProdTecnicos) {
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:12px;margin-bottom:1rem">' +
       '<div style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:10px">&#128101; Productividad por tecnico</div>' +
-      _buildTecProdTable('cerradas', '#3D7EFF', 'rgba(61,126,255,.12)', '&#128309; Casos ya cerrados') +
+      _buildTecProdTable('cerradas', '#3D7EFF', 'rgba(61,126,255,.12)', '&#128309; Casos ya cerrados (mes en curso: ' + new Date().toLocaleDateString('es-GT', {month:'long', year:'numeric'}) + ')') +
       _buildTecProdTable('activas', '#999999', 'rgba(153,153,153,.15)', '&#9898; Casos en proceso') +
     '</div>';
   }
@@ -4636,7 +4598,9 @@ function businessHours(fromTs, toTs) {
 }
 
 function businessMinutes(fromTs, toTs) {
-  // Returns raw minutes in business hours
+  // Returns raw minutes in business hours. Lun-Vie: 8-12 y 13-17 (se corta 1h
+  // de almuerzo de 12 a 13, no cuenta para nadie); Sabado: solo 8-12;
+  // Domingo: no cuenta.
   if (!fromTs || !toTs || toTs <= fromTs) return 0;
   var total = 0;
   var cur = new Date(fromTs);
@@ -4645,17 +4609,21 @@ function businessMinutes(fromTs, toTs) {
   while (cur < end) {
     var dow = cur.getDay();
     var h = cur.getHours();
-    var dayStart, dayEnd;
-    if (dow >= 1 && dow <= 5) { dayStart = 8; dayEnd = 17; }
-    else if (dow === 6) { dayStart = 8; dayEnd = 12; }
-    else { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); continue; }
-    if (h < dayStart) { cur.setHours(dayStart, 0, 0, 0); continue; }
-    if (h >= dayEnd)  { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); continue; }
-    var dayEndTs = new Date(cur); dayEndTs.setHours(dayEnd, 0, 0, 0);
-    var nextTs = Math.min(end.getTime(), dayEndTs.getTime());
+    var windows;
+    if (dow >= 1 && dow <= 5) windows = [[8,12],[13,17]];
+    else if (dow === 6) windows = [[8,12]];
+    else windows = [];
+    if (!windows.length) { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); continue; }
+    var win = null;
+    for (var wi = 0; wi < windows.length; wi++) {
+      if (h < windows[wi][1]) { win = windows[wi]; break; }
+    }
+    if (!win) { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); continue; }
+    if (h < win[0]) { cur.setHours(win[0], 0, 0, 0); continue; }
+    var winEndTs = new Date(cur); winEndTs.setHours(win[1], 0, 0, 0);
+    var nextTs = Math.min(end.getTime(), winEndTs.getTime());
     total += (nextTs - cur.getTime()) / 60000;
     cur = new Date(nextTs);
-    if (cur.getHours() >= dayEnd) { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); }
   }
   return Math.round(total);
 }
@@ -5801,12 +5769,59 @@ function toggleJefeProdTecnicos() {
 
 var _TEC_NAMES_PROD = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Luis Caceres'];
 
+// Suma horas Trabajando + horas de comision de UN tecnico, en ordenes
+// CERRADAS cuyo evento de cierre (o de congelamiento "Ya facturada") cayo en
+// el mes/año indicado — incluye lo ya archivado. Misma logica ya usada en la
+// tarjeta "Mi productividad" (antes duplicada ahi mismo): si la orden se
+// congelo para cumplir la meta de un mes y luego se reabrio, esas horas
+// quedan fijas en el mes del congelamiento; lo que se trabaje DE MAS tras
+// reabrirla cuenta como evento aparte, en el mes en que finalmente se
+// vuelva a cerrar — nunca se pierde ni se duplica entre meses.
+function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
+  var allO = orders.concat(archived || []);
+  var seen = {};
+  var real = 0, flat = 0, count = 0, abVeces = 0;
+  for (var i = 0; i < allO.length; i++) {
+    var o = allO[i];
+    if (seen[o.id]) continue;
+    seen[o.id] = true;
+    if (o.phase !== 'cer') continue;
+    if (o.tech !== tecName && o.tech2 !== tecName) continue;
+    var closeTs = o.timestamps && o.timestamps.cer;
+    if (!closeTs) continue;
+    var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
+    var currentHoras = calcTecHoras(o, tecName);
+    var eventInMonth = false;
+    if (frozenHoras) {
+      var fd = new Date(o.horasFacturadoSnapshot.ts);
+      if (fd.getFullYear() === yearTarget && fd.getMonth() === monthTarget) {
+        real += frozenHoras.real; flat += frozenHoras.flat; abVeces += frozenHoras.abVeces;
+        eventInMonth = true;
+      }
+    }
+    var cd = new Date(closeTs);
+    if (cd.getFullYear() === yearTarget && cd.getMonth() === monthTarget) {
+      real += currentHoras.real - (frozenHoras ? frozenHoras.real : 0);
+      flat += currentHoras.flat - (frozenHoras ? frozenHoras.flat : 0);
+      abVeces += currentHoras.abVeces - (frozenHoras ? frozenHoras.abVeces : 0);
+      eventInMonth = true;
+    }
+    if (eventInMonth) count++;
+  }
+  return {real: real, flat: flat, count: count, abVeces: abVeces, pct: real > 0 ? Math.round(flat / real * 100) : null};
+}
+
 // Suma horas Trabajando + horas de comision de UN tecnico a lo largo de
-// TODAS sus ordenes (activas o cerradas segun 'source'), incluyendo lo ya
-// archivado — para monitorear su desempeno global, no solo el de un mes.
+// TODAS sus ordenes ACTIVAS (aun no cerradas), incluyendo lo ya archivado —
+// para 'cerradas' se usa _calcTecHorasCerradasEnMes en su lugar, acotado al
+// mes en curso (ver reporte "Productividad por tecnico", solo Jefe).
 // Reusa calcTecHoras() por-orden (misma logica ya usada en la tarjeta y la
 // ficha), asi que un caso con 2 tecnicos se reparte 50/50 igual que ahi.
 function _calcTecHorasAgregado(tecName, source) {
+  if (source === 'cerradas') {
+    var now = new Date();
+    return _calcTecHorasCerradasEnMes(tecName, now.getFullYear(), now.getMonth());
+  }
   var allO = orders.concat(archived || []);
   var seen = {};
   var real = 0, flat = 0, count = 0;
@@ -5815,9 +5830,7 @@ function _calcTecHorasAgregado(tecName, source) {
     if (seen[o.id]) continue;
     seen[o.id] = true;
     if (o.tech !== tecName && o.tech2 !== tecName) continue;
-    var isClosed = (o.phase === 'cer');
-    if (source === 'cerradas' && !isClosed) continue;
-    if (source === 'activas' && isClosed) continue;
+    if (o.phase === 'cer') continue;
     var h = calcTecHoras(o, tecName);
     real += h.real; flat += h.flat; count++;
   }
