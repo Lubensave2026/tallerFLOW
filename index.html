@@ -751,13 +751,12 @@ function initFirebase() {
     firebase.initializeApp(FB_CONFIG);
     db = firebase.database();
 
-    // Login anonimo requerido por las reglas de seguridad (auth != null)
-    firebase.auth().signInAnonymously().catch(function(e){
-      console.log("Firebase auth error:", e);
-    });
-
-    console.log("Firebase conectado OK");
-    fbReady = true;
+    // Esperar confirmacion de auth ANTES de leer/escribir datos
+    firebase.auth().onAuthStateChanged(function(user) {
+      if (!user) return;
+      if (fbReady) return; // evitar doble inicializacion
+      console.log("Firebase auth OK uid:", user.uid);
+      fbReady = true;
 
     _migrateIfNeeded(function() {
     _migrateHistorialIfNeeded(function() {
@@ -824,7 +823,15 @@ function initFirebase() {
         attachIncrementalOrderListeners();
       });
     });
+    }); // fin _migrateHistorialIfNeeded
+    }); // fin _migrateIfNeeded
+    }); // fin onAuthStateChanged
+
+    // Disparar login anonimo — onAuthStateChanged se activa al confirmar
+    firebase.auth().signInAnonymously().catch(function(e){
+      console.log("Firebase auth error:", e);
     });
+
   } catch(e) {
     console.log("Firebase error:", e);
     fbReady = false;
@@ -2716,6 +2723,18 @@ function openDrw(id) {
       ox.horasFacturadoSnapshot = {ts: facTs, porTecnico: {}};
       if (ox.tech) ox.horasFacturadoSnapshot.porTecnico[ox.tech] = calcTecHoras(ox, ox.tech);
       if (ox.tech2) ox.horasFacturadoSnapshot.porTecnico[ox.tech2] = calcTecHoras(ox, ox.tech2);
+      // Tambien se congela el desglose de horas por fase (bitacora) y las
+      // horas de comision totales de la orden — asi, si se reabre para
+      // seguir trabajando, sigue apareciendo en el reporte de bitacora (CSV)
+      // con estos datos ya fijos, en vez de desaparecer del reporte por ya
+      // no estar en fase 'cer'. Estos numeros ya no cambian; si hace falta
+      // facturar o contabilizar algo adicional, la politica del taller es
+      // abrir otra orden en vez de alterar esta.
+      var bitHorasPorFase = {};
+      _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) { bitHorasPorFase[ph] = _sumPhaseHours(ox, ph); });
+      var bitHrsCom = 0;
+      (ox.trabajos || []).forEach(function(tw) { bitHrsCom += parseFloat(tw.horas) || 0; });
+      ox.bitacoraFacturadoSnapshot = {ts: facTs, horasPorFase: bitHorasPorFase, hrsCom: bitHrsCom};
       var who11 = ROLES[role] ? ROLES[role].label : role;
       ox.msgs = ox.msgs || [];
       ox.msgs.push({who:who11, txt:'&#128176; Marcada como Ya Facturada — Q.' + Number(ox.montoFacturadoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' contado en ' + facMesLabel, ts:Date.now(), type:'system'});
@@ -2732,6 +2751,7 @@ function openDrw(id) {
       if (!confirm('¿Deshacer "Ya facturada"? El monto y las horas dejaran de contarse como congelados en ese mes.')) return;
       delete ox.montoFacturadoTotal; delete ox.montoFacturadoMO; delete ox.montoFacturadoTs;
       delete ox.horasFacturadoSnapshot;
+      delete ox.bitacoraFacturadoSnapshot;
       var who12 = ROLES[role] ? ROLES[role].label : role;
       ox.msgs = ox.msgs || [];
       ox.msgs.push({who:who12, txt:'Se deshizo la marca "Ya facturada"', ts:Date.now(), type:'system'});
@@ -2846,6 +2866,39 @@ function showVerificarTrabajosModal(orderId) {
     btn.addEventListener('click', function() {
       document.body.removeChild(tempDiv);
       _drwOpenSections['trabajos'] = true;
+      openDrw(orderId);
+    });
+  });
+}
+
+// Aviso (overlay flotante, mismo patron) que se muestra al Jefe justo
+// despues de cerrar una orden con fecha de cierre retroactiva SIN haberla
+// marcado "Ya Facturada" todavia — le recuerda que, si la orden se reabre
+// mas adelante, el monto puede terminar contandose en el mes equivocado a
+// menos que la congele ahora. "Marcar Ya Facturada" abre la ficha para que
+// lo confirme el mismo (el congelamiento en si sigue pidiendo su propia
+// confirmacion con el monto exacto, no se hace automatico desde aqui).
+function showFreezeReminderModal(orderId) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === orderId) { o = orders[i]; break; } }
+  var fechaLabel = (o && o.timestamps && o.timestamps.cer) ? new Date(o.timestamps.cer).toLocaleDateString('es-GT') : '';
+  var tempDiv = document.createElement('div');
+  tempDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid #8B5CF6;border-radius:var(--r);max-width:340px;width:90%;padding:1.2rem">' +
+    '<div style="font-size:13px;font-weight:700;color:#B794F6;margin-bottom:10px;line-height:1.4">&#128176; Esta orden se cerro con fecha retroactiva (' + fechaLabel + ')</div>' +
+    '<div style="font-size:11px;color:var(--tx3);margin-bottom:14px;line-height:1.5">Si mas adelante la reabres para seguir el trabajo real, el monto puede perder su mes correcto a menos que la marques como "Ya Facturada" ahora — eso congela el monto y la fecha, sin importar cuantas veces se reabra despues.</div>' +
+    '<div style="display:flex;gap:8px">' +
+      '<button class="btn-freeze-reminder-later" style="flex:1;padding:9px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer;font-size:12px">Ahora no</button>' +
+      '<button class="btn-freeze-reminder-now" style="flex:1;padding:9px;border-radius:8px;border:none;background:#8B5CF6;color:#fff;font-weight:700;cursor:pointer;font-size:12px">Marcar Ya Facturada</button>' +
+    '</div>' +
+  '</div>';
+  document.body.appendChild(tempDiv);
+  tempDiv.querySelectorAll('.btn-freeze-reminder-later').forEach(function(btn) {
+    btn.addEventListener('click', function() { document.body.removeChild(tempDiv); });
+  });
+  tempDiv.querySelectorAll('.btn-freeze-reminder-now').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.body.removeChild(tempDiv);
       openDrw(orderId);
     });
   });
@@ -3009,6 +3062,12 @@ function advance(id, newPhase) {
   // ultimo tramo de bitacora — asi el semaforo financiero y la bitacora
   // quedan coherentes con el mes/dia real de cierre, no con "hoy".
   var phaseTo = (newPhase === 'cer' && o._closeDateOverride) ? o._closeDateOverride : Date.now();
+  // Se guarda ANTES de que se borre mas abajo — sirve para decidir, al
+  // terminar, si hay que recordarle al Jefe que congele el monto (ver
+  // showFreezeReminderModal): una fecha de cierre retroactiva sin congelar
+  // se puede "correr" de mes si la orden se reabre y se vuelve a cerrar sin
+  // volver a fijar la fecha en esa vuelta.
+  var usedCloseOverrideNow = (newPhase === 'cer' && !!o._closeDateOverride);
   if (o.phase === 'prb' && o.sigsTs && o.sigsTs.jefe && o.sigsTs.jefe > phaseFrom && o.sigsTs.jefe < phaseTo) {
     // Prueba/Insp.Final se registra en 2 tramos separados para poder medir
     // cuellos de botella por separado: la prueba de ruta (Jefe), desde que
@@ -3051,6 +3110,14 @@ function advance(id, newPhase) {
   }
   addNotif(o.plate + ' avanzo a: ' + newLbl, id);
   save(); toast('Orden avanzada'); closeDrw();
+  // Recordatorio: se cerro con fecha retroactiva pero todavia no esta
+  // "Ya facturada" — sin congelar, el monto puede perder su mes correcto si
+  // la orden se reabre mas adelante y se cierra otra vez sin re-fijar la
+  // fecha. Solo aplica al Jefe (unico rol que puede fijar esa fecha) y solo
+  // si no esta ya congelada.
+  if (usedCloseOverrideNow && role === 'jefe' && !o.montoFacturadoTotal) {
+    showFreezeReminderModal(id);
+  }
 }
 
 function sendMsg(id) {
@@ -3402,8 +3469,12 @@ function openRep() {
       clearInterval(window._repInterval);
     }
   }, 30000);
-  buildRepContent();
+  buildRepContent(); // primer render con lo que ya haya en memoria (rapido)
   document.getElementById('m-rep').classList.add('on');
+  // Refresca 'archived' por si esta sesion nunca abrio Historial — sin esto
+  // "Mi productividad — ordenes CERRADAS" de meses pasados podia salir
+  // incompleta (ver refreshArchived).
+  refreshArchived(function() { buildRepContent(); });
 }
 
 function buildRepContent() {
@@ -4018,13 +4089,33 @@ function _sumPhaseHours(o, phaseId) {
   return total / 60;
 }
 var _ORDER_SUMMARY_PHASE_COLS = ['aa','ab','pa','pb','ea','er','det','ext','prb','lav','lst','ent'];
+// Una orden entra al reporte de bitacora si esta cerrada ahora mismo, O si
+// quedo "Ya facturada" (congelada) y luego se reabrio para seguir el
+// trabajo real — esas ya tienen sus datos fijos para comisiones/facturacion
+// (ver bitacoraFacturadoSnapshot) y deben seguir contando aunque ya no
+// esten en fase 'cer'. Compartida entre _buildOrderSummaryCSV() y el conteo
+// de exportOrderSummaryCSV() para que el aviso "Exportado: N orden(es)"
+// nunca quede desalineado con lo que realmente se exporta.
+function _isExportableClosedOrder(o) {
+  if (o.phase === 'cer' && o.timestamps && o.timestamps.cer && o.cat) return true;
+  if (o.phase !== 'cer' && o.montoFacturadoTotal && o.bitacoraFacturadoSnapshot && o.cat) return true;
+  return false;
+}
 function _buildOrderSummaryCSV(allOrders) {
   var fmtDate = function(ts) {
     return new Date(ts).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'});
   };
-  // Solo ordenes ya cerradas — asi DIAS y los promedios representan ciclos
-  // completos y comparables (las activas ya se ven en tiempo real en el board).
-  var cerradas = allOrders.filter(function(o){ return o.phase === 'cer' && o.timestamps && o.timestamps.cer && o.cat; });
+  // Ordenes cerradas, MAS las que quedaron "Ya facturada" (congeladas) y
+  // luego se reabrieron para seguir el proceso real — esas ya quedaron
+  // fijas para el reporte de comisiones y facturacion (ver
+  // bitacoraFacturadoSnapshot), asi que siguen apareciendo aqui con esos
+  // datos congelados aunque ya no esten en fase 'cer'. Si hiciera falta
+  // facturar o contabilizar algo adicional, la politica del taller es abrir
+  // otra orden en vez de alterar esta — por eso el dato congelado nunca se
+  // vuelve a tocar. Asi DIAS y los promedios siguen representando ciclos
+  // completos y comparables (las activas sin congelar ya se ven en tiempo
+  // real en el board).
+  var cerradas = allOrders.filter(_isExportableClosedOrder);
   // Orden correlativo por numero de orden (OT), no alfabetico.
   var sorted = cerradas.slice().sort(function(a, b) {
     return (parseInt(a.ot, 10) || 0) - (parseInt(b.ot, 10) || 0);
@@ -4044,17 +4135,25 @@ function _buildOrderSummaryCSV(allOrders) {
   for (var i = 0; i < sorted.length; i++) {
     var o = sorted[i];
     var tech = (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : '');
+    // Orden "Ya facturada" reabierta: usa el snapshot congelado (fecha,
+    // montos, horas) en vez del estado actual/en vivo — esta fila representa
+    // el cierre ya contabilizado, no lo que la orden siga acumulando despues.
+    var isFrozenReopened = (o.phase !== 'cer') && o.montoFacturadoTotal && o.bitacoraFacturadoSnapshot;
     var ingreso = o.cat;
-    var salida = o.timestamps.cer;
+    var salida = isFrozenReopened ? o.bitacoraFacturadoSnapshot.ts : o.timestamps.cer;
     var dias = (salida - ingreso) / (24 * 3600 * 1000);
-    var montoTotal = o.montoTotal ? Number(o.montoTotal) : 0;
-    var montoMO = o.montoMO ? Number(o.montoMO) : 0;
+    var montoTotal = isFrozenReopened ? Number(o.montoFacturadoTotal || 0) : (o.montoTotal ? Number(o.montoTotal) : 0);
+    var montoMO = isFrozenReopened ? Number(o.montoFacturadoMO || 0) : (o.montoMO ? Number(o.montoMO) : 0);
     var hrsCom = 0;
-    (o.trabajos || []).forEach(function(tw) { hrsCom += parseFloat(tw.horas) || 0; });
+    if (isFrozenReopened) {
+      hrsCom = o.bitacoraFacturadoSnapshot.hrsCom || 0;
+    } else {
+      (o.trabajos || []).forEach(function(tw) { hrsCom += parseFloat(tw.horas) || 0; });
+    }
 
     var horas = {};
     _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) {
-      horas[ph] = _sumPhaseHours(o, ph);
+      horas[ph] = isFrozenReopened ? (o.bitacoraFacturadoSnapshot.horasPorFase[ph] || 0) : _sumPhaseHours(o, ph);
       sumHoras[ph] += horas[ph];
     });
     sumDias += dias;
@@ -4098,7 +4197,7 @@ function _buildOrderSummaryCSV(allOrders) {
 function exportOrderSummaryCSV() {
   if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar'); return; }
   var finish = function(allOrders) {
-    var closedCount = allOrders.filter(function(o){ return o.phase === 'cer'; }).length;
+    var closedCount = allOrders.filter(_isExportableClosedOrder).length;
     if (!closedCount) { toast('No hay ordenes cerradas para exportar todavia'); return; }
     var csv = _buildOrderSummaryCSV(allOrders);
     _downloadCSV(csv, 'tallerflow_bitacora_' + _todayKey() + '.csv');
@@ -4213,6 +4312,30 @@ function exportReprocesosCSV() {
   }
 }
 
+// Refresca la variable global `archived` desde taller/historial. Varias
+// vistas (Semaforo Financiero, Reporte de productividad, Historial) suman
+// `orders.concat(archived || [])` para sus totales de meses — pero `archived`
+// solo se llenaba cuando se abria Historial. Una sesion que entraba directo
+// al Semaforo o al Reporte sin haber abierto Historial se quedaba con
+// `archived=[]`, y sus totales de un mes salian incompletos (faltaban las
+// ordenes que archiveOld() ya habia sacado de 'orders' por antiguedad),
+// aunque los datos reales en Firebase estuvieran completos — esto explicaba
+// que a un usuario le saliera un total de julio menor que a otro.
+function refreshArchived(onDone) {
+  if (fbReady && db) {
+    db.ref('taller/historial').once('value').then(function(snap) {
+      var data = snap.val() || {};
+      archived = Object.keys(data).map(function(k){ return data[k]; }).filter(Boolean);
+      if (onDone) onDone();
+    }).catch(function(e) {
+      console.log('Error al cargar historial:', e);
+      if (onDone) onDone();
+    });
+  } else if (onDone) {
+    onDone();
+  }
+}
+
 /* HISTORY */
 function openHist() {
   document.getElementById('m-hist').classList.add('on');
@@ -4237,15 +4360,7 @@ function openHist() {
   if (fbReady && db) {
     var list = document.getElementById('hist-list');
     if (list) list.innerHTML = '<div style="font-size:12px;color:var(--tx3);padding:1rem;text-align:center">Cargando historial…</div>';
-    db.ref('taller/historial').once('value').then(function(snap) {
-      var data = snap.val() || {};
-      archived = Object.keys(data).map(function(k){ return data[k]; }).filter(Boolean);
-      renderHist(si ? si.value : '');
-    }).catch(function(e) {
-      console.log('Error al cargar historial:', e);
-      toast('No se pudo cargar el historial completo, mostrando lo disponible localmente');
-      renderHist(si ? si.value : '');
-    });
+    refreshArchived(function() { renderHist(si ? si.value : ''); });
   } else {
     renderHist('');
   }
@@ -5399,8 +5514,11 @@ var _semMonthOffset = 0; // 0 = mes actual, 1 = mes anterior, 2 = hace 2 meses, 
 
 function openSem() {
   _semMonthOffset = 0; // siempre abre mostrando el mes actual
-  buildSemContent();
+  buildSemContent(); // primer render con lo que ya haya en memoria (rapido)
   document.getElementById('m-sem').classList.add('on');
+  // Refresca 'archived' por si esta sesion nunca abrio Historial — sin esto
+  // los totales de meses pasados podian salir incompletos (ver refreshArchived).
+  refreshArchived(function() { buildSemContent(); });
 }
 function closeSem() {
   document.getElementById('m-sem').classList.remove('on');
