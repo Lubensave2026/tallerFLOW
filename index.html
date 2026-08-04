@@ -3500,9 +3500,18 @@ function mapPick(sp) {
 
 /* REPORT */
 var _repProdMonthOffset = 0; // 0 = mes actual, 1 = mes anterior, etc. — solo para la tarjeta "Mi productividad (cerradas)"
+// Toggles jefe-only del reporte general: (1) columnas de Hrs. Trabajando /
+// Hrs. Comision / % Productividad por orden ACTIVA, en vez de la generica
+// "T. fase"; (2) panel de productividad agregada por tecnico (6 tecnicos,
+// casos cerrados vs en proceso). Se reinician cada vez que se abre el
+// reporte, para no dejar el jefe con una vista "pegada" de la vez anterior.
+var _jefeShowProdCols = false;
+var _jefeShowProdTecnicos = false;
 
 function openRep() {
   _repProdMonthOffset = 0; // siempre abre mostrando el mes actual
+  _jefeShowProdCols = false;
+  _jefeShowProdTecnicos = false;
   // Auto-refresh every 30 seconds while report is open
   if (window._repInterval) clearInterval(window._repInterval);
   window._repInterval = setInterval(function() {
@@ -3722,8 +3731,24 @@ function buildRepContent() {
       '<option value="ent">Entregado</option>' +
     '</select>' +
     '<button onclick="repClearFilters()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#x2715; Limpiar filtros</button>' +
+    (role === 'jefe'
+      ? '<button onclick="toggleJefeProdCols()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_jefeShowProdCols ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowProdCols ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_jefeShowProdCols ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer">&#128202; ' + (_jefeShowProdCols ? 'Ocultar' : 'Ver') + ' productividad Trabajando</button>' +
+        '<button onclick="toggleJefeProdTecnicos()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_jefeShowProdTecnicos ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowProdTecnicos ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_jefeShowProdTecnicos ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer">&#128101; ' + (_jefeShowProdTecnicos ? 'Ocultar' : 'Ver') + ' productividad por tecnico</button>'
+      : '') +
     '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
   '</div>';
+
+  // Panel "Productividad por tecnico" (jefe-only, toggle) — un vistazo de
+  // los 6 tecnicos con sus horas Trabajando/Comision/% acumuladas, separado
+  // en 2 tablas: casos ya cerrados (azul) y casos en proceso (gris), para
+  // monitorear el desempeno global de cada uno.
+  if (role === 'jefe' && _jefeShowProdTecnicos) {
+    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:12px;margin-bottom:1rem">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:10px">&#128101; Productividad por tecnico</div>' +
+      _buildTecProdTable('cerradas', '#3D7EFF', 'rgba(61,126,255,.12)', '&#128309; Casos ya cerrados') +
+      _buildTecProdTable('activas', '#999999', 'rgba(153,153,153,.15)', '&#9898; Casos en proceso') +
+    '</div>';
+  }
 
   // Main orders table
   html += '<div id="rep-table-wrap" style="overflow-x:auto;overflow-y:visible;margin-bottom:1rem">' +
@@ -3742,7 +3767,11 @@ function buildRepContent() {
       (myName
         ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. En Proceso</th>' +
           '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Pagadas</th>'
-        : '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">T. fase</th>') +
+        : (role === 'jefe' && _jefeShowProdCols
+            ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Trabajando</th>' +
+              '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Comision</th>' +
+              '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">% Productividad</th>'
+            : '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">T. fase</th>')) +
       ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Fact. potencial</th>' : '') +
     '</tr></thead><tbody>';
 
@@ -3781,6 +3810,27 @@ function buildRepContent() {
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--or)">' + abHorasRow.toFixed(2).replace('.', ',') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx)">' + hrsComRow.toFixed(2).replace('.', ',') + '</td>';
     }
+    // Para el Jefe (toggle "Ver productividad Trabajando"): igual que en la
+    // tarjeta del board y en la ficha, pero a nivel de ORDEN (no dividido
+    // entre tecnicos) — asi salta a la vista una orden con horas
+    // Trabajando pero SIN ninguna hora de comision asignada todavia.
+    var jefeProdRowCells = '';
+    if (role === 'jefe' && _jefeShowProdCols) {
+      var hrsRealRow2 = _sumPhaseHours(o, 'ab');
+      if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) {
+        hrsRealRow2 += businessMinutes(o.timestamps.ab, Date.now()) / 60;
+      }
+      var hrsComRow2 = 0;
+      (o.trabajos || []).forEach(function(tw) { hrsComRow2 += (parseFloat(tw.horas) || 0); });
+      var pctRow2 = hrsRealRow2 > 0 ? Math.round(hrsComRow2 / hrsRealRow2 * 100) : null;
+      var sinComisionRow = hrsRealRow2 > 0 && hrsComRow2 === 0;
+      jefeProdRowCells =
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--or)">' + hrsRealRow2.toFixed(2).replace('.', ',') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:' + (sinComisionRow ? 'var(--rd)' : 'var(--tx)') + '">' + hrsComRow2.toFixed(2).replace('.', ',') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:700;color:' + (pctRow2 !== null ? _productividadColor(pctRow2) : 'var(--tx3)') + '">' +
+          (sinComisionRow ? '<span title="Tiene horas Trabajando pero ninguna hora de comision asignada">&#9888; Sin comision</span>' : (pctRow2 !== null ? pctRow2 + '%' : '—')) +
+        '</td>';
+    }
     // Fact. potencial: si la orden ya tiene un monto "Ya facturado" congelado
     // (se cerro antes por meta de facturacion pero sigue en proceso), el
     // monto ya no cuenta completo como potencial de ESTE mes — se muestra en
@@ -3809,7 +3859,7 @@ function buildRepContent() {
       '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + esc(o.plate||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.tech||'Sin asignar') + (o.tech2?' + '+esc(o.tech2.split(' ')[0]):'') + '</td>' +
-      (myName ? tecRowCells : '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>') +
+      (myName ? tecRowCells : ((role === 'jefe' && _jefeShowProdCols) ? jefeProdRowCells : '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>')) +
       factPotencialCell +
     '</tr>';
   }
@@ -5740,6 +5790,69 @@ function repClearFilters() {
 function repProdChangeMonth(delta) {
   _repProdMonthOffset = Math.max(0, _repProdMonthOffset + delta); // nunca hacia el futuro
   buildRepContent();
+}
+
+function toggleJefeProdCols() {
+  if (role !== 'jefe') return;
+  _jefeShowProdCols = !_jefeShowProdCols;
+  buildRepContent();
+}
+function toggleJefeProdTecnicos() {
+  if (role !== 'jefe') return;
+  _jefeShowProdTecnicos = !_jefeShowProdTecnicos;
+  buildRepContent();
+}
+
+var _TEC_NAMES_PROD = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Luis Caceres'];
+
+// Suma horas Trabajando + horas de comision de UN tecnico a lo largo de
+// TODAS sus ordenes (activas o cerradas segun 'source'), incluyendo lo ya
+// archivado — para monitorear su desempeno global, no solo el de un mes.
+// Reusa calcTecHoras() por-orden (misma logica ya usada en la tarjeta y la
+// ficha), asi que un caso con 2 tecnicos se reparte 50/50 igual que ahi.
+function _calcTecHorasAgregado(tecName, source) {
+  var allO = orders.concat(archived || []);
+  var seen = {};
+  var real = 0, flat = 0, count = 0;
+  for (var i = 0; i < allO.length; i++) {
+    var o = allO[i];
+    if (seen[o.id]) continue;
+    seen[o.id] = true;
+    if (o.tech !== tecName && o.tech2 !== tecName) continue;
+    var isClosed = (o.phase === 'cer');
+    if (source === 'cerradas' && !isClosed) continue;
+    if (source === 'activas' && isClosed) continue;
+    var h = calcTecHoras(o, tecName);
+    real += h.real; flat += h.flat; count++;
+  }
+  return {real: real, flat: flat, count: count, pct: real > 0 ? Math.round(flat / real * 100) : null};
+}
+
+// Arma una de las 2 tablas del panel "Productividad por tecnico" — una fila
+// por cada uno de los 6 tecnicos, con sus 3 columnas agregadas.
+function _buildTecProdTable(source, colorAccent, bgAccent, title) {
+  var rows = '';
+  for (var i = 0; i < _TEC_NAMES_PROD.length; i++) {
+    var tn = _TEC_NAMES_PROD[i];
+    var agg = _calcTecHorasAgregado(tn, source);
+    var pctColor = agg.pct !== null ? _productividadColor(agg.pct) : 'var(--tx3)';
+    rows += '<tr style="background:' + (i % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)') + '">' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(tn) + (agg.count ? ' <span style="font-size:9px;color:var(--tx3)">(' + agg.count + ')</span>' : '') + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo)">' + agg.real.toFixed(2).replace('.', ',') + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo)">' + agg.flat.toFixed(2).replace('.', ',') + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:700;color:' + pctColor + '">' + (agg.pct !== null ? agg.pct + '%' : '—') + '</td>' +
+    '</tr>';
+  }
+  return '<div style="margin-bottom:14px">' +
+    '<div style="font-size:11px;font-weight:700;color:' + colorAccent + ';text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">' + title + '</div>' +
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:380px">' +
+    '<thead><tr style="background:' + bgAccent + ';color:' + colorAccent + ';font-weight:700">' +
+      '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid ' + colorAccent + '">Tecnico</th>' +
+      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + colorAccent + '">Hrs. Trabajando</th>' +
+      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + colorAccent + '">Hrs. Comision</th>' +
+      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + colorAccent + '">% Productividad</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+  '</div>';
 }
 
 /* INIT */
