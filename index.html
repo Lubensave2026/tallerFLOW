@@ -751,13 +751,12 @@ function initFirebase() {
     firebase.initializeApp(FB_CONFIG);
     db = firebase.database();
 
-    // Login anonimo requerido por las reglas de seguridad (auth != null)
-    firebase.auth().signInAnonymously().catch(function(e){
-      console.log("Firebase auth error:", e);
-    });
-
-    console.log("Firebase conectado OK");
-    fbReady = true;
+    // Esperar confirmacion de auth ANTES de leer/escribir datos
+    firebase.auth().onAuthStateChanged(function(user) {
+      if (!user) return;
+      if (fbReady) return; // evitar doble inicializacion
+      console.log("Firebase auth OK uid:", user.uid);
+      fbReady = true;
 
     _migrateIfNeeded(function() {
     _migrateHistorialIfNeeded(function() {
@@ -823,8 +822,15 @@ function initFirebase() {
         console.log('Error en snapshot inicial de ordenes, se activan listeners de todas formas:', e);
         attachIncrementalOrderListeners();
       });
+    }); // fin _migrateHistorialIfNeeded
+    }); // fin _migrateIfNeeded
+    }); // fin onAuthStateChanged
+
+    // Disparar login anonimo — onAuthStateChanged se activa al confirmar
+    firebase.auth().signInAnonymously().catch(function(e){
+      console.log("Firebase auth error:", e);
     });
-    });
+
   } catch(e) {
     console.log("Firebase error:", e);
     fbReady = false;
