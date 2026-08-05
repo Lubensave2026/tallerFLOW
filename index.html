@@ -4176,7 +4176,7 @@ function _buildOrderSummaryCSV(allOrders) {
   var header = ['OT','Ingreso','Salida','Dias','Cliente','Vehiculo','Placa','Tecnico',
     'Asig_espera','Trabajando','Presup_partes','Presup_MO','Esp_autorizacion','Esp_repuestos',
     'Detenido','Trabajo_externo','Prueba_Insp_Final','Lavado','Listo_pEntrega','Entregado',
-    'Monto_Total','Monto_MO','Hrs_Com'];
+    'Monto_Total','Monto_MO','Hrs_Com','Pct_Productividad'];
   var rows = [header];
 
   var sumDias = 0;
@@ -4213,6 +4213,13 @@ function _buildOrderSummaryCSV(allOrders) {
     sumMontoMO += montoMO;
     sumHrsCom += hrsCom;
 
+    // % Productividad de la orden: horas de comision vs horas acumuladas en
+    // Trabajando (fase 'ab') — mismo criterio ya usado en la tarjeta, la
+    // ficha (Informacion) y el reporte de productividad por tecnico. Vacio
+    // (no 0%) si la orden nunca tuvo tiempo en Trabajando, para no mostrar
+    // un porcentaje sin sentido.
+    var pctProd = horas.ab > 0 ? Math.round(hrsCom / horas.ab * 100) : null;
+
     rows.push([
       o.ot, fmtDate(ingreso), fmtDate(salida), _csvNum(dias.toFixed(1)),
       o.client, o.model, o.plate, tech,
@@ -4224,7 +4231,8 @@ function _buildOrderSummaryCSV(allOrders) {
       _csvNum(horas.lst.toFixed(2)), _csvNum(horas.ent.toFixed(2)),
       montoTotal ? _csvNum(montoTotal.toFixed(2)) : '',
       montoMO ? _csvNum(montoMO.toFixed(2)) : '',
-      hrsCom ? _csvNum(hrsCom.toFixed(2)) : ''
+      hrsCom ? _csvNum(hrsCom.toFixed(2)) : '',
+      pctProd !== null ? pctProd : ''
     ]);
   }
 
@@ -4242,6 +4250,10 @@ function _buildOrderSummaryCSV(allOrders) {
   footer.push(_csvNum(sumMontoTotal.toFixed(2)));
   footer.push(_csvNum(sumMontoMO.toFixed(2)));
   footer.push(_csvNum(sumHrsCom.toFixed(2)));
+  // % global del periodo: horas de comision totales / horas Trabajando
+  // totales — no el promedio de los porcentajes por fila, mismo criterio ya
+  // usado para los totales agregados por tecnico (_calcTecHorasAgregado).
+  footer.push(sumHoras.ab > 0 ? Math.round(sumHrsCom / sumHoras.ab * 100) : '');
   rows.push(footer);
 
   return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
