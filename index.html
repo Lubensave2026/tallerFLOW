@@ -3523,11 +3523,18 @@ var _repProdMonthOffset = 0; // 0 = mes actual, 1 = mes anterior, etc. — solo 
 // reporte, para no dejar el jefe con una vista "pegada" de la vez anterior.
 var _jefeShowProdCols = false;
 var _jefeShowProdTecnicos = false;
+// Toggle tecnico-only: alterna la tabla principal entre sus casos activos
+// (comportamiento de siempre) y sus casos ya CERRADOS (detalle por orden de
+// hrs. trabajadas / hrs. pagadas / % productividad, para que puedan ver que
+// vehiculos especificos componen el numero agregado de "Mi productividad —
+// ordenes CERRADAS"). Se reinicia cada vez que se abre el reporte.
+var _tecRepShowClosed = false;
 
 function openRep() {
   _repProdMonthOffset = 0; // siempre abre mostrando el mes actual
   _jefeShowProdCols = false;
   _jefeShowProdTecnicos = false;
+  _tecRepShowClosed = false;
   // Auto-refresh every 30 seconds while report is open
   if (window._repInterval) clearInterval(window._repInterval);
   window._repInterval = setInterval(function() {
@@ -3555,10 +3562,24 @@ function buildRepContent() {
   var myName = rMe && rMe.tec ? rMe.tn : null;
   var repOrders = myName ? orders.filter(function(o){ return o.tech === myName || o.tech2 === myName; }) : orders;
 
-  // Sort orders by OT number descending
-  var sorted = repOrders.filter(function(o){ return o.phase !== 'cer'; }).sort(function(a,b) {
-    return (parseInt(b.ot||0) || 0) - (parseInt(a.ot||0) || 0);
-  });
+  // Sort orders by OT number descending. Vista de tecnico "Mis casos
+  // cerrados": dataset independiente (no repOrders, que solo mira 'orders'
+  // y no incluye lo ya archivado) para que la tabla de detalle SI incluya
+  // ordenes archivadas y asi cuadre con el total de la tarjeta "Mi
+  // productividad — ordenes CERRADAS" (que ya suma orders+archived).
+  var sorted;
+  if (myName && _tecRepShowClosed) {
+    var seenTecClosedIds = {};
+    sorted = orders.concat(archived || []).filter(function(o) {
+      if (seenTecClosedIds[o.id]) return false;
+      seenTecClosedIds[o.id] = true;
+      return (o.tech === myName || o.tech2 === myName) && o.phase === 'cer';
+    }).sort(function(a,b) { return (parseInt(b.ot||0) || 0) - (parseInt(a.ot||0) || 0); });
+  } else {
+    sorted = repOrders.filter(function(o){ return o.phase !== 'cer'; }).sort(function(a,b) {
+      return (parseInt(b.ot||0) || 0) - (parseInt(a.ot||0) || 0);
+    });
+  }
 
   // KPIs
   var total = repOrders.length;
@@ -3713,6 +3734,10 @@ function buildRepContent() {
       ? '<button onclick="toggleJefeProdCols()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_jefeShowProdCols ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowProdCols ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_jefeShowProdCols ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer">&#128202; ' + (_jefeShowProdCols ? 'Ocultar' : 'Ver') + ' productividad Trabajando</button>' +
         '<button onclick="toggleJefeProdTecnicos()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_jefeShowProdTecnicos ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowProdTecnicos ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_jefeShowProdTecnicos ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer">&#128101; ' + (_jefeShowProdTecnicos ? 'Ocultar' : 'Ver') + ' productividad por tecnico</button>'
       : '') +
+    (myName
+      ? '<button onclick="setTecRepClosed(false)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (!_tecRepShowClosed ? '#3D7EFF' : 'var(--bd)') + ';background:' + (!_tecRepShowClosed ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (!_tecRepShowClosed ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (!_tecRepShowClosed ? '700' : '400') + '">&#128295; Mis casos activos</button>' +
+        '<button onclick="setTecRepClosed(true)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_tecRepShowClosed ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_tecRepShowClosed ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_tecRepShowClosed ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (_tecRepShowClosed ? '700' : '400') + '">&#9989; Mis casos cerrados</button>'
+      : '') +
     '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
   '</div>';
 
@@ -3744,7 +3769,8 @@ function buildRepContent() {
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Tecnico</th>' +
       (myName
         ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. En Proceso</th>' +
-          '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Pagadas</th>'
+          '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Pagadas</th>' +
+          (_tecRepShowClosed ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">% Productividad</th>' : '')
         : (role === 'jefe' && _jefeShowProdCols
             ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Trabajando</th>' +
               '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Comision</th>' +
@@ -3787,6 +3813,13 @@ function buildRepContent() {
       tecRowCells =
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--or)">' + abHorasRow.toFixed(2).replace('.', ',') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx)">' + hrsComRow.toFixed(2).replace('.', ',') + '</td>';
+      // Vista "Mis casos cerrados": tercera columna con el % de productividad
+      // de ESTA orden (mismo criterio ya usado en toda la app), para que el
+      // tecnico vea que vehiculo especifico compone el % agregado de arriba.
+      if (_tecRepShowClosed) {
+        var pctRowTec = abHorasRow > 0 ? Math.round(hrsComRow / abHorasRow * 100) : null;
+        tecRowCells += '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:700;color:' + (pctRowTec !== null ? _productividadColor(pctRowTec) : 'var(--tx3)') + '">' + (pctRowTec !== null ? pctRowTec + '%' : '—') + '</td>';
+      }
     }
     // Para el Jefe (toggle "Ver productividad Trabajando"): igual que en la
     // tarjeta del board y en la ficha, pero a nivel de ORDEN (no dividido
@@ -3907,8 +3940,21 @@ function buildRepContent() {
   document.querySelectorAll('.rep-row-clickable').forEach(function(row) {
     row.addEventListener('click', function() {
       var oid = parseInt(this.getAttribute('data-oid'));
-      closeRep();
-      openDrw(oid);
+      // La vista "Mis casos cerrados" del tecnico incluye ordenes que ya
+      // salieron de 'orders' hacia 'archived' — openDrw() solo busca en
+      // 'orders' y no hace nada si no la encuentra, asi que para esas hay
+      // que abrir la vista de solo lectura del historial en su lugar.
+      var isLive = orders.some(function(o) { return o.id === oid; });
+      if (isLive) {
+        closeRep();
+        openDrw(oid);
+      } else {
+        var archivedOrder = (archived || []).find(function(o) { return o.id === oid; });
+        if (archivedOrder) {
+          closeRep();
+          openHistDetail(archivedOrder);
+        }
+      }
     });
   });
 }
@@ -5806,6 +5852,12 @@ function toggleJefeProdCols() {
 function toggleJefeProdTecnicos() {
   if (role !== 'jefe') return;
   _jefeShowProdTecnicos = !_jefeShowProdTecnicos;
+  buildRepContent();
+}
+function setTecRepClosed(val) {
+  var rMe = role ? ROLES[role] : null;
+  if (!(rMe && rMe.tec)) return;
+  _tecRepShowClosed = val;
   buildRepContent();
 }
 
