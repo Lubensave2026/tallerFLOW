@@ -2090,6 +2090,11 @@ function openDrw(id) {
   var TIPO_OPERACION_CATALOG = {
     alineacion: '01 ALINEACION', diagnostico: '02 DIAGNOSTICO',
     soldadura: '03 SOLDADURA', pinchazo: '04 PINCHAZO',
+    servicioMenor: '05 SERVICIO MENOR', servicioIntermedio: '06 SERVICIO INTERMEDIO',
+    servicioMayor: '07 SERVICIO MAYOR', revisionCompraVenta: '08 REVISION COMPRA/VENTA',
+    pastillasDiscosDel: '09 C/ PASTILLAS Y D/M DISCOS FRENOS DEL.',
+    pastillasDiscosTras: '10 C/ PASTILLAS Y D/M DISCOS FRENOS TRAS.',
+    cambioCandelas: '11 CAMBIO DE CANDELAS', cambioFiltro: '12 CAMBIO DE FILTRO',
   };
   trabajosHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
     '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Trabajos realizados</span>' +
@@ -2136,15 +2141,17 @@ function openDrw(id) {
     var tecOptions = '';
     for (var toi = 0; toi < ordTecs.length; toi++) { tecOptions += '<option value="' + esc(ordTecs[toi]) + '"' + (r.tec && r.tn === ordTecs[toi] ? ' selected' : '') + '>' + esc(ordTecs[toi]) + '</option>'; }
     if (!ordTecs.length) tecOptions = '<option value="">Sin tecnico asignado</option>';
+    // Buscador del catalogo (en vez de un <select> plano): con <input list=..>
+    // el navegador ya filtra las opciones a medida que se escribe, util ahora
+    // que el catalogo crecio a 12 items. Si el texto no coincide con ninguna
+    // opcion del catalogo, se trata como trabajo personalizado (sin tipoOperacion),
+    // igual que antes dejando "Personalizado..." sin seleccionar.
+    var catalogDatalistOptions = '';
+    for (var catKey in TIPO_OPERACION_CATALOG) { catalogDatalistOptions += '<option value="' + esc(TIPO_OPERACION_CATALOG[catKey]) + '">'; }
     trabajosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
-      '<select id="trab-tipo" class="cin" style="flex:0 0 auto">' +
-        '<option value="">Personalizado...</option>' +
-        '<option value="alineacion">01 ALINEACION</option>' +
-        '<option value="diagnostico">02 DIAGNOSTICO</option>' +
-        '<option value="soldadura">03 SOLDADURA</option>' +
-        '<option value="pinchazo">04 PINCHAZO</option>' +
-      '</select>' +
-      '<input id="trab-inp" class="cin" placeholder="Descripcion del trabajo realizado..." style="flex:1;min-width:140px">' +
+      '<input id="trab-tipo" class="cin" list="trab-tipo-datalist" placeholder="Buscar en catalogo..." style="flex:0 0 170px" autocomplete="off">' +
+      '<datalist id="trab-tipo-datalist">' + catalogDatalistOptions + '</datalist>' +
+      '<input id="trab-inp" class="cin" placeholder="Descripcion del trabajo realizado..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
       (role === 'jefe' ? '<input id="trab-horas" class="cin" type="number" min="0" step="0.25" placeholder="Hrs. com." style="flex:0 0 80px">' : '') +
       '<select id="trab-tec" class="cin" style="flex:0 0 auto">' + tecOptions + '</select>' +
       '<button id="btn-add-trab" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
@@ -2409,8 +2416,17 @@ function openDrw(id) {
       var tecEl = document.getElementById('trab-tec');
       var tecT = tecEl ? tecEl.value : '';
       if (!tecT) { toast('No hay tecnico asignado a esta orden'); return; }
+      // #trab-tipo ahora es un buscador (input + datalist), no un <select> —
+      // su valor es el texto/etiqueta escrita, hay que resolverlo de vuelta a
+      // la clave interna del catalogo (o dejarlo vacio si no coincide con
+      // ninguna opcion, es decir, trabajo personalizado).
       var tipoEl = document.getElementById('trab-tipo');
-      var tipoT = tipoEl ? tipoEl.value : '';
+      var tipoT = '';
+      if (tipoEl && tipoEl.value) {
+        for (var catKeyAdd in TIPO_OPERACION_CATALOG) {
+          if (TIPO_OPERACION_CATALOG[catKeyAdd] === tipoEl.value) { tipoT = catKeyAdd; break; }
+        }
+      }
       ox.trabajos = ox.trabajos || [];
       var nuevoTrabajo = {desc:esc(descT), horas:horasT, tecnico:esc(tecT), by:ROLES[role]?ROLES[role].label:role, ts:Date.now()};
       if (tipoT) nuevoTrabajo.tipoOperacion = tipoT;
@@ -2421,12 +2437,16 @@ function openDrw(id) {
     });
     var trabTipoEl = document.getElementById('trab-tipo');
     if (trabTipoEl) {
-      // Autocompleta la descripcion con el nombre del catalogo al elegir una
-      // de las operaciones predefinidas — sigue siendo editable despues.
-      var TIPO_OPERACION_LABELS = {alineacion:'01 ALINEACION', diagnostico:'02 DIAGNOSTICO', soldadura:'03 SOLDADURA', pinchazo:'04 PINCHAZO'};
-      trabTipoEl.addEventListener('change', function() {
+      // Autocompleta la descripcion con la etiqueta del catalogo cuando el
+      // texto escrito coincide exactamente con una opcion del buscador —
+      // sigue siendo editable despues. TIPO_OPERACION_CATALOG ya esta
+      // declarado arriba en esta misma funcion (fuente unica, no duplicar).
+      trabTipoEl.addEventListener('input', function() {
         var inpT2 = document.getElementById('trab-inp');
-        if (inpT2 && TIPO_OPERACION_LABELS[this.value]) inpT2.value = TIPO_OPERACION_LABELS[this.value];
+        if (!inpT2) return;
+        for (var catKeyChg in TIPO_OPERACION_CATALOG) {
+          if (TIPO_OPERACION_CATALOG[catKeyChg] === this.value) { inpT2.value = TIPO_OPERACION_CATALOG[catKeyChg]; break; }
+        }
       });
     }
     var trabInp = document.getElementById('trab-inp');
@@ -5269,6 +5289,15 @@ function openHistDetail(o) {
   // — lo que cuenta para contabilidad ya quedo fijo en "Fecha de cierre" arriba.
   var esSegundoCierre = o.phase === 'cer' && facTsDetail && closeTsDetail && closeTsDetail !== facTsDetail;
   var fechaSegundoCierreDetail = esSegundoCierre ? new Date(closeTsDetail).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}) : null;
+  // % Productividad con el que quedo cerrada la orden: horas de comision vs
+  // horas acumuladas en Trabajando (fase 'ab') — mismo criterio que la
+  // tarjeta, la ficha en vivo y el CSV de Bitacora. Como esta vista es de
+  // solo lectura de una orden ya archivada, el dato es el final/definitivo.
+  var hrsRealHistDetail = _sumPhaseHours(o, 'ab');
+  var hrsComHistDetail = 0;
+  (o.trabajos || []).forEach(function(tw) { hrsComHistDetail += parseFloat(tw.horas) || 0; });
+  var pctProdHistDetail = hrsRealHistDetail > 0 ? Math.round(hrsComHistDetail / hrsRealHistDetail * 100) : null;
+  var pctProdHistColor = pctProdHistDetail !== null ? _productividadColor(pctProdHistDetail) : 'var(--tx3)';
   html += '<div class="sec"><div class="sec-l">Informacion general</div>' +
     '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
@@ -5279,6 +5308,7 @@ function openHistDetail(o) {
     '<div class="irow"><span class="ik">Fecha de cierre</span><span>' + fechaCierreDetail + '</span></div>' +
     '<div class="irow"><span class="ik">Fecha de entrega</span><span>' + fechaEntregaDetail + '</span></div>' +
     (esSegundoCierre ? '<div class="irow"><span class="ik" style="font-size:10px;color:var(--tx3)">&#8618; Cierre adicional (informativo)</span><span style="font-size:10px;color:var(--tx3)">' + fechaSegundoCierreDetail + '</span></div>' : '') +
+    '<div class="irow"><span class="ik">&#128202; % Productividad</span><span style="color:' + pctProdHistColor + ';font-weight:700">' + (pctProdHistDetail !== null ? pctProdHistDetail + '%' : '—') + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
