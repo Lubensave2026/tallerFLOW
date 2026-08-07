@@ -1212,15 +1212,13 @@ function prbStatusBadge(o) {
   var seg2Color = tecDone ? 'var(--gn)' : (jefeDone ? 'var(--or)' : 'var(--tx3)');
   var seg2Bg = tecDone ? 'var(--gnbg)' : (jefeDone ? 'var(--orbg)' : 'var(--bg4)');
   var seg2Bd = tecDone ? 'var(--gnbd)' : (jefeDone ? 'var(--orbd)' : 'var(--bd)');
-  // Mientras el Jefe no firme "Prueba ruta", el vehiculo se considera EN
-  // RUTA — se muestra con el tiempo transcurrido en vivo (horas habiles).
-  // No es un paso nuevo ni un dato nuevo: es el mismo primer tramo que
-  // advance() ya guarda en la bitacora como "Prueba de ruta (Jefe)" al
-  // firmar (ver el split de 'prb' en advance()), solo que ahora se ve como
-  // indicador mientras esta en curso.
+  // EN RUTA: desde que se presiona "Marcar salida a ruta" (o.rutaSalidaTs)
+  // hasta que el Jefe firma "Prueba ruta" — cronometro especifico del tramo
+  // en que el vehiculo esta fuera del taller, independiente del tiempo total
+  // de la fase (que incluye tambien la espera antes de salir).
   var enRutaHtml = '';
-  if (!jefeDone && o.timestamps && o.timestamps.prb) {
-    enRutaHtml = '<div style="margin-bottom:6px"><span title="El vehiculo esta en prueba de ruta — este tiempo se guarda en la bitacora como Prueba de ruta (Jefe) al firmar" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825">&#128663; EN RUTA &middot; ' + businessHours(o.timestamps.prb, Date.now()) + '</span></div>';
+  if (!jefeDone && o.rutaSalidaTs) {
+    enRutaHtml = '<div style="margin-bottom:6px"><span title="El vehiculo esta en ruta — este tiempo queda registrado por separado del total de la fase" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825">&#128663; EN RUTA &middot; ' + businessHours(o.rutaSalidaTs, Date.now()) + '</span></div>';
   }
   return enRutaHtml + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">' +
     '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg1Bd + ';background:' + seg1Bg + ';color:' + seg1Color + '">' + (jefeDone ? '&#10003; ' : '') + 'Prueba ruta (Jefe)</span>' +
@@ -1740,7 +1738,14 @@ function openDrw(id) {
       '</div>';
     }
   }
-  var prbStatusBlock = (o.phase === 'prb') ? ('<div style="margin-bottom:8px">' + prbStatusBadge(o) + '</div>') : '';
+  // Boton para marcar el momento exacto en que el vehiculo sale a la prueba
+  // de ruta — arranca el cronometro "EN RUTA" (ver prbStatusBadge). Solo
+  // Jefe, solo mientras esta en 'prb', no se ha marcado ya la salida, y el
+  // Jefe todavia no firmo "Prueba ruta" (una vez firmado ya no aplica).
+  var rutaSalidaBtnHtml = (o.phase === 'prb' && role === 'jefe' && !o.rutaSalidaTs && !(o.sigs && o.sigs.jefe))
+    ? '<button id="btn-ruta-salida" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825;font-size:12px;font-weight:600;cursor:pointer">&#128663; Marcar salida a ruta</button>'
+    : '';
+  var prbStatusBlock = (o.phase === 'prb') ? ('<div style="margin-bottom:8px">' + rutaSalidaBtnHtml + prbStatusBadge(o) + '</div>') : '';
   if (sigs.length) {
     var sigRows = '';
     for (var i = 0; i < sigs.length; i++) {
@@ -1906,6 +1911,17 @@ function openDrw(id) {
     }
   } else {
     phaseLogHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Aun no hay movimientos de fase registrados.</div>';
+  }
+  // Tiempo especifico EN RUTA (desde "Marcar salida a ruta" hasta que el
+  // Jefe firma) — dato aparte del total de la fase Prueba/Insp.Final, que
+  // sigue mostrandose igual arriba sin cambios. Se muestra en cuanto queda
+  // registrado (al firmar), sin importar en que fase este la orden ahora.
+  if (o.rutaMinutos !== undefined && o.rutaMinutos !== null) {
+    var rutaDur = o.rutaMinutos < 60 ? Math.round(o.rutaMinutos) + ' min' : (o.rutaMinutos/60).toFixed(1) + ' h';
+    phaseLogHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:8px;background:rgba(249,168,37,.08);border:1px solid #F9A825;border-radius:var(--rs)">' +
+      '<span style="font-size:10px;color:#F9A825;text-transform:uppercase;letter-spacing:.3px;flex:1">&#128663; Tiempo en ruta</span>' +
+      '<span style="color:#F9A825;font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + rutaDur + '</span>' +
+    '</div>';
   }
   // Fecha de cierre: se muestra siempre que exista un registro (o.timestamps.cer
   // nunca se borra al reabrir una orden), no solo mientras phase==='cer' —
@@ -2811,6 +2827,20 @@ function openDrw(id) {
       save(); toast('Monto y horas congelados en ' + facMesLabel); openDrw(id);
     });
   }
+  var rutaSalidaBtn = document.getElementById('btn-ruta-salida');
+  if (rutaSalidaBtn) {
+    rutaSalidaBtn.addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede marcar esto'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox || ox.phase !== 'prb') return;
+      ox.rutaSalidaTs = Date.now();
+      var whoRuta = ROLES[role] ? ROLES[role].label : role;
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:whoRuta, txt:'&#128663; Vehiculo sale a prueba de ruta', ts:Date.now(), type:'system'});
+      save(); toast('Salida a ruta registrada'); openDrw(id);
+    });
+  }
   var desmarcarFacturadaBtn = document.getElementById('btn-desmarcar-facturada');
   if (desmarcarFacturadaBtn) {
     desmarcarFacturadaBtn.addEventListener('click', function() {
@@ -3028,6 +3058,14 @@ function doSign(id, sigId) {
   o.sigs[sigId] = true;
   o.sigsTs = o.sigsTs || {};
   o.sigsTs[sigId] = Date.now();
+  // Tiempo especifico que el vehiculo estuvo EN RUTA (desde que se marco la
+  // salida con el boton "Marcar salida a ruta" hasta que el Jefe firma esta
+  // misma "Prueba de ruta") — se congela aqui como dato permanente de la
+  // orden (o.rutaMinutos), independiente del tiempo total de la fase 'prb'
+  // (que sigue igual, sin tocar). Si nunca se marco la salida, no hay dato.
+  if (o.phase === 'prb' && sigId === 'jefe' && o.rutaSalidaTs) {
+    o.rutaMinutos = businessMinutes(o.rutaSalidaTs, Date.now());
+  }
   // Auto-advance when all required sigs for this phase are complete
   var phaseSigsAuto = SIGS[o.phase] || [];
   var allSignedAuto = phaseSigsAuto.every(function(s) { return o.sigs[s.id]; });
@@ -3161,6 +3199,11 @@ function advance(id, newPhase) {
   o.phase = newPhase;
   o.sigs = {};
   o.sigsTs = {};
+  // Si entra (o vuelve a entrar, ej. tras un reproceso) a Prueba/Insp.Final,
+  // se limpia cualquier dato de "salida a ruta" de una vuelta anterior — si
+  // no, el boton "Marcar salida a ruta" quedaria oculto y el indicador EN
+  // RUTA mostraria un tiempo viejo/sin sentido desde la vez pasada.
+  if (newPhase === 'prb') { delete o.rutaSalidaTs; delete o.rutaMinutos; }
   if (!o.timestamps) o.timestamps = {};
   o.timestamps[newPhase] = phaseTo;
   if (newPhase === 'cer' && o._closeDateOverride) { delete o._closeDateOverride; }
@@ -4283,13 +4326,13 @@ function _buildOrderSummaryCSV(allOrders) {
   var header = ['OT','Ingreso','Salida','Dias','Cliente','Vehiculo','Placa','Tecnico',
     'Asig_espera','Trabajando','Presup_partes','Presup_MO','Esp_autorizacion','Esp_repuestos',
     'Detenido','Trabajo_externo','Prueba_Insp_Final','Lavado','Listo_pEntrega','Entregado',
-    'Monto_Total','Monto_MO','Hrs_Com','Pct_Productividad'];
+    'Monto_Total','Monto_MO','Hrs_Com','Pct_Productividad','Tiempo_En_Ruta'];
   var rows = [header];
 
   var sumDias = 0;
   var sumHoras = {};
   _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) { sumHoras[ph] = 0; });
-  var sumMontoTotal = 0, sumMontoMO = 0, sumHrsCom = 0;
+  var sumMontoTotal = 0, sumMontoMO = 0, sumHrsCom = 0, sumRutaMin = 0;
 
   for (var i = 0; i < sorted.length; i++) {
     var o = sorted[i];
@@ -4326,6 +4369,11 @@ function _buildOrderSummaryCSV(allOrders) {
     // (no 0%) si la orden nunca tuvo tiempo en Trabajando, para no mostrar
     // un porcentaje sin sentido.
     var pctProd = horas.ab > 0 ? Math.round(hrsCom / horas.ab * 100) : null;
+    // Tiempo especifico en ruta (independiente del total de Prueba_Insp_Final
+    // de arriba, que sigue siendo el tiempo completo de esa fase) — vacio si
+    // nunca se marco la salida a ruta en esa orden.
+    var rutaHoras = (o.rutaMinutos !== undefined && o.rutaMinutos !== null) ? (o.rutaMinutos / 60) : null;
+    if (rutaHoras !== null) sumRutaMin += o.rutaMinutos;
 
     rows.push([
       o.ot, fmtDate(ingreso), fmtDate(salida), _csvNum(dias.toFixed(1)),
@@ -4339,7 +4387,8 @@ function _buildOrderSummaryCSV(allOrders) {
       montoTotal ? _csvNum(montoTotal.toFixed(2)) : '',
       montoMO ? _csvNum(montoMO.toFixed(2)) : '',
       hrsCom ? _csvNum(hrsCom.toFixed(2)) : '',
-      pctProd !== null ? pctProd : ''
+      pctProd !== null ? pctProd : '',
+      rutaHoras !== null ? _csvNum(rutaHoras.toFixed(2)) : ''
     ]);
   }
 
@@ -4361,6 +4410,9 @@ function _buildOrderSummaryCSV(allOrders) {
   // totales — no el promedio de los porcentajes por fila, mismo criterio ya
   // usado para los totales agregados por tecnico (_calcTecHorasAgregado).
   footer.push(sumHoras.ab > 0 ? Math.round(sumHrsCom / sumHoras.ab * 100) : '');
+  // Tiempo en ruta: TOTAL del periodo (no promedio), igual criterio que
+  // Monto_Total/Monto_MO/Hrs_Com arriba.
+  footer.push(_csvNum((sumRutaMin / 60).toFixed(2)));
   rows.push(footer);
 
   return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
@@ -5457,6 +5509,14 @@ function openHistDetail(o) {
     // Total time
     var totalDur = totalMin < 60 ? Math.round(totalMin) + ' min' : (totalMin/60).toFixed(1) + ' h';
     html += '<div style="display:flex;justify-content:flex-end;padding:6px 0;font-size:12px;font-weight:600;color:var(--ac)">Total: ' + totalDur + ' h.h.</div>';
+    // Tiempo especifico EN RUTA, dato aparte del total de fases de arriba.
+    if (o.rutaMinutos !== undefined && o.rutaMinutos !== null) {
+      var rutaDurHist = o.rutaMinutos < 60 ? Math.round(o.rutaMinutos) + ' min' : (o.rutaMinutos/60).toFixed(1) + ' h';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:8px;background:rgba(249,168,37,.08);border:1px solid #F9A825;border-radius:var(--rs)">' +
+        '<span style="font-size:10px;color:#F9A825;text-transform:uppercase;letter-spacing:.3px;flex:1">&#128663; Tiempo en ruta</span>' +
+        '<span style="color:#F9A825;font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + rutaDurHist + '</span>' +
+      '</div>';
+    }
     html += '</div>';
   } else {
     html += '<div class="sec"><div class="sec-l">Bitacora de tiempos</div>' +
