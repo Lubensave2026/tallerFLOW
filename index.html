@@ -1212,7 +1212,17 @@ function prbStatusBadge(o) {
   var seg2Color = tecDone ? 'var(--gn)' : (jefeDone ? 'var(--or)' : 'var(--tx3)');
   var seg2Bg = tecDone ? 'var(--gnbg)' : (jefeDone ? 'var(--orbg)' : 'var(--bg4)');
   var seg2Bd = tecDone ? 'var(--gnbd)' : (jefeDone ? 'var(--orbd)' : 'var(--bd)');
-  return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">' +
+  // Mientras el Jefe no firme "Prueba ruta", el vehiculo se considera EN
+  // RUTA — se muestra con el tiempo transcurrido en vivo (horas habiles).
+  // No es un paso nuevo ni un dato nuevo: es el mismo primer tramo que
+  // advance() ya guarda en la bitacora como "Prueba de ruta (Jefe)" al
+  // firmar (ver el split de 'prb' en advance()), solo que ahora se ve como
+  // indicador mientras esta en curso.
+  var enRutaHtml = '';
+  if (!jefeDone && o.timestamps && o.timestamps.prb) {
+    enRutaHtml = '<div style="margin-bottom:6px"><span title="El vehiculo esta en prueba de ruta — este tiempo se guarda en la bitacora como Prueba de ruta (Jefe) al firmar" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825">&#128663; EN RUTA &middot; ' + businessHours(o.timestamps.prb, Date.now()) + '</span></div>';
+  }
+  return enRutaHtml + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">' +
     '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg1Bd + ';background:' + seg1Bg + ';color:' + seg1Color + '">' + (jefeDone ? '&#10003; ' : '') + 'Prueba ruta (Jefe)</span>' +
     '<span style="color:var(--tx3);font-size:11px">/</span>' +
     '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg2Bd + ';background:' + seg2Bg + ';color:' + seg2Color + '">' + (tecDone ? '&#10003; ' : '') + 'Insp. Final (Tecnico)</span>' +
@@ -4671,36 +4681,12 @@ function loadArch() {
 
 
 /* BUSINESS HOURS */
+// Formatea como texto ("X min" / "X.X h") el resultado de businessMinutes()
+// — antes tenia su propio calculo de horas habiles duplicado (sin el corte
+// de almuerzo 12-13 que si tiene businessMinutes desde el fix de horario),
+// asi que quedaba desincronizado del resto de la app. Una sola fuente ahora.
 function businessHours(fromTs, toTs) {
-  // Returns hours worked between two timestamps
-  // Mon-Fri: 8:00-17:00, Sat: 8:00-12:00
-  if (!fromTs || !toTs || toTs <= fromTs) return 0;
-  var total = 0;
-  var cur = new Date(fromTs);
-  // Align to start of minute
-  cur.setSeconds(0, 0);
-  var end = new Date(toTs);
-
-  while (cur < end) {
-    var dow = cur.getDay(); // 0=Sun,1=Mon...6=Sat
-    var h = cur.getHours();
-    var m = cur.getMinutes();
-    var dayStart, dayEnd;
-
-    if (dow >= 1 && dow <= 5) { dayStart = 8; dayEnd = 17; }      // Mon-Fri
-    else if (dow === 6) { dayStart = 8; dayEnd = 12; }             // Sat
-    else { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); continue; } // Sun skip
-
-    if (h < dayStart) { cur.setHours(dayStart, 0, 0, 0); continue; }
-    if (h >= dayEnd)  { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); continue; }
-
-    // We are within business hours — count minutes until dayEnd or toTs
-    var dayEndTs = new Date(cur); dayEndTs.setHours(dayEnd, 0, 0, 0);
-    var nextTs = Math.min(end.getTime(), dayEndTs.getTime());
-    total += (nextTs - cur.getTime()) / 60000; // minutes
-    cur = new Date(nextTs);
-    if (cur.getHours() >= dayEnd) { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); }
-  }
+  var total = businessMinutes(fromTs, toTs);
   var hrs = total / 60;
   if (hrs < 1) return Math.round(total) + ' min';
   return hrs.toFixed(1) + ' h';
@@ -5433,28 +5419,37 @@ function openHistDetail(o) {
 
   // ── Bitacora de tiempos ──
   if (o.phaseLog && o.phaseLog.length) {
-    // Consolidate repeated phases
+    // Consolidate repeated phases — la fase 'prb' (Prueba/Insp.Final) se
+    // registra en 2 tramos separados (subphase 'jefe'/'tecnico', ver el
+    // split en advance()) y deben seguir separados aqui tambien (mismo
+    // criterio que la bitacora de la ficha en vivo), para que el tiempo en
+    // ruta quede visible incluso ya archivada la orden — antes se
+    // consolidaba solo por 'phase' y los 2 tramos se fusionaban en uno.
     var consol = {};
     var phOrder = [];
     for (var pi = 0; pi < o.phaseLog.length; pi++) {
       var pl = o.phaseLog[pi];
-      if (!consol[pl.phase]) {
-        consol[pl.phase] = {phase:pl.phase, label:pl.label, minutes:0, count:0};
-        phOrder.push(pl.phase);
+      var keyHist = pl.phase + (pl.subphase ? ('_' + pl.subphase) : '');
+      if (!consol[keyHist]) {
+        consol[keyHist] = {phase:pl.phase, label:pl.label, minutes:0, count:0};
+        phOrder.push(keyHist);
       }
-      consol[pl.phase].minutes += pl.minutes || 0;
-      consol[pl.phase].count++;
+      consol[keyHist].minutes += pl.minutes || 0;
+      consol[keyHist].count++;
     }
     var totalMin = 0;
     html += '<div class="sec"><div class="sec-l">Bitacora de tiempos por fase (horas habiles)</div>';
     for (var pi2 = 0; pi2 < phOrder.length; pi2++) {
       var ph = consol[phOrder[pi2]];
       var pc = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[ph.phase]) ? PHASE_COLORS[ph.phase] : {bg:'#333',color:'#fff',label:ph.phase};
+      // 'prb' dividido en tramos: mostrar la etiqueta especifica del tramo
+      // (Prueba de ruta / Inspeccion final) en vez del badge generico de fase.
+      var badgeLabelHist = (ph.phase === 'prb') ? esc(ph.label) : pc.label;
       var dur = ph.minutes < 60 ? Math.round(ph.minutes) + ' min' : (ph.minutes/60).toFixed(1) + ' h';
       totalMin += ph.minutes;
       var countBadge = ph.count > 1 ? ' <span style="font-size:9px;opacity:.7">(' + ph.count + ' veces)</span>' : '';
       html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)">' +
-        '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">' + pc.label + '</span>' +
+        '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">' + badgeLabelHist + '</span>' +
         '<span style="font-size:10px;color:var(--tx3);flex:1">' + countBadge + '</span>' +
         '<span style="color:var(--or);font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + dur + '</span>' +
       '</div>';
