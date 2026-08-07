@@ -1191,7 +1191,11 @@ function cardMatch(o) {
   if (!role) return false;
   var r = ROLES[role];
   if (!r) return false;
-  if (r.tec) return o.tech === r.tn;
+  // Un tecnico debe ver la orden en su tablero tanto si es el tecnico
+  // principal (tech) como si es el segundo asignado (tech2) — antes solo
+  // se comparaba contra 'tech', asi que al segundo tecnico la orden nunca
+  // le aparecia en su propio tablero mientras estuviera activa.
+  if (r.tec) return o.tech === r.tn || o.tech2 === r.tn;
   // Technician filter for jefe/asesor
   var tf = document.getElementById('srch-tec');
   if (tf && tf.value) {
@@ -1244,6 +1248,10 @@ function renderBoard() {
   board.className = 'board' + (role === 'jefe' ? '' : ' vert');
   // Add info banner for technicians
   var r0 = role ? ROLES[role] : null;
+  // Nombre del tecnico que esta viendo el tablero (si aplica) — para mostrar,
+  // en ordenes con 2 tecnicos asignados, solo SUS trabajos/horas en la
+  // tarjeta, en vez del total combinado de la orden.
+  var myNameBoard = (r0 && r0.tec) ? r0.tn : null;
   var existing = document.getElementById('tec-banner');
   if (existing) existing.remove();
   if (r0 && r0.tec) {
@@ -1383,6 +1391,19 @@ function renderBoard() {
         var pendRep = (o.repuestos || []).filter(function(r){return !r.ck3;}).length;
         var repuestoHtml = pendRep > 0 ? '<span class="tag" style="background:var(--orbg);color:var(--or);border:1px solid var(--orbd)">&#128230; ' + pendRep + ' repuesto(s)</span>' : '';
 
+        // Orden con 2 tecnicos, vista por uno de ellos: cuantos de los
+        // trabajos registrados y cuantas horas de comision son especificamente
+        // suyas (no el total combinado de la orden) — para que cada quien
+        // vea de un vistazo lo que le corresponde a el.
+        var misTrabHtml = '';
+        if (myNameBoard && o.tech2) {
+          var misTrabCount = 0, misTrabHoras = 0;
+          (o.trabajos || []).forEach(function(tw) {
+            if (tw.tecnico === myNameBoard) { misTrabCount++; misTrabHoras += parseFloat(tw.horas) || 0; }
+          });
+          misTrabHtml = '<span class="tag" style="background:var(--bg4);color:var(--tx2);border:1px solid var(--tx2)" title="Trabajos y horas de comision especificamente tuyos en esta orden">&#128295; ' + misTrabCount + ' mio(s) &middot; ' + misTrabHoras.toFixed(2).replace('.', ',') + 'h</span>';
+        }
+
         // Productividad de la orden mientras esta en Trabajando: horas de
         // comision pagadas vs horas reales transcurridas en esa fase (todas
         // las visitas + tiempo en vivo) — badge en la esquina inferior
@@ -1424,7 +1445,7 @@ function renderBoard() {
             (o.timestamps && o.timestamps[o.phase] ? '<div class="card-tm">&#9201; ' + businessHours(o.timestamps[o.phase], Date.now()) + '</div>' : '') +
           '</div>' +
           spHtml + numHtml +
-          '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + '</div>' +
+          '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + misTrabHtml + '</div>' +
           motivoHtml +
           '<div class="card-sg">' + sigHtml + '</div>' +
           prodBadgeHtml;
@@ -2110,6 +2131,22 @@ function openDrw(id) {
   var trabajosList = o.trabajos || [];
   var totalHoras = 0;
   for (var twi = 0; twi < trabajosList.length; twi++) { totalHoras += parseFloat(trabajosList[twi].horas) || 0; }
+  // Con 2 tecnicos asignados, se desglosa cuanto de esas horas pagadas le
+  // corresponde a cada uno (suma de trabajos[].horas filtrado por tecnico) —
+  // junto al total, para que se vea de donde sale sin tener que sumar a mano.
+  var horasPorTecDesglose = '';
+  if (o.tech && o.tech2) {
+    var horasTec1 = 0, horasTec2 = 0;
+    for (var twh0 = 0; twh0 < trabajosList.length; twh0++) {
+      var twh0v = parseFloat(trabajosList[twh0].horas) || 0;
+      if (trabajosList[twh0].tecnico === o.tech) horasTec1 += twh0v;
+      else if (trabajosList[twh0].tecnico === o.tech2) horasTec2 += twh0v;
+    }
+    horasPorTecDesglose = '<div style="font-size:10px;color:var(--tx3);margin-top:2px">' +
+      esc(o.tech) + ': <span style="font-family:var(--mo);color:var(--tx2)">' + horasTec1.toFixed(2).replace('.', ',') + 'h</span>' +
+      ' &middot; ' + esc(o.tech2) + ': <span style="font-family:var(--mo);color:var(--tx2)">' + horasTec2.toFixed(2).replace('.', ',') + 'h</span>' +
+    '</div>';
+  }
   // Catalogo de operaciones que, por ahora, pueden marcarse como Subcontrato
   // en vez de asignarles horas de comision (ej. alineacion mientras no hay
   // alineadora) — pero conservan tambien la opcion normal de ponerles tiempo.
@@ -2122,9 +2159,12 @@ function openDrw(id) {
     pastillasDiscosTras: '10 C/ PASTILLAS Y D/M DISCOS FRENOS TRAS.',
     cambioCandelas: '11 CAMBIO DE CANDELAS', cambioFiltro: '12 CAMBIO DE FILTRO',
   };
-  trabajosHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-    '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Trabajos realizados</span>' +
-    '<span style="font-size:11px;font-weight:700;color:var(--tx)">' + trabajosList.length + ' operacion(es) · ' + totalHoras.toFixed(2).replace('.', ',') + ' hrs</span>' +
+  trabajosHtml += '<div style="margin-bottom:8px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+      '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Trabajos realizados</span>' +
+      '<span style="font-size:11px;font-weight:700;color:var(--tx)">' + trabajosList.length + ' operacion(es) · ' + totalHoras.toFixed(2).replace('.', ',') + ' hrs</span>' +
+    '</div>' +
+    horasPorTecDesglose +
   '</div>';
   if (trabajosList.length === 0) {
     trabajosHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Sin trabajos registrados</div>';
@@ -2160,7 +2200,16 @@ function openDrw(id) {
           (role === 'jefe' ? '<button class="btn-trab-del" data-ti="' + twi2 + '" title="Eliminar trabajo" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
         '</div>' +
       '</div>' +
-      '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + tw.tecnico + ' · ' + msgTs(tw.ts) + (tw.verificado ? ' · <span style="color:var(--gn)">&#10003; Realizado</span>' : '') + '</div>' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' +
+        // Jefe puede corregir a cual de los 2 tecnicos asignados corresponde
+        // este punto especifico (ej. si se registro con el tecnico
+        // equivocado) — solo tiene sentido/aparece si la orden tiene 2
+        // tecnicos, ya que con 1 solo no hay a quien reasignar.
+        ((role === 'jefe' && ordTecs.length === 2)
+          ? '<span class="btn-trab-tec jf" data-ti="' + twi2 + '" title="Toca para cambiar de tecnico (Jefe)" style="cursor:pointer;text-decoration:underline dotted;text-decoration-color:var(--tx3)">' + esc(tw.tecnico) + ' &#8635;</span>'
+          : esc(tw.tecnico)) +
+        ' · ' + msgTs(tw.ts) + (tw.verificado ? ' · <span style="color:var(--gn)">&#10003; Realizado</span>' : '') +
+      '</div>' +
     '</div>';
   }
   if (canAddTrabajo) {
@@ -2381,6 +2430,28 @@ function openDrw(id) {
         save(); toast('Horas de comision actualizadas'); openDrw(id);
       });
     })(hrsTrabBtns[hti]);
+  }
+  var tecTrabBtns = body.querySelectorAll('.btn-trab-tec.jf');
+  for (var tti = 0; tti < tecTrabBtns.length; tti++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede cambiar el tecnico de un trabajo'); return; }
+        var ti5 = parseInt(this.getAttribute('data-ti'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.trabajos || !ox.trabajos[ti5]) return;
+        if (!ox.tech || !ox.tech2) return; // solo aplica con 2 tecnicos asignados
+        var twx5 = ox.trabajos[ti5];
+        var tecActual = twx5.tecnico;
+        var otroTec = tecActual === ox.tech ? ox.tech2 : ox.tech;
+        if (!confirm('¿Cambiar el tecnico de "' + twx5.desc + '" de ' + tecActual + ' a ' + otroTec + '?')) return;
+        twx5.tecnico = otroTec;
+        var who5 = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who5, txt:'&#128295; Tecnico de "' + esc(twx5.desc) + '" cambiado: ' + esc(tecActual) + ' &rarr; ' + esc(otroTec), ts:Date.now(), type:'system'});
+        save(); toast('Tecnico actualizado'); openDrw(id);
+      });
+    })(tecTrabBtns[tti]);
   }
   var verTrabChks = body.querySelectorAll('.chk-trab-verificado');
   for (var vti = 0; vti < verTrabChks.length; vti++) {
