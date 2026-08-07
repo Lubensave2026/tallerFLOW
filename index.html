@@ -1222,7 +1222,7 @@ function prbStatusBadge(o) {
   // de la fase (que incluye tambien la espera antes de salir).
   var enRutaHtml = '';
   if (!jefeDone && o.rutaSalidaTs) {
-    enRutaHtml = '<div style="margin-bottom:6px"><span title="El vehiculo esta en ruta — este tiempo queda registrado por separado del total de la fase" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825">&#128663; EN RUTA &middot; ' + businessHours(o.rutaSalidaTs, Date.now()) + '</span></div>';
+    enRutaHtml = '<div style="margin-bottom:6px"><span title="El vehiculo esta en ruta — este tiempo queda registrado por separado del total de la fase" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid var(--gn);background:var(--gnbg);color:var(--gn)">&#128663; EN RUTA &middot; ' + businessHours(o.rutaSalidaTs, Date.now()) + '</span></div>';
   }
   return enRutaHtml + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">' +
     '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg1Bd + ';background:' + seg1Bg + ';color:' + seg1Color + '">' + (jefeDone ? '&#10003; ' : '') + 'Prueba ruta (Jefe)</span>' +
