@@ -3562,18 +3562,38 @@ function buildRepContent() {
   var myName = rMe && rMe.tec ? rMe.tn : null;
   var repOrders = myName ? orders.filter(function(o){ return o.tech === myName || o.tech2 === myName; }) : orders;
 
+  // Mes objetivo compartido por todo lo de "cerradas" del tecnico en este
+  // reporte — la tarjeta "Mi productividad CERRADAS" y la tabla "Mis casos
+  // cerrados" usan el mismo selector (_repProdMonthOffset), asi navegan
+  // siempre juntas al mismo periodo.
+  var prodTargetDate = new Date(new Date().getFullYear(), new Date().getMonth() - _repProdMonthOffset, 1);
+  var curYc = prodTargetDate.getFullYear(), curMc = prodTargetDate.getMonth();
+  var isCurrentProdMonth = (_repProdMonthOffset === 0);
+
   // Sort orders by OT number descending. Vista de tecnico "Mis casos
   // cerrados": dataset independiente (no repOrders, que solo mira 'orders'
   // y no incluye lo ya archivado) para que la tabla de detalle SI incluya
   // ordenes archivadas y asi cuadre con el total de la tarjeta "Mi
-  // productividad — ordenes CERRADAS" (que ya suma orders+archived).
+  // productividad — ordenes CERRADAS" (que ya suma orders+archived), Y
+  // ademas se acota al mismo mes que esa tarjeta (mismo criterio "evento en
+  // el mes" que _calcTecHorasCerradasEnMes: cierre real O congelamiento "Ya
+  // facturada" cayendo en el mes, para que cuadren exactamente).
   var sorted;
   if (myName && _tecRepShowClosed) {
     var seenTecClosedIds = {};
     sorted = orders.concat(archived || []).filter(function(o) {
       if (seenTecClosedIds[o.id]) return false;
       seenTecClosedIds[o.id] = true;
-      return (o.tech === myName || o.tech2 === myName) && o.phase === 'cer';
+      if (!((o.tech === myName || o.tech2 === myName) && o.phase === 'cer')) return false;
+      var closeTsFilt = o.timestamps && o.timestamps.cer;
+      if (!closeTsFilt) return false;
+      var frozenHorasFilt = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[myName];
+      if (frozenHorasFilt) {
+        var fdFilt = new Date(o.horasFacturadoSnapshot.ts);
+        if (fdFilt.getFullYear() === curYc && fdFilt.getMonth() === curMc) return true;
+      }
+      var cdFilt = new Date(closeTsFilt);
+      return cdFilt.getFullYear() === curYc && cdFilt.getMonth() === curMc;
     }).sort(function(a,b) { return (parseInt(b.ot||0) || 0) - (parseInt(a.ot||0) || 0); });
   } else {
     sorted = repOrders.filter(function(o){ return o.phase !== 'cer'; }).sort(function(a,b) {
@@ -3680,15 +3700,14 @@ function buildRepContent() {
     // comisiones. Incluye tambien lo ya archivado (mismo criterio que
     // semComputeFromOrders). Se puede navegar a meses anteriores con ◀ / ▶,
     // igual que en el Semaforo Financiero.
-    var prodTargetDate = new Date(new Date().getFullYear(), new Date().getMonth() - _repProdMonthOffset, 1);
-    var curYc = prodTargetDate.getFullYear(), curMc = prodTargetDate.getMonth();
+    // prodTargetDate/curYc/curMc/isCurrentProdMonth ya se calcularon arriba
+    // (compartidos con el filtro de la tabla "Mis casos cerrados").
     var aggClosedProd = _calcTecHorasCerradasEnMes(myName, curYc, curMc);
     var hrsFlatClosed = aggClosedProd.flat, hrsRealClosed = aggClosedProd.real,
         closedCountThisMonth = aggClosedProd.count, abVecesClosed = aggClosedProd.abVeces;
     var prodPctClosed = hrsRealClosed > 0 ? (hrsFlatClosed / hrsRealClosed * 100) : null;
     var prodColorClosed = prodPctClosed === null ? 'var(--tx3)' : (prodPctClosed >= 100 ? 'var(--gn)' : (prodPctClosed >= 70 ? 'var(--or)' : 'var(--rd)'));
     var monthLabelClosed = prodTargetDate.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
-    var isCurrentProdMonth = (_repProdMonthOffset === 0);
     html += '<div style="background:var(--bg3);border:1px solid var(--gnbd);border-radius:var(--r);padding:10px 16px;margin-bottom:10px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
         '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">&#9989; Mi productividad — ordenes CERRADAS de ' + monthLabelClosed + (isCurrentProdMonth ? ' (actual)' : '') + ' (' + closedCountThisMonth + ')</div>' +
@@ -3750,6 +3769,18 @@ function buildRepContent() {
       '<div style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:10px">&#128101; Productividad por tecnico</div>' +
       _buildTecProdTable('cerradas', '#3D7EFF', 'rgba(61,126,255,.12)', '&#128309; Casos ya cerrados (mes en curso: ' + new Date().toLocaleDateString('es-GT', {month:'long', year:'numeric'}) + ')') +
       _buildTecProdTable('activas', '#999999', 'rgba(153,153,153,.15)', '&#9898; Casos en proceso') +
+    '</div>';
+  }
+
+  // Recordatorio del mes que se esta viendo + navegacion, justo encima de la
+  // tabla de "Mis casos cerrados" (ademas de la que ya tiene la tarjeta "Mi
+  // productividad CERRADAS" arriba) para no obligar al tecnico a desplazarse
+  // hacia arriba cada vez que quiera cambiar de mes.
+  if (myName && _tecRepShowClosed) {
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:var(--tx3)">' +
+      '<span>&#128197; Mostrando cerradas de <strong style="color:var(--tx2)">' + monthLabelClosed + '</strong>' + (isCurrentProdMonth ? ' (actual)' : '') + '</span>' +
+      '<button onclick="repProdChangeMonth(1)" title="Mes anterior" style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx);cursor:pointer;font-size:10px">&#9664;</button>' +
+      '<button onclick="repProdChangeMonth(-1)" title="Mes siguiente" ' + (isCurrentProdMonth ? 'disabled' : '') + ' style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:' + (isCurrentProdMonth ? 'var(--bg3)' : 'var(--bg4)') + ';color:' + (isCurrentProdMonth ? 'var(--tx3)' : 'var(--tx)') + ';cursor:' + (isCurrentProdMonth ? 'not-allowed' : 'pointer') + ';font-size:10px">&#9654;</button>' +
     '</div>';
   }
 
