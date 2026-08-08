@@ -2253,8 +2253,7 @@ function openDrw(id) {
   var noteMsgs = (o.msgs || []).filter(function(m) { return !_msgIsSystem(m); });
   if (noteMsgs.length) {
     for (var i = 0; i < noteMsgs.length; i++) {
-      var m = noteMsgs[i];
-      msgsHtml += '<div class="cmsg"><div class="cw">' + m.who + '</div><div class="ct">' + m.txt + '</div><div class="cts">' + msgTs(m.ts) + '</div></div>';
+      msgsHtml += _buildNoteMsgHtml(noteMsgs[i]);
     }
   } else {
     msgsHtml = '<div class="cemp">Sin notas — usa la campanita &#128276; para ver los avisos de cambios de la orden</div>';
@@ -2291,6 +2290,7 @@ function openDrw(id) {
   /* attach events after innerHTML */
   var cb = document.getElementById('chat-box');
   if (cb) cb.scrollTop = cb.scrollHeight;
+  _wireMsgDelButtons(body, id);
 
   /* repuestos pendientes events */
   var repCks = body.querySelectorAll('.btn-rep-ck');
@@ -3330,11 +3330,11 @@ function sendMsg(id) {
     var html = '';
     var noteMsgs2 = o.msgs.filter(function(m) { return !_msgIsSystem(m); });
     for (var i = 0; i < noteMsgs2.length; i++) {
-      var m = noteMsgs2[i];
-      html += '<div class="cmsg"><div class="cw">' + m.who + '</div><div class="ct">' + m.txt + '</div><div class="cts">' + msgTs(m.ts) + '</div></div>';
+      html += _buildNoteMsgHtml(noteMsgs2[i]);
     }
     cb.innerHTML = html || '<div class="cemp">Sin notas — usa la campanita &#128276; para ver los avisos de cambios de la orden</div>';
     cb.scrollTop = cb.scrollHeight;
+    _wireMsgDelButtons(cb, id);
   }
 }
 
@@ -4278,6 +4278,48 @@ function _msgIsSystem(m) {
   return false;
 }
 
+// Fila de un mensaje de "Mensajes internos" (nota escrita a mano), con boton
+// para eliminarla (solo Jefe, para corregir mensajes puestos en la orden
+// equivocada o con un dato mal escrito) — se identifica por 'ts' ya que los
+// mensajes no tienen un id propio (ver btn-msg-del, wireado tanto en
+// openDrw() como en el re-render local de sendMsg(), unica fuente para que
+// ambos lugares se vean igual).
+function _buildNoteMsgHtml(m) {
+  var delBtn = (role === 'jefe')
+    ? '<button class="btn-msg-del" data-ts="' + m.ts + '" title="Eliminar mensaje" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:1px 6px;font-size:9px;cursor:pointer;line-height:1.4;flex-shrink:0">&#x2715;</button>'
+    : '';
+  return '<div class="cmsg">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">' +
+      '<div class="cw">' + m.who + '</div>' + delBtn +
+    '</div>' +
+    '<div class="ct">' + m.txt + '</div><div class="cts">' + msgTs(m.ts) + '</div>' +
+  '</div>';
+}
+// Adjunta el click de "eliminar mensaje" a los botones .btn-msg-del dentro de
+// un contenedor dado — reusado tanto en openDrw() (render completo) como en
+// el re-render local de sendMsg() (que no pasa por el wireado normal de
+// openDrw), para que el boton funcione en los dos casos.
+function _wireMsgDelButtons(container, orderId) {
+  var delBtns = container.querySelectorAll('.btn-msg-del');
+  for (var i = 0; i < delBtns.length; i++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar mensajes'); return; }
+        if (!confirm('¿Eliminar este mensaje? No se puede deshacer.')) return;
+        var tsToDel = parseInt(this.getAttribute('data-ts'));
+        var ox = null;
+        for (var oi = 0; oi < orders.length; oi++) { if (orders[oi].id === orderId) { ox = orders[oi]; break; } }
+        if (!ox || !ox.msgs) return;
+        var idx = -1;
+        for (var mi2 = 0; mi2 < ox.msgs.length; mi2++) { if (ox.msgs[mi2].ts === tsToDel) { idx = mi2; break; } }
+        if (idx === -1) return;
+        ox.msgs.splice(idx, 1);
+        save(); toast('Mensaje eliminado'); openDrw(orderId);
+      });
+    })(delBtns[i]);
+  }
+}
+
 // Hora/fecha para mensajes internos (bitacora de chat): solo hora si es de
 // hoy, fecha + hora si es de otro dia. No afecta bitacora de tiempos por
 // fase (elapsed) ni bitacora de repuestos (elapsedRepBadge) — son funciones
@@ -4437,8 +4479,6 @@ function _buildOrderSummaryCSV(allOrders) {
       if (ph !== 'ab') sumHoras[ph] += horas[ph];
     });
     sumDias += dias;
-    sumMontoTotal += montoTotal;
-    sumMontoMO += montoMO;
 
     // Tiempo especifico en ruta (independiente del total de Prueba_Insp_Final
     // de arriba, que sigue siendo el tiempo completo de esa fase) — vacio si
@@ -4448,42 +4488,55 @@ function _buildOrderSummaryCSV(allOrders) {
     if (rutaHoras !== null) sumRutaMin += o.rutaMinutos;
 
     // Con 2 tecnicos asignados, la orden sale como 2 FILAS (una por
-    // tecnico) — casi todas las casillas quedan iguales en ambas (fechas,
-    // montos, el resto de fases, tiempo en ruta), pero Hrs_Com y Trabajando
-    // se reparten: Hrs_Com es exacta (viene de trabajos[].tecnico); Trabajando
-    // se reparte por "regla de 3" segun el % de Hrs_Com de cada quien (ver
-    // calcTecHoras) — no hay forma de saber quien trabajaba en cada momento
-    // del cronometro compartido de la orden, asi que se estima proporcional
-    // a lo que consta que hizo cada uno. Si la orden ya quedo "Ya facturada"
-    // (congelada), se usa el desglose por tecnico que se congelo en ese
-    // momento (horasFacturadoSnapshot.porTecnico), no el calculo en vivo.
+    // tecnico) — las fechas y el resto de fases quedan iguales en ambas,
+    // pero Hrs_Com, Trabajando, Monto_Total y Monto_MO se reparten: Hrs_Com
+    // es exacta (viene de trabajos[].tecnico); Trabajando, Monto_Total y
+    // Monto_MO se reparten por "regla de 3" segun el % de Hrs_Com de cada
+    // quien (ver calcTecHoras) — no hay forma de saber quien trabajaba en
+    // cada momento del cronometro compartido ni cuanto del monto facturado
+    // corresponde a cada uno con exactitud, asi que se estima proporcional a
+    // lo que consta que hizo cada uno (antes el monto se repetia completo en
+    // ambas filas, lo que duplicaba el total al sumar la columna). Si la
+    // orden ya quedo "Ya facturada" (congelada), se usa el desglose por
+    // tecnico que se congelo en ese momento (horasFacturadoSnapshot.porTecnico),
+    // no el calculo en vivo.
     var hasTwoTecs = !!(o.tech && o.tech2);
     var tecsToExport = hasTwoTecs ? [o.tech, o.tech2] : [o.tech || 'Sin asignar'];
 
-    for (var tei = 0; tei < tecsToExport.length; tei++) {
-      var tecNameRow = tecsToExport[tei];
-      var rowHrsCom, rowHrsAb;
-      if (hasTwoTecs) {
-        var frozenTecH = isFrozenReopened && o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico
-          ? o.horasFacturadoSnapshot.porTecnico[tecNameRow] : null;
-        if (frozenTecH) {
-          rowHrsCom = frozenTecH.flat || 0;
-          rowHrsAb = frozenTecH.real || 0;
-        } else {
-          var liveTecH = calcTecHoras(o, tecNameRow);
-          rowHrsCom = liveTecH.flat;
-          rowHrsAb = liveTecH.real;
-        }
-      } else {
-        rowHrsCom = hrsCom;
-        rowHrsAb = horas.ab;
+    // Primera pasada: horas/comision por tecnico, para poder sacar el % de
+    // participacion de cada uno antes de repartir tambien los montos.
+    var tecRowData = tecsToExport.map(function(tecNameRow) {
+      if (!hasTwoTecs) return {tecNameRow: tecNameRow, rowHrsCom: hrsCom, rowHrsAb: horas.ab};
+      var frozenTecH = isFrozenReopened && o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico
+        ? o.horasFacturadoSnapshot.porTecnico[tecNameRow] : null;
+      if (frozenTecH) {
+        return {tecNameRow: tecNameRow, rowHrsCom: frozenTecH.flat || 0, rowHrsAb: frozenTecH.real || 0};
       }
+      var liveTecH = calcTecHoras(o, tecNameRow);
+      return {tecNameRow: tecNameRow, rowHrsCom: liveTecH.flat, rowHrsAb: liveTecH.real};
+    });
+    var sumRowHrsCom = 0;
+    tecRowData.forEach(function(d) { sumRowHrsCom += d.rowHrsCom; });
+
+    for (var tei = 0; tei < tecRowData.length; tei++) {
+      var tecNameRow = tecRowData[tei].tecNameRow;
+      var rowHrsCom = tecRowData[tei].rowHrsCom;
+      var rowHrsAb = tecRowData[tei].rowHrsAb;
       sumHoras.ab += rowHrsAb;
       sumHrsCom += rowHrsCom;
       // % Productividad de este tecnico en esta orden (o de la orden entera
       // si solo hay 1 tecnico) — mismo criterio en toda la app. Vacio si
       // nunca hubo tiempo Trabajando que repartir.
       var pctProdRow = rowHrsAb > 0 ? Math.round(rowHrsCom / rowHrsAb * 100) : null;
+      // Reparto de montos: mismo % de participacion que Hrs_Com de este
+      // tecnico sobre el total de la orden. Si ninguno de los 2 tiene horas
+      // de comision registradas aun (0/0), cae a 50/50 mientras no hay dato
+      // en que basar el reparto — igual que calcTecHoras.
+      var montoShare = hasTwoTecs ? (sumRowHrsCom > 0 ? (rowHrsCom / sumRowHrsCom) : 0.5) : 1;
+      var rowMontoTotal = montoTotal * montoShare;
+      var rowMontoMO = montoMO * montoShare;
+      sumMontoTotal += rowMontoTotal;
+      sumMontoMO += rowMontoMO;
 
       rows.push([
         o.ot, fmtDate(ingreso), fmtDate(salida), _csvNum(dias.toFixed(1)),
@@ -4494,8 +4547,8 @@ function _buildOrderSummaryCSV(allOrders) {
         _csvNum(horas.det.toFixed(2)), _csvNum(horas.ext.toFixed(2)),
         _csvNum(horas.prb.toFixed(2)), _csvNum(horas.lav.toFixed(2)),
         _csvNum(horas.lst.toFixed(2)), _csvNum(horas.ent.toFixed(2)),
-        montoTotal ? _csvNum(montoTotal.toFixed(2)) : '',
-        montoMO ? _csvNum(montoMO.toFixed(2)) : '',
+        rowMontoTotal ? _csvNum(rowMontoTotal.toFixed(2)) : '',
+        rowMontoMO ? _csvNum(rowMontoMO.toFixed(2)) : '',
         rowHrsCom ? _csvNum(rowHrsCom.toFixed(2)) : '',
         pctProdRow !== null ? pctProdRow : '',
         rutaHoras !== null ? _csvNum(rutaHoras.toFixed(2)) : ''
