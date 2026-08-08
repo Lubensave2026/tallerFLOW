@@ -1767,6 +1767,16 @@ function openDrw(id) {
     ? '<button id="btn-ruta-salida" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825;font-size:12px;font-weight:600;cursor:pointer">&#128663; Marcar salida a ruta</button>'
     : '';
   var prbStatusBlock = (o.phase === 'prb') ? ('<div style="margin-bottom:8px">' + rutaSalidaBtnHtml + prbStatusBadge(o) + '</div>') : '';
+  // Reproceso "informativo": Asesor y Jefe en Listo p/entrega, solo Jefe en
+  // Entregado — para dejar registrado (para el reporte de REPROCESOS) que
+  // algun tecnico no cumplio un punto de preentrega, SIN mover la orden de
+  // fase (a diferencia del reproceso de la fase Prueba, que si regresa a
+  // Trabajando). Usa el mismo modal de causa/nota, solo cambia a donde va
+  // el resultado (registrarReprocesoSinAvance en vez de advanceReproceso).
+  var reprocesoInfoBtnHtml = '';
+  if ((o.phase === 'lst' && (role === 'jefe' || role === 'asesor')) || (o.phase === 'ent' && role === 'jefe')) {
+    reprocesoInfoBtnHtml = '<button id="btn-reproceso-info" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #8B0000;background:#1a0a0a;color:#FF6B6B;font-size:12px;font-weight:600;cursor:pointer">&#9851; Reportar reproceso (no cambia de fase)</button>';
+  }
   if (sigs.length) {
     var sigRows = '';
     for (var i = 0; i < sigs.length; i++) {
@@ -1818,7 +1828,7 @@ function openDrw(id) {
         '</label>' +
       '</div>';
     }
-    html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + prbStatusBlock + eaRepBlock + sigRows + closeDateBlock + '</div>';
+    html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + prbStatusBlock + reprocesoInfoBtnHtml + eaRepBlock + sigRows + closeDateBlock + '</div>';
   }
 
   /* lst: opcion para regresar a Lavado si el asesor (o jefe) nota que el
@@ -2920,6 +2930,17 @@ function openDrw(id) {
       save(); toast('Salida a ruta registrada'); openDrw(id);
     });
   }
+  var reprocesoInfoBtn = document.getElementById('btn-reproceso-info');
+  if (reprocesoInfoBtn) {
+    reprocesoInfoBtn.addEventListener('click', function() {
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      var puede = (ox.phase === 'lst' && (role === 'jefe' || role === 'asesor')) || (ox.phase === 'ent' && role === 'jefe');
+      if (!puede) { toast('No tienes permiso para reportar un reproceso aqui'); return; }
+      showReprocesoCausaModal(id, registrarReprocesoSinAvance);
+    });
+  }
   var desmarcarFacturadaBtn = document.getElementById('btn-desmarcar-facturada');
   if (desmarcarFacturadaBtn) {
     desmarcarFacturadaBtn.addEventListener('click', function() {
@@ -3139,11 +3160,14 @@ function doSign(id, sigId) {
   o.sigsTs[sigId] = Date.now();
   // Tiempo especifico que el vehiculo estuvo EN RUTA (desde que se marco la
   // salida con el boton "Marcar salida a ruta" hasta que el Jefe firma esta
-  // misma "Prueba de ruta") — se congela aqui como dato permanente de la
-  // orden (o.rutaMinutos), independiente del tiempo total de la fase 'prb'
-  // (que sigue igual, sin tocar). Si nunca se marco la salida, no hay dato.
+  // misma "Prueba de ruta") — se ACUMULA en o.rutaMinutos (no se sobrescribe)
+  // porque una orden puede pasar por Prueba/Insp.Final mas de una vez (ej.
+  // reproceso, o se vuelve a probar despues de un ajuste) — igual que el
+  // resto de la bitacora, que suma TODAS las veces que paso por cada fase en
+  // vez de quedarse solo con la ultima. Si nunca se marco la salida, no
+  // agrega nada.
   if (o.phase === 'prb' && sigId === 'jefe' && o.rutaSalidaTs) {
-    o.rutaMinutos = businessMinutes(o.rutaSalidaTs, Date.now());
+    o.rutaMinutos = (o.rutaMinutos || 0) + businessMinutes(o.rutaSalidaTs, Date.now());
   }
   // Auto-advance when all required sigs for this phase are complete
   var phaseSigsAuto = SIGS[o.phase] || [];
@@ -3168,43 +3192,52 @@ function doSign(id, sigId) {
   save(); toast('Firma registrada'); openDrw(id);
 }
 
+// Modal para elegir la causa (y opcionalmente una nota) de un reproceso —
+// compartido entre el reproceso "clasico" (regresa la orden a Trabajando,
+// disparado desde advance() al elegir 'reproceso' como siguiente fase) y el
+// reproceso "informativo" (se registra para el reporte pero NO mueve la
+// orden de fase, ver btn-reproceso-info en openDrw). onConfirm(id, causa, nota)
+// se llama al confirmar; nota siempre es un string (vacio si no aplica).
+function showReprocesoCausaModal(id, onConfirm) {
+  var causas = ['Calidad de mano de obra','Diagnostico incompleto','Reporte incompleto','Trabajo incompleto','Otros'];
+  var causaHtml = '<div style="padding:1rem"><div style="font-weight:600;margin-bottom:10px;color:var(--rd)">&#9851; Registrar causa del reproceso</div>';
+  for (var ci=0; ci<causas.length; ci++) {
+    causaHtml += '<button class="btn-causa" data-causa="'+causas[ci]+'" style="display:block;width:100%;text-align:left;padding:8px 12px;margin-bottom:6px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg3);color:var(--tx);cursor:pointer;font-size:12px">'+causas[ci]+'</button>';
+  }
+  causaHtml += '</div>';
+  var tempDiv = document.createElement('div');
+  tempDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:340px;width:90%">'+causaHtml+'</div>';
+  document.body.appendChild(tempDiv);
+  tempDiv.querySelectorAll('.btn-causa').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var causa = this.getAttribute('data-causa');
+      if (causa === 'Otros') {
+        // Pide una breve anotacion antes de confirmar el reproceso
+        var notaHtml = '<div style="padding:1rem">' +
+          '<div style="font-weight:600;margin-bottom:10px;color:var(--rd)">&#9851; Otros &mdash; breve anotacion</div>' +
+          '<textarea id="reproceso-nota" class="dta" placeholder="Describe brevemente el motivo..." style="width:100%;min-height:70px;margin-bottom:10px"></textarea>' +
+          '<button id="btn-confirm-otros" style="width:100%;padding:8px;border-radius:8px;border:none;background:var(--or);color:#000;font-weight:600;cursor:pointer">Confirmar</button>' +
+        '</div>';
+        tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:340px;width:90%">'+notaHtml+'</div>';
+        document.getElementById('btn-confirm-otros').addEventListener('click', function() {
+          var nota = document.getElementById('reproceso-nota').value.trim();
+          document.body.removeChild(tempDiv);
+          onConfirm(id, causa, nota);
+        });
+        return;
+      }
+      document.body.removeChild(tempDiv);
+      onConfirm(id, causa, '');
+    });
+  });
+}
+
 function advance(id, newPhase) {
   var isReproceso = (newPhase === 'reproceso');
   if (isReproceso) {
     newPhase = 'ab';
-    // Ask for reproceso cause before proceeding
-    var causas = ['Calidad de mano de obra','Diagnostico incompleto','Reporte incompleto','Trabajo incompleto','Otros'];
-    var causaHtml = '<div style="padding:1rem"><div style="font-weight:600;margin-bottom:10px;color:var(--rd)">&#9851; Registrar causa del reproceso</div>';
-    for (var ci=0; ci<causas.length; ci++) {
-      causaHtml += '<button class="btn-causa" data-causa="'+causas[ci]+'" style="display:block;width:100%;text-align:left;padding:8px 12px;margin-bottom:6px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg3);color:var(--tx);cursor:pointer;font-size:12px">'+causas[ci]+'</button>';
-    }
-    causaHtml += '</div>';
-    var tempDiv = document.createElement('div');
-    tempDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;display:flex;align-items:center;justify-content:center';
-    tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:340px;width:90%">'+causaHtml+'</div>';
-    document.body.appendChild(tempDiv);
-    tempDiv.querySelectorAll('.btn-causa').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        var causa = this.getAttribute('data-causa');
-        if (causa === 'Otros') {
-          // Pide una breve anotacion antes de confirmar el reproceso
-          var notaHtml = '<div style="padding:1rem">' +
-            '<div style="font-weight:600;margin-bottom:10px;color:var(--rd)">&#9851; Otros &mdash; breve anotacion</div>' +
-            '<textarea id="reproceso-nota" class="dta" placeholder="Describe brevemente el motivo..." style="width:100%;min-height:70px;margin-bottom:10px"></textarea>' +
-            '<button id="btn-confirm-otros" style="width:100%;padding:8px;border-radius:8px;border:none;background:var(--or);color:#000;font-weight:600;cursor:pointer">Confirmar</button>' +
-          '</div>';
-          tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:340px;width:90%">'+notaHtml+'</div>';
-          document.getElementById('btn-confirm-otros').addEventListener('click', function() {
-            var nota = document.getElementById('reproceso-nota').value.trim();
-            document.body.removeChild(tempDiv);
-            advanceReproceso(id, causa, nota);
-          });
-          return;
-        }
-        document.body.removeChild(tempDiv);
-        advanceReproceso(id, causa);
-      });
-    });
+    showReprocesoCausaModal(id, advanceReproceso);
     return; // pause here, resume in advanceReproceso
   }
   var o = null;
@@ -3279,10 +3312,14 @@ function advance(id, newPhase) {
   o.sigs = {};
   o.sigsTs = {};
   // Si entra (o vuelve a entrar, ej. tras un reproceso) a Prueba/Insp.Final,
-  // se limpia cualquier dato de "salida a ruta" de una vuelta anterior — si
-  // no, el boton "Marcar salida a ruta" quedaria oculto y el indicador EN
+  // se limpia SOLO el marcador de "salida a ruta" de una vuelta anterior —
+  // si no, el boton "Marcar salida a ruta" quedaria oculto y el indicador EN
   // RUTA mostraria un tiempo viejo/sin sentido desde la vez pasada.
-  if (newPhase === 'prb') { delete o.rutaSalidaTs; delete o.rutaMinutos; }
+  // o.rutaMinutos (el tiempo YA acumulado de rutas anteriores) NO se borra
+  // aqui — se sigue acumulando cada vez que se completa una nueva ruta (ver
+  // doSign), igual que el resto de la bitacora nunca pierde tiempo de
+  // visitas previas a una fase.
+  if (newPhase === 'prb') { delete o.rutaSalidaTs; }
   if (!o.timestamps) o.timestamps = {};
   o.timestamps[newPhase] = phaseTo;
   if (newPhase === 'cer' && o._closeDateOverride) { delete o._closeDateOverride; }
@@ -5844,6 +5881,26 @@ function advanceReproceso(id, causa, nota) {
   save(); renderBoard(); closeDrw(); toast('Reproceso registrado — Causa: ' + causa);
 }
 
+// Reproceso "informativo": para las fases Listo p/entrega (Asesor y Jefe) y
+// Entregado (solo Jefe), donde puede que un tecnico no haya cumplido algun
+// punto de preentrega — se reporta para que quede en el reporte de
+// REPROCESOS (mismo o.reprocesos/o.reprocesoLog que usa advanceReproceso),
+// pero a diferencia de ese, NO mueve la orden de fase ni toca phaseLog/sigs:
+// es solo un registro informativo, la orden se queda exactamente donde esta.
+function registrarReprocesoSinAvance(id, causa, nota) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  var lbl = (PHASE_COLORS[o.phase]||{label:o.phase}).label;
+  var notaEsc = nota ? esc(nota) : '';
+  o.reprocesos = (o.reprocesos || 0) + 1;
+  if (!o.reprocesoLog) o.reprocesoLog = [];
+  o.reprocesoLog.push({causa:causa, nota:notaEsc, ts:Date.now(), from:o.phase});
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#9851; REPROCESO (informativo, sin cambiar de fase) — Causa: ' + causa + (notaEsc ? ' — ' + notaEsc : '') + ' (en ' + lbl + ')', ts:Date.now(), type:'system'});
+  save(); toast('Reproceso registrado — Causa: ' + causa); openDrw(id);
+}
 
 /* SEMAFORO FINANCIERO — automatico, calculado desde las ordenes
    cerradas del mes (montoTotal/montoMO al momento de cerrar). Ya no
