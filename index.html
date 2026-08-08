@@ -2132,19 +2132,27 @@ function openDrw(id) {
   var totalHoras = 0;
   for (var twi = 0; twi < trabajosList.length; twi++) { totalHoras += parseFloat(trabajosList[twi].horas) || 0; }
   // Con 2 tecnicos asignados, se desglosa cuanto de esas horas pagadas le
-  // corresponde a cada uno (suma de trabajos[].horas filtrado por tecnico) —
-  // junto al total, para que se vea de donde sale sin tener que sumar a mano.
+  // corresponde a cada uno, MAS su parte de horas Trabajando (repartidas por
+  // "regla de 3" segun ese mismo % de horas de comision — ver calcTecHoras)
+  // y su % de productividad individual. Visible para cualquiera que abra la
+  // ficha (Jefe incluido) — antes solo se veia agregado en "Mi
+  // productividad", que es unicamente para el tecnico mismo.
   var horasPorTecDesglose = '';
   if (o.tech && o.tech2) {
-    var horasTec1 = 0, horasTec2 = 0;
-    for (var twh0 = 0; twh0 < trabajosList.length; twh0++) {
-      var twh0v = parseFloat(trabajosList[twh0].horas) || 0;
-      if (trabajosList[twh0].tecnico === o.tech) horasTec1 += twh0v;
-      else if (trabajosList[twh0].tecnico === o.tech2) horasTec2 += twh0v;
-    }
-    horasPorTecDesglose = '<div style="font-size:10px;color:var(--tx3);margin-top:2px">' +
-      esc(o.tech) + ': <span style="font-family:var(--mo);color:var(--tx2)">' + horasTec1.toFixed(2).replace('.', ',') + 'h</span>' +
-      ' &middot; ' + esc(o.tech2) + ': <span style="font-family:var(--mo);color:var(--tx2)">' + horasTec2.toFixed(2).replace('.', ',') + 'h</span>' +
+    var hTec1 = calcTecHoras(o, o.tech);
+    var hTec2 = calcTecHoras(o, o.tech2);
+    var pctTec1 = hTec1.real > 0 ? Math.round(hTec1.flat / hTec1.real * 100) : null;
+    var pctTec2 = hTec2.real > 0 ? Math.round(hTec2.flat / hTec2.real * 100) : null;
+    var fmtTecLine = function(nombre, h, pct) {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--tx3);padding:2px 0">' +
+        '<span>' + esc(nombre) + '</span>' +
+        '<span style="font-family:var(--mo);color:var(--tx2)">' + h.real.toFixed(2).replace('.', ',') + 'h trab. &middot; ' + h.flat.toFixed(2).replace('.', ',') + 'h com.' +
+          (pct !== null ? ' &middot; <span style="color:' + _productividadColor(pct) + ';font-weight:700">' + pct + '%</span>' : '') +
+        '</span>' +
+      '</div>';
+    };
+    horasPorTecDesglose = '<div style="margin-top:4px;padding-top:4px;border-top:1px solid var(--bd)">' +
+      fmtTecLine(o.tech, hTec1, pctTec1) + fmtTecLine(o.tech2, hTec2, pctTec2) +
     '</div>';
   }
   // Catalogo de operaciones que, por ahora, pueden marcarse como Subcontrato
@@ -3955,16 +3963,12 @@ function buildRepContent() {
     // ESTA orden especificamente, en vez de la generica "T. fase".
     var tecRowCells = '';
     if (myName) {
-      var shareRow = (o.tech && o.tech2) ? 0.5 : 1;
-      var abMinRow = 0;
-      (o.phaseLog || []).forEach(function(pl) { if (pl.phase === 'ab') abMinRow += (pl.minutes || 0); });
-      var abHorasRow = abMinRow / 60;
-      if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) {
-        abHorasRow += businessMinutes(o.timestamps.ab, Date.now()) / 60;
-      }
-      abHorasRow = abHorasRow * shareRow;
-      var hrsComRow = 0;
-      (o.trabajos || []).forEach(function(tw) { if (tw.tecnico === myName) hrsComRow += (parseFloat(tw.horas) || 0); });
+      // calcTecHoras() ya reparte las horas Trabajando entre 2 tecnicos por
+      // "regla de 3" (proporcional a su % de horas de comision) — reusa la
+      // misma fuente que "Mi productividad" en vez de duplicar el calculo.
+      var tecHorasRow = calcTecHoras(o, myName);
+      var abHorasRow = tecHorasRow.real;
+      var hrsComRow = tecHorasRow.flat;
       tecRowCells =
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--or)">' + abHorasRow.toFixed(2).replace('.', ',') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx)">' + hrsComRow.toFixed(2).replace('.', ',') + '</td>';
@@ -4407,7 +4411,6 @@ function _buildOrderSummaryCSV(allOrders) {
 
   for (var i = 0; i < sorted.length; i++) {
     var o = sorted[i];
-    var tech = (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : '');
     // Orden "Ya facturada" reabierta: usa el snapshot congelado (fecha,
     // montos, horas) en vez del estado actual/en vivo — esta fila representa
     // el cierre ya contabilizado, no lo que la orden siga acumulando despues.
@@ -4427,40 +4430,77 @@ function _buildOrderSummaryCSV(allOrders) {
     var horas = {};
     _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) {
       horas[ph] = isFrozenReopened ? (o.bitacoraFacturadoSnapshot.horasPorFase[ph] || 0) : _sumPhaseHours(o, ph);
-      sumHoras[ph] += horas[ph];
+      // 'ab' (Trabajando) se suma mas abajo, por fila/tecnico — con 2
+      // tecnicos se reparte entre 2 filas y sumarlo aqui tambien duplicaria
+      // el total. El resto de fases son a nivel de ORDEN (no se reparten),
+      // se suman una sola vez aqui sin importar cuantas filas salgan.
+      if (ph !== 'ab') sumHoras[ph] += horas[ph];
     });
     sumDias += dias;
     sumMontoTotal += montoTotal;
     sumMontoMO += montoMO;
-    sumHrsCom += hrsCom;
 
-    // % Productividad de la orden: horas de comision vs horas acumuladas en
-    // Trabajando (fase 'ab') — mismo criterio ya usado en la tarjeta, la
-    // ficha (Informacion) y el reporte de productividad por tecnico. Vacio
-    // (no 0%) si la orden nunca tuvo tiempo en Trabajando, para no mostrar
-    // un porcentaje sin sentido.
-    var pctProd = horas.ab > 0 ? Math.round(hrsCom / horas.ab * 100) : null;
     // Tiempo especifico en ruta (independiente del total de Prueba_Insp_Final
     // de arriba, que sigue siendo el tiempo completo de esa fase) — vacio si
-    // nunca se marco la salida a ruta en esa orden.
+    // nunca se marco la salida a ruta en esa orden. Es a nivel de orden (no
+    // se reparte entre tecnicos), se repite igual en ambas filas si hay 2.
     var rutaHoras = (o.rutaMinutos !== undefined && o.rutaMinutos !== null) ? (o.rutaMinutos / 60) : null;
     if (rutaHoras !== null) sumRutaMin += o.rutaMinutos;
 
-    rows.push([
-      o.ot, fmtDate(ingreso), fmtDate(salida), _csvNum(dias.toFixed(1)),
-      o.client, o.model, o.plate, tech,
-      _csvNum(horas.aa.toFixed(2)), _csvNum(horas.ab.toFixed(2)),
-      _csvNum(horas.pa.toFixed(2)), _csvNum(horas.pb.toFixed(2)),
-      _csvNum(horas.ea.toFixed(2)), _csvNum(horas.er.toFixed(2)),
-      _csvNum(horas.det.toFixed(2)), _csvNum(horas.ext.toFixed(2)),
-      _csvNum(horas.prb.toFixed(2)), _csvNum(horas.lav.toFixed(2)),
-      _csvNum(horas.lst.toFixed(2)), _csvNum(horas.ent.toFixed(2)),
-      montoTotal ? _csvNum(montoTotal.toFixed(2)) : '',
-      montoMO ? _csvNum(montoMO.toFixed(2)) : '',
-      hrsCom ? _csvNum(hrsCom.toFixed(2)) : '',
-      pctProd !== null ? pctProd : '',
-      rutaHoras !== null ? _csvNum(rutaHoras.toFixed(2)) : ''
-    ]);
+    // Con 2 tecnicos asignados, la orden sale como 2 FILAS (una por
+    // tecnico) — casi todas las casillas quedan iguales en ambas (fechas,
+    // montos, el resto de fases, tiempo en ruta), pero Hrs_Com y Trabajando
+    // se reparten: Hrs_Com es exacta (viene de trabajos[].tecnico); Trabajando
+    // se reparte por "regla de 3" segun el % de Hrs_Com de cada quien (ver
+    // calcTecHoras) — no hay forma de saber quien trabajaba en cada momento
+    // del cronometro compartido de la orden, asi que se estima proporcional
+    // a lo que consta que hizo cada uno. Si la orden ya quedo "Ya facturada"
+    // (congelada), se usa el desglose por tecnico que se congelo en ese
+    // momento (horasFacturadoSnapshot.porTecnico), no el calculo en vivo.
+    var hasTwoTecs = !!(o.tech && o.tech2);
+    var tecsToExport = hasTwoTecs ? [o.tech, o.tech2] : [o.tech || 'Sin asignar'];
+
+    for (var tei = 0; tei < tecsToExport.length; tei++) {
+      var tecNameRow = tecsToExport[tei];
+      var rowHrsCom, rowHrsAb;
+      if (hasTwoTecs) {
+        var frozenTecH = isFrozenReopened && o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico
+          ? o.horasFacturadoSnapshot.porTecnico[tecNameRow] : null;
+        if (frozenTecH) {
+          rowHrsCom = frozenTecH.flat || 0;
+          rowHrsAb = frozenTecH.real || 0;
+        } else {
+          var liveTecH = calcTecHoras(o, tecNameRow);
+          rowHrsCom = liveTecH.flat;
+          rowHrsAb = liveTecH.real;
+        }
+      } else {
+        rowHrsCom = hrsCom;
+        rowHrsAb = horas.ab;
+      }
+      sumHoras.ab += rowHrsAb;
+      sumHrsCom += rowHrsCom;
+      // % Productividad de este tecnico en esta orden (o de la orden entera
+      // si solo hay 1 tecnico) — mismo criterio en toda la app. Vacio si
+      // nunca hubo tiempo Trabajando que repartir.
+      var pctProdRow = rowHrsAb > 0 ? Math.round(rowHrsCom / rowHrsAb * 100) : null;
+
+      rows.push([
+        o.ot, fmtDate(ingreso), fmtDate(salida), _csvNum(dias.toFixed(1)),
+        o.client, o.model, o.plate, tecNameRow,
+        _csvNum(horas.aa.toFixed(2)), _csvNum(rowHrsAb.toFixed(2)),
+        _csvNum(horas.pa.toFixed(2)), _csvNum(horas.pb.toFixed(2)),
+        _csvNum(horas.ea.toFixed(2)), _csvNum(horas.er.toFixed(2)),
+        _csvNum(horas.det.toFixed(2)), _csvNum(horas.ext.toFixed(2)),
+        _csvNum(horas.prb.toFixed(2)), _csvNum(horas.lav.toFixed(2)),
+        _csvNum(horas.lst.toFixed(2)), _csvNum(horas.ent.toFixed(2)),
+        montoTotal ? _csvNum(montoTotal.toFixed(2)) : '',
+        montoMO ? _csvNum(montoMO.toFixed(2)) : '',
+        rowHrsCom ? _csvNum(rowHrsCom.toFixed(2)) : '',
+        pctProdRow !== null ? pctProdRow : '',
+        rutaHoras !== null ? _csvNum(rutaHoras.toFixed(2)) : ''
+      ]);
+    }
   }
 
   // Fila de resumen: cantidad de ordenes, promedio de dias, promedio de
@@ -4847,25 +4887,42 @@ function businessMinutes(fromTs, toTs) {
 }
 
 // Calcula, para un tecnico especifico en una orden, las horas REALES
-// trabajadas (fase 'ab' — Trabajando, repartidas 50/50 si hay 2 tecnicos
-// asignados) y las horas de COMISION pagadas (trabajos[].horas para ese
-// tecnico), sumando TODAS las veces que la orden estuvo en 'ab' (no solo la
-// ultima) — asi el tiempo se sigue acumulando correctamente aunque la orden
-// se haya cerrado, reabierto y vuelto a poner en Trabajando. Centralizado
-// aqui (antes duplicado en 3 lugares) para que el congelamiento de "Ya
-// facturada" capture exactamente el mismo numero que ya se le mostraba al
-// tecnico en ese momento.
+// trabajadas (fase 'ab' — Trabajando) y las horas de COMISION pagadas
+// (trabajos[].horas para ese tecnico), sumando TODAS las veces que la orden
+// estuvo en 'ab' (no solo la ultima) — asi el tiempo se sigue acumulando
+// correctamente aunque la orden se haya cerrado, reabierto y vuelto a poner
+// en Trabajando. Centralizado aqui (antes duplicado en 3 lugares) para que
+// el congelamiento de "Ya facturada" capture exactamente el mismo numero
+// que ya se le mostraba al tecnico en ese momento.
+//
+// Reparto entre 2 tecnicos ("regla de 3"): las horas Trabajando de la orden
+// son un solo cronometro compartido (no se sabe quien trabajaba en cada
+// momento), asi que se reparten proporcional a cuanto le corresponde de
+// horas de COMISION a cada uno (eso si se sabe con precision, viene de
+// trabajos[].tecnico) — no un 50/50 parejo como antes. Ej.: si Gerson tiene
+// 40.25 de 48.5 hrs. com. totales (82.98%), se lleva ese mismo 82.98% de las
+// horas Trabajando de la orden. Si NINGUNO de los 2 tiene horas de comision
+// asignadas todavia (0/0, nada en que basar el reparto), cae a 50/50 como
+// valor por defecto razonable mientras no hay dato.
 function calcTecHoras(o, tecName) {
-  var share = (o.tech && o.tech2) ? 0.5 : 1;
   var abMin = 0, abVeces = 0;
   (o.phaseLog || []).forEach(function(pl) { if (pl.phase === 'ab') { abMin += (pl.minutes || 0); abVeces++; } });
   var abHoras = abMin / 60;
   if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) {
     abHoras += businessMinutes(o.timestamps.ab, Date.now()) / 60;
   }
-  abHoras = abHoras * share;
   var flat = 0;
   (o.trabajos || []).forEach(function(tw) { if (tw.tecnico === tecName) flat += (parseFloat(tw.horas) || 0); });
+
+  var share = 1;
+  if (o.tech && o.tech2) {
+    var otherTec = tecName === o.tech ? o.tech2 : o.tech;
+    var flatOther = 0;
+    (o.trabajos || []).forEach(function(tw) { if (tw.tecnico === otherTec) flatOther += (parseFloat(tw.horas) || 0); });
+    var flatTotal = flat + flatOther;
+    share = flatTotal > 0 ? (flat / flatTotal) : 0.5;
+  }
+  abHoras = abHoras * share;
   return {real: abHoras, flat: flat, abVeces: abVeces};
 }
 
