@@ -492,7 +492,17 @@ button{cursor:pointer}
           <option value="verde">&#128994; Verde</option>
         </select></div>
     </div>
-    <div class="fg"><label class="fl">Trabajos solicitados por el cliente</label><textarea class="fi dta" id="f-dc" placeholder="Descripcion..."></textarea></div>
+    <div class="fg"><label class="fl">Trabajos solicitados por el cliente</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+        <button type="button" onclick="addDescPreset('Servicio menor')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Servicio menor</button>
+        <button type="button" onclick="addDescPreset('Servicio intermedio')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Servicio intermedio</button>
+        <button type="button" onclick="addDescPreset('Servicio mayor')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Servicio mayor</button>
+        <button type="button" onclick="addDescPreset('Revision compraventa')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Revision compraventa</button>
+        <button type="button" onclick="addDescPreset('Diagnostico')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Diagnostico</button>
+        <button type="button" onclick="addDescPreset('Revision de frenos')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Revision de frenos</button>
+      </div>
+      <textarea class="fi dta" id="f-dc" placeholder="Descripcion..."></textarea>
+    </div>
     <div class="fg"><label class="fl">Tiempo estimado de trabajo (hrs) <span style="color:var(--tx3);font-weight:400">— opcional, solo para reparaciones</span></label><input class="fi" id="f-hrs" type="number" min="0.5" max="999" step="0.5" placeholder="Ej: 4.5"></div>
     <div class="fg">
       <label class="fl">&#128230; Repuestos necesarios <span style="color:var(--tx3);font-weight:400">— opcional, quedan visibles para Partes desde ya</span></label>
@@ -1678,11 +1688,26 @@ function openDrw(id) {
       '<div class="irow"><span class="ik">Hrs. comision</span><span style="font-family:var(--mo)">' + hrsComOrdenInfo.toFixed(2).replace('.', ',') + ' h</span></div>' +
       '<div class="irow"><span class="ik">% Productividad</span><span style="color:' + pctProdOrdenColorInfo + ';font-weight:700">' + pctProdOrdenRounded + '%</span></div>';
   }
+  // Enlace a la orden en Clear Mechanic (recepcion, reporte de fallas del
+  // tecnico, presupuesto enviado) — solo Jefe, Asesor de servicio y Asesor
+  // de partes lo ven; el resto del personal (tecnicos, mensajero) no ve esta
+  // fila en absoluto. Editable por esos 3 roles via boton, no solo Jefe —
+  // por eso vive fuera del formulario grande de "Editar" (que es jefe-only).
+  var canSeeCM = (role === 'jefe' || role === 'asesor' || role === 'partes');
+  var cmRowHtml = canSeeCM
+    ? '<div class="irow" style="align-items:center"><span class="ik">&#128279; Clear Mechanic</span><span style="display:flex;align-items:center;gap:8px">' +
+        (o.cmUrl
+          ? '<a href="' + esc(o.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>'
+          : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
+        '<button id="btn-cm-link" data-oid="' + id + '" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (o.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>' +
+      '</span></div>'
+    : '';
   html += '<div class="sec"><div class="sec-l">Informacion</div>' +
     '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc || '—') + '</span></div>' +
     (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + esc(o.detMotivo) + '</span></div>' : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
+    cmRowHtml +
     (o.hrsEstimado ? '<div class="irow"><span class="ik">Tiempo estimado</span><span style="color:var(--ac)">' + o.hrsEstimado + ' h</span></div>' : '') +
     (o.numFisico ? '<div class="irow"><span class="ik">No. orden fisica</span><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + (o.colorFisico === 'azul' ? '#1565C0' : o.colorFisico === 'amarillo' ? '#F9A825' : o.colorFisico === 'verde' ? '#2E7D32' : '#555') + ';color:#fff;font-size:12px;font-weight:700">' + o.numFisico + '</span><span style="color:var(--tx2);font-size:11px">' + (o.colorFisico || '') + '</span></span></div>' : '') +
     '<div class="irow"><span class="ik">Tiempo en esta fase</span><span style="color:var(--or)">' + (timeInPhase || 'Recien ingresado') + '</span></div>' +
@@ -2931,6 +2956,31 @@ function openDrw(id) {
       showReprocesoCausaModal(id, registrarReprocesoSinAvance);
     });
   }
+  var cmLinkBtn = document.getElementById('btn-cm-link');
+  if (cmLinkBtn) {
+    cmLinkBtn.addEventListener('click', function() {
+      if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) { toast('No tienes permiso para editar este enlace'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      var nuevoUrl = prompt('Enlace de Clear Mechanic para esta orden:', ox.cmUrl || '');
+      if (nuevoUrl === null) return;
+      nuevoUrl = nuevoUrl.trim();
+      var who = ROLES[role] ? ROLES[role].label : role;
+      ox.msgs = ox.msgs || [];
+      if (!nuevoUrl) {
+        if (ox.cmUrl) {
+          delete ox.cmUrl;
+          ox.msgs.push({who:who, txt:'&#128279; Enlace de Clear Mechanic eliminado', ts:Date.now(), type:'system'});
+        } else { return; }
+      } else {
+        var esNuevo = !ox.cmUrl;
+        ox.cmUrl = nuevoUrl;
+        ox.msgs.push({who:who, txt:(esNuevo ? '&#128279; Enlace de Clear Mechanic agregado' : '&#128279; Enlace de Clear Mechanic actualizado'), ts:Date.now(), type:'system'});
+      }
+      save(); toast('Enlace actualizado'); openDrw(id);
+    });
+  }
   var desmarcarFacturadaBtn = document.getElementById('btn-desmarcar-facturada');
   if (desmarcarFacturadaBtn) {
     desmarcarFacturadaBtn.addEventListener('click', function() {
@@ -3404,6 +3454,20 @@ function renderNoRepList() {
     });
   });
 }
+// Botones de trabajos pre-grabados en "Nueva orden" (Servicio menor/etc.) —
+// insertan el texto en la casilla de notas SIN reemplazar lo ya escrito, asi
+// el asesor puede combinar un preset con su propia observacion del cliente.
+// No agrega el mismo preset dos veces si ya esta presente.
+function addDescPreset(txt) {
+  var el = document.getElementById('f-dc');
+  if (!el) return;
+  var current = el.value.trim();
+  if (!current) { el.value = txt; return; }
+  var parts = current.split(/,\s*/);
+  if (parts.indexOf(txt) !== -1) return; // ya esta, no duplicar
+  el.value = current + ', ' + txt;
+}
+
 function saveNO() {
   var plate = document.getElementById('f-pl').value.trim();
   var model = document.getElementById('f-mo').value.trim();
@@ -5623,9 +5687,17 @@ function openHistDetail(o) {
   (o.trabajos || []).forEach(function(tw) { hrsComHistDetail += parseFloat(tw.horas) || 0; });
   var pctProdHistDetail = hrsRealHistDetail > 0 ? Math.round(hrsComHistDetail / hrsRealHistDetail * 100) : null;
   var pctProdHistColor = pctProdHistDetail !== null ? _productividadColor(pctProdHistDetail) : 'var(--tx3)';
+  // Mismo criterio de visibilidad que en la ficha en vivo — solo lectura
+  // aqui (sin boton editar), la vista de Historial ya es de solo lectura.
+  var cmRowHtmlHist = (role === 'jefe' || role === 'asesor' || role === 'partes')
+    ? '<div class="irow"><span class="ik">&#128279; Clear Mechanic</span><span>' +
+        (o.cmUrl ? '<a href="' + esc(o.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>' : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
+      '</span></div>'
+    : '';
   html += '<div class="sec"><div class="sec-l">Informacion general</div>' +
     '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
+    cmRowHtmlHist +
     '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech||'—') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
     '<div class="irow"><span class="ik">Placa</span><span style="font-family:var(--mo)">' + esc(o.plate||'—') + '</span></div>' +
