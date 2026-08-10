@@ -452,6 +452,7 @@ button{cursor:pointer}
     </div>
     <div class="fg"><label class="fl">Vehiculo *</label><input class="fi" id="f-mo" placeholder="Toyota Hilux 2020"></div>
     <div class="fg"><label class="fl">Cliente *</label><input class="fi" id="f-cl" placeholder="Nombre completo"></div>
+    <div class="fg"><label class="fl">Kilometraje (opcional)</label><input class="fi" id="f-km" type="number" min="0" step="1" placeholder="Ej. 45230"></div>
     <div class="fr2">
       <div class="fg"><label class="fl">Tecnico (opcional, se asigna despues)</label>
         <select class="fi" id="f-tc">
@@ -1608,6 +1609,7 @@ function openDrw(id) {
         '</div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Vehiculo</label><input class="fi" id="e-model" value="' + esc(o.model) + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Cliente</label><input class="fi" id="e-client" value="' + esc(o.client) + '"></div>' +
+        '<div class="fg" style="margin-bottom:6px"><label class="fl">Kilometraje — opcional</label><input class="fi" id="e-km" type="number" min="0" step="1" value="' + (o.km!=null?o.km:'') + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Tiempo estimado (hrs) — opcional</label><input class="fi" id="e-hrs" type="number" min="0.5" step="0.5" value="' + (o.hrsEstimado||'') + '"></div>' +
         (role === 'jefe' ?
           '<div class="fg" style="margin-bottom:6px"><label class="fl">Prioridad</label><select class="fi" id="e-prio">' +
@@ -1617,6 +1619,13 @@ function openDrw(id) {
             '<option value="garantia"' + (o.prio === 'garantia' ? ' selected' : '') + '>Garantia</option>' +
             '<option value="interna"' + (o.prio === 'interna' ? ' selected' : '') + '>Interna</option>' +
             '<option value="endpint"' + (o.prio === 'endpint' ? ' selected' : '') + '>End. y Pint.</option>' +
+          '</select></div>'
+        : '') +
+        (role === 'jefe' ?
+          '<div class="fg" style="margin-bottom:6px"><label class="fl">Ubicacion (taller)</label><select class="fi" id="e-loc">' +
+            '<option value="AGUILARB"' + (o.loc === 'AGUILARB' ? ' selected' : '') + '>AGUILARB</option>' +
+            '<option value="FRAIJNES"' + (o.loc === 'FRAIJNES' ? ' selected' : '') + '>FRAIJNES</option>' +
+            '<option value="Z10"' + (o.loc === 'Z10' ? ' selected' : '') + '>Z10</option>' +
           '</select></div>'
         : '') +
         ((role === 'jefe' || role === 'asesor') ?
@@ -1673,7 +1682,7 @@ function openDrw(id) {
     '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc || '—') + '</span></div>' +
     (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + esc(o.detMotivo) + '</span></div>' : '') +
-    '<div class="irow"><span class="ik">Espacio</span><span>' + (o.space ? 'Espacio ' + o.space : 'Sin asignar') + '</span></div>' +
+    '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
     (o.hrsEstimado ? '<div class="irow"><span class="ik">Tiempo estimado</span><span style="color:var(--ac)">' + o.hrsEstimado + ' h</span></div>' : '') +
     (o.numFisico ? '<div class="irow"><span class="ik">No. orden fisica</span><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + (o.colorFisico === 'azul' ? '#1565C0' : o.colorFisico === 'amarillo' ? '#F9A825' : o.colorFisico === 'verde' ? '#2E7D32' : '#555') + ';color:#fff;font-size:12px;font-weight:700">' + o.numFisico + '</span><span style="color:var(--tx2);font-size:11px">' + (o.colorFisico || '') + '</span></span></div>' : '') +
     '<div class="irow"><span class="ik">Tiempo en esta fase</span><span style="color:var(--or)">' + (timeInPhase || 'Recien ingresado') + '</span></div>' +
@@ -1709,23 +1718,11 @@ function openDrw(id) {
     '</div>';
   }
 
-  /* space selector */
-  if ((role === 'jefe' || r.tec) && (o.phase === 'aa' || o.phase === 'ab')) {
-    var occ = {};
-    for (var i = 0; i < orders.length; i++) {
-      var ox = orders[i];
-      if (ox.id !== id && ox.space && ['aa','ab','prb'].indexOf(ox.phase) >= 0) occ[ox.space] = true;
-    }
-    var cells = '';
-    for (var n = 1; n <= 11; n++) {
-      var ns = String(n);
-      var isMine = o.space === ns;
-      var isOcc = occ[ns] && !isMine;
-      var cls = isMine ? 'mine' : (isOcc ? 'occ' : '');
-      cells += '<div class="sp-cell ' + cls + '" data-sp="' + ns + '">' + n + '</div>';
-    }
-    html += '<div class="sec"><div class="sec-l">Espacio de trabajo</div><div class="sp-grid" id="sp-grid">' + cells + '</div></div>';
-  }
+  // La asignacion de espacio (donde esta parqueado dentro del taller) se
+  // dejo de hacer desde aqui — ahora es exclusiva del boton &#127757; Mapa
+  // (ver openMap()/mapPick()), para no duplicar la interaccion en 2 lugares
+  // y liberar espacio en la ficha para el kilometraje (ver "Espacio" ->
+  // "Kilometraje" en el irow de arriba).
 
   /* desc — solo Asesor de servicio y Jefe de taller pueden editar; el
      resto del personal (tecnicos, mensajero, partes) solo lectura. */
@@ -2604,6 +2601,10 @@ function openDrw(id) {
       var newTech2  = eTech2El ? eTech2El.value : null;
       var ePrioEl   = document.getElementById('e-prio');
       var newPrio   = ePrioEl ? ePrioEl.value : null;
+      var eLocEl    = document.getElementById('e-loc');
+      var newLoc    = eLocEl ? eLocEl.value : null;
+      var eKmEl     = document.getElementById('e-km');
+      var newKm     = eKmEl && eKmEl.value ? parseInt(eKmEl.value, 10) : null;
       if (eTech1El && eTech2El && newTech2 && newTech2 === newTech1) { toast('No puedes asignar el mismo tecnico dos veces'); return; }
       if (eTotalEl && eMoEl && newMO > newTotal && newTotal > 0) { toast('La M.O. no puede superar el total'); return; }
       if (!newPlate || !newModel || !newClient) { toast('Placa, vehiculo y cliente son requeridos'); return; }
@@ -2618,6 +2619,8 @@ function openDrw(id) {
       if (eTotalEl && eMoEl && (ox.montoTotal||0) !== newTotal) changes.push('Montos actualizados');
       if (eTech1El && (ox.tech||'') !== (newTech1||'')) changes.push('Tecnico: ' + esc(ox.tech||'Sin asignar') + ' -> ' + esc(newTech1||'Sin asignar'));
       if (ePrioEl && (ox.prio||'normal') !== newPrio) changes.push('Prioridad: ' + (PRIO_LABELS[ox.prio]||'Normal') + ' -> ' + (PRIO_LABELS[newPrio]||'Normal'));
+      if (eLocEl && (ox.loc||'') !== newLoc) changes.push('Ubicacion: ' + esc(ox.loc||'—') + ' -> ' + esc(newLoc));
+      if (eKmEl && (ox.km!=null?ox.km:null) !== newKm) changes.push('Kilometraje: ' + (ox.km!=null ? ox.km.toLocaleString('es-GT') : '—') + ' -> ' + (newKm!=null ? newKm.toLocaleString('es-GT') : '—'));
       ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
       ox.numFisico = newNum; ox.colorFisico = newColor;
       if (eTotalEl) ox.montoTotal = newTotal || null;
@@ -2625,6 +2628,8 @@ function openDrw(id) {
       if (eTech1El) ox.tech = newTech1 || null;
       if (eTech2El) ox.tech2 = newTech2 || null;
       if (ePrioEl) ox.prio = newPrio;
+      if (eLocEl) ox.loc = newLoc;
+      if (eKmEl) ox.km = newKm;
       var hrsEl = document.getElementById('e-hrs');
       ox.hrsEstimado = hrsEl && hrsEl.value ? parseFloat(hrsEl.value) : null;
       if (changes.length) {
@@ -2634,21 +2639,6 @@ function openDrw(id) {
       }
       save(); toast('Datos actualizados'); openDrw(id);
     });
-  }
-
-  /* space cells */
-  var grid = document.getElementById('sp-grid');
-  if (grid) {
-    var cells2 = grid.querySelectorAll('.sp-cell');
-    for (var i = 0; i < cells2.length; i++) {
-      (function(cell) {
-        if (!cell.classList.contains('occ')) {
-          cell.addEventListener('click', function() {
-            setSpace(id, this.getAttribute('data-sp'));
-          });
-        }
-      })(cells2[i]);
-    }
   }
 
   /* technician assignment button */
@@ -3429,10 +3419,12 @@ function saveNO() {
   var desc = document.getElementById('f-dc').value;
   var who = ROLES[role] ? ROLES[role].label : role;
   var hrsEst = parseFloat(document.getElementById('f-hrs').value) || 0;
+  var kmEl = document.getElementById('f-km');
+  var km = kmEl && kmEl.value ? parseInt(kmEl.value, 10) : null;
 
   function createWithId(assignedId) {
     var ot = otInput || ('OT-' + assignedId);
-    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
+    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,km:km,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
     if (_noRepDraft.length) {
       no.repuestos = _noRepDraft.map(function(desc0) {
         return {desc:desc0, ck1:false, ck2:false, ck3:false, by:who, ts:Date.now()};
@@ -3443,7 +3435,7 @@ function saveNO() {
     addNotif('Nueva orden: ' + plate + ' - ' + model, no.id);
     _noRepDraft = [];
     save(); closeNO(); toast('Orden creada'); renderBoard();
-    ['f-pl','f-ot','f-mo','f-cl','f-dc','f-num','f-col','f-hrs'].forEach(function(fid) { var el = document.getElementById(fid); if (el) el.value = ''; });
+    ['f-pl','f-ot','f-mo','f-cl','f-dc','f-num','f-col','f-hrs','f-km'].forEach(function(fid) { var el = document.getElementById(fid); if (el) el.value = ''; });
   }
 
   if (fbReady && db) {
@@ -5633,6 +5625,7 @@ function openHistDetail(o) {
   var pctProdHistColor = pctProdHistDetail !== null ? _productividadColor(pctProdHistDetail) : 'var(--tx3)';
   html += '<div class="sec"><div class="sec-l">Informacion general</div>' +
     '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
     '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech||'—') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
     '<div class="irow"><span class="ik">Placa</span><span style="font-family:var(--mo)">' + esc(o.plate||'—') + '</span></div>' +
