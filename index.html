@@ -3754,12 +3754,17 @@ var _jefeShowProdTecnicos = false;
 // vehiculos especificos componen el numero agregado de "Mi productividad —
 // ordenes CERRADAS"). Se reinicia cada vez que se abre el reporte.
 var _tecRepShowClosed = false;
+// Toggle jefe/asesor/partes: detalle (OR/Salida/Cliente/Vehiculo/Tecnico/
+// Monto) de las ordenes que componen la tarjeta "Ya cerrado este mes". Se
+// reinicia cada vez que se abre el reporte.
+var _jefeShowCerradosDetalle = false;
 
 function openRep() {
   _repProdMonthOffset = 0; // siempre abre mostrando el mes actual
   _jefeShowProdCols = false;
   _jefeShowProdTecnicos = false;
   _tecRepShowClosed = false;
+  _jefeShowCerradosDetalle = false;
   // Auto-refresh every 30 seconds while report is open
   if (window._repInterval) clearInterval(window._repInterval);
   window._repInterval = setInterval(function() {
@@ -3874,13 +3879,48 @@ function buildRepContent() {
         '</div>' +
       '</div>' +
       '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
-        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#9989; Ya cerrado este mes (' + semData.countCerradas + ' ordenes)</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px">' +
+          '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">&#9989; Ya cerrado este mes (' + semData.countCerradas + ' ordenes)</div>' +
+          (semData.countCerradas ? '<button onclick="toggleJefeCerradosDetalle()" style="font-size:9px;padding:3px 8px;border-radius:10px;border:1px solid ' + (_jefeShowCerradosDetalle ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowCerradosDetalle ? 'rgba(61,126,255,.15)' : 'var(--bg4)') + ';color:' + (_jefeShowCerradosDetalle ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;white-space:nowrap">&#128065; ' + (_jefeShowCerradosDetalle ? 'Ocultar' : 'Ver') + ' detalle</button>' : '') +
+        '</div>' +
         '<div style="display:flex;gap:16px">' +
           '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(semData.totalFact) + '</div><div style="font-size:10px;color:var(--tx3)">Total general</div></div>' +
           '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(semData.totalMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
         '</div>' +
       '</div>' +
     '</div>';
+
+    // Detalle de las ordenes que componen "Ya cerrado este mes" — toggle,
+    // para no saturar la vista por defecto. Misma fuente exacta que los
+    // totales de arriba (semData.ordenes), asi que siempre cuadran.
+    if (_jefeShowCerradosDetalle && semData.countCerradas) {
+      var fmtFechaSalida = function(ts) { return new Date(ts).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}); };
+      html += '<div style="overflow-x:auto;margin-bottom:1rem">' +
+        '<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">' +
+        '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
+          '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">OR #</th>' +
+          '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Salida</th>' +
+          '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid #FFD700">Cliente</th>' +
+          '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid #FFD700">Vehiculo</th>' +
+          '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid #FFD700">Tecnico</th>' +
+          '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Monto (general)</th>' +
+          '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Monto (M.O.)</th>' +
+        '</tr></thead><tbody>';
+      for (var oci = 0; oci < semData.ordenes.length; oci++) {
+        var ocx = semData.ordenes[oci];
+        var ocRowBg = oci % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
+        html += '<tr style="background:' + ocRowBg + '">' +
+          '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(ocx.ot||'—') + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap">' + fmtFechaSalida(ocx.salida) + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(ocx.client||'—') + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(ocx.model||'—') + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(ocx.tech||'—') + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--gn)">' + fmtQ2(ocx.total) + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--ac)">' + fmtQ2(ocx.mo) + '</td>' +
+        '</tr>';
+      }
+      html += '</tbody></table></div>';
+    }
   }
 
   if (myName) {
@@ -5001,10 +5041,15 @@ function businessHours(fromTs, toTs) {
   return hrs.toFixed(1) + ' h';
 }
 
+// Ventanas habiles del dia, en minutos desde medianoche (para poder cortar
+// en un punto que no cae en hora exacta, ej. 10:15). Lun-Vie: 8:00-10:00,
+// 10:15-12:00, 13:00-17:00 (corte de 15 min de refaccion a las 10, mas el
+// almuerzo de 1h a mediodia). Sabado: 8:00-10:00, 10:15-12:00 (mismo corte
+// de 10, pero sin turno de tarde ni almuerzo — el dia ya termina a las 12).
+// Domingo: cerrado.
+var _BUSINESS_WINDOWS_WEEKDAY = [[480,600],[615,720],[780,1020]];
+var _BUSINESS_WINDOWS_SATURDAY = [[480,600],[615,720]];
 function businessMinutes(fromTs, toTs) {
-  // Returns raw minutes in business hours. Lun-Vie: 8-12 y 13-17 (se corta 1h
-  // de almuerzo de 12 a 13, no cuenta para nadie); Sabado: solo 8-12;
-  // Domingo: no cuenta.
   if (!fromTs || !toTs || toTs <= fromTs) return 0;
   var total = 0;
   var cur = new Date(fromTs);
@@ -5012,19 +5057,19 @@ function businessMinutes(fromTs, toTs) {
   var end = new Date(toTs);
   while (cur < end) {
     var dow = cur.getDay();
-    var h = cur.getHours();
+    var mins = cur.getHours() * 60 + cur.getMinutes();
     var windows;
-    if (dow >= 1 && dow <= 5) windows = [[8,12],[13,17]];
-    else if (dow === 6) windows = [[8,12]];
+    if (dow >= 1 && dow <= 5) windows = _BUSINESS_WINDOWS_WEEKDAY;
+    else if (dow === 6) windows = _BUSINESS_WINDOWS_SATURDAY;
     else windows = [];
     if (!windows.length) { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); continue; }
     var win = null;
     for (var wi = 0; wi < windows.length; wi++) {
-      if (h < windows[wi][1]) { win = windows[wi]; break; }
+      if (mins < windows[wi][1]) { win = windows[wi]; break; }
     }
     if (!win) { cur.setDate(cur.getDate() + 1); cur.setHours(8,0,0,0); continue; }
-    if (h < win[0]) { cur.setHours(win[0], 0, 0, 0); continue; }
-    var winEndTs = new Date(cur); winEndTs.setHours(win[1], 0, 0, 0);
+    if (mins < win[0]) { cur.setHours(Math.floor(win[0]/60), win[0]%60, 0, 0); continue; }
+    var winEndTs = new Date(cur); winEndTs.setHours(Math.floor(win[1]/60), win[1]%60, 0, 0);
     var nextTs = Math.min(end.getTime(), winEndTs.getTime());
     total += (nextTs - cur.getTime()) / 60000;
     cur = new Date(nextTs);
@@ -5992,6 +6037,10 @@ function semComputeFromOrders(monthOffset) {
   // contar doble por id, por si acaso.
   var seenIds = {};
   var allClosedSource = orders.concat(archived || []);
+  // Detalle por orden de cada evento que se cuenta en totalFact/totalMO de
+  // este mes (mismo criterio exacto, para que el detalle SIEMPRE cuadre con
+  // el total mostrado — una sola fuente, no un calculo aparte y divergente).
+  var ordenesCerradas = [];
   for (var i = 0; i < allClosedSource.length; i++) {
     var o = allClosedSource[i];
     if (seenIds[o.id]) continue;
@@ -6011,6 +6060,7 @@ function semComputeFromOrders(monthOffset) {
           byDay[facKey].total += facTotal; byDay[facKey].mo += facMO; byDay[facKey].count++;
           totalFact += facTotal; totalMO += facMO; countCerradas++;
           if (isCurrentMonth && fd.getDate() === dToday) { hoyTotal += facTotal; hoyMO += facMO; hoyCount++; }
+          ordenesCerradas.push({ot:o.ot, salida:facTs, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:facTotal, mo:facMO});
         }
       }
     }
@@ -6034,6 +6084,7 @@ function semComputeFromOrders(monthOffset) {
       byDay[key].total += t; byDay[key].mo += mo; byDay[key].count++;
       totalFact += t; totalMO += mo; countCerradas++;
       if (isCurrentMonth && d.getDate() === dToday) { hoyTotal += t; hoyMO += mo; hoyCount++; }
+      ordenesCerradas.push({ot:o.ot, salida:ts, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:t, mo:mo});
     } else if (o.montoTotal && isCurrentMonth) {
       // "Proyectado" son ordenes AUN activas — solo tiene sentido para el mes
       // actual, no aplica retroactivamente a un mes ya cerrado. Si ya tiene
@@ -6048,12 +6099,14 @@ function semComputeFromOrders(monthOffset) {
   });
   function toTs(f) { var p = f.split('/'); return new Date(p[2],p[1]-1,p[0]).getTime(); }
   dias.sort(function(a,b) { return toTs(b.fecha) - toTs(a.fecha); });
+  ordenesCerradas.sort(function(a,b) { return b.salida - a.salida; });
   return {
     dias: dias,
     totalFact: totalFact, totalMO: totalMO, totalRep: totalFact - totalMO, countCerradas: countCerradas,
     potTotal: potTotal, potMO: potMO, potRep: potTotal - potMO, countPotencial: countPotencial,
     hoyTotal: hoyTotal, hoyMO: hoyMO, hoyRep: hoyTotal - hoyMO, hoyCount: hoyCount,
-    monthLabel: monthLabel, isCurrentMonth: isCurrentMonth, monthOffset: monthOffset
+    monthLabel: monthLabel, isCurrentMonth: isCurrentMonth, monthOffset: monthOffset,
+    ordenes: ordenesCerradas
   };
 }
 
@@ -6241,6 +6294,11 @@ function toggleJefeProdCols() {
 function toggleJefeProdTecnicos() {
   if (role !== 'jefe') return;
   _jefeShowProdTecnicos = !_jefeShowProdTecnicos;
+  buildRepContent();
+}
+function toggleJefeCerradosDetalle() {
+  if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) return;
+  _jefeShowCerradosDetalle = !_jefeShowCerradosDetalle;
   buildRepContent();
 }
 function setTecRepClosed(val) {
