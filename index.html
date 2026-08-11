@@ -1544,8 +1544,13 @@ function openDrw(id) {
     if (r.tec) {
       nexts = ['lav', 'lst'];
       prbGateOverride = !!o.sigs['tecnico'];
-    } else {
+    } else if (role === 'jefe') {
       prbGateOverride = !!o.sigs['jefe'];
+    } else {
+      // Asesor, Partes, etc. NO tienen potestad de mover la orden desde
+      // Prueba/Insp.Final aunque el Jefe ya haya firmado — mover de aqui es
+      // exclusivo del Jefe (o del tecnico, por su propio camino arriba).
+      prbGateOverride = false;
     }
   }
 
