@@ -1276,7 +1276,7 @@ function prbStatusBadge(o) {
   // de la fase (que incluye tambien la espera antes de salir).
   var enRutaHtml = '';
   if (!jefeDone && o.rutaSalidaTs) {
-    enRutaHtml = '<div style="margin-bottom:6px"><span title="El vehiculo esta en ruta — este tiempo queda registrado por separado del total de la fase" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid var(--gn);background:var(--gnbg);color:var(--gn)">&#128663; EN RUTA &middot; ' + businessHours(o.rutaSalidaTs, Date.now()) + '</span></div>';
+    enRutaHtml = '<div style="margin-bottom:6px"><span title="El vehiculo esta en ruta — este tiempo queda registrado por separado del total de la fase, corre de corrido (no se pausa en almuerzo/refaccion ni fuera de hora habil)" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid var(--gn);background:var(--gnbg);color:var(--gn)">&#128663; EN RUTA &middot; ' + rawHours(o.rutaSalidaTs, Date.now()) + '</span></div>';
   }
   return enRutaHtml + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">' +
     '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid ' + seg1Bd + ';background:' + seg1Bg + ';color:' + seg1Color + '">' + (jefeDone ? '&#10003; ' : '') + 'Prueba ruta (Jefe)</span>' +
@@ -3396,7 +3396,9 @@ function doSign(id, sigId) {
   // vez de quedarse solo con la ultima. Si nunca se marco la salida, no
   // agrega nada.
   if (o.phase === 'prb' && sigId === 'jefe' && o.rutaSalidaTs) {
-    o.rutaMinutos = (o.rutaMinutos || 0) + businessMinutes(o.rutaSalidaTs, Date.now());
+    // Reloj real, no horas habiles — el Jefe prueba vehiculos a cualquier
+    // hora (ver rawMinutes arriba).
+    o.rutaMinutos = (o.rutaMinutos || 0) + rawMinutes(o.rutaSalidaTs, Date.now());
   }
   // Auto-advance when all required sigs for this phase are complete
   var phaseSigsAuto = SIGS[o.phase] || [];
@@ -4278,6 +4280,12 @@ function buildRepContent() {
   for (var i = 0; i < sorted.length; i++) {
     var o = sorted[i];
     var pc = PHASE_COLORS[o.phase] || {bg:'#333',color:'#fff',label:o.phase};
+    // Mientras el vehiculo esta fisicamente en ruta (mismo criterio que el
+    // badge "EN RUTA" de la ficha/tarjeta: salida marcada y el Jefe todavia
+    // no firma "Prueba de ruta"), el Reporte General muestra "Vehiculo en
+    // ruta" en vez de la etiqueta generica de la fase — sin mutar
+    // PHASE_COLORS (compartido con el resto de la app).
+    var pcLabel = (o.phase === 'prb' && o.rutaSalidaTs && !(o.sigs && o.sigs.jefe)) ? 'Vehiculo en ruta' : pc.label;
     var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
     // Split client name into nombre/apellido
     var clientParts = (o.client || '').trim().split(' ');
@@ -4353,7 +4361,7 @@ function buildRepContent() {
       '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(o.ot||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap">' + fecha + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' +
-        '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">' + pc.label + '</span>' +
+        '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">' + pcLabel + '</span>' +
       '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.client||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.model||'—') + '</td>' +
@@ -4810,8 +4818,16 @@ function buildAvisoLavContent() {
     row.addEventListener('click', function(e) {
       if (e.target && e.target.classList && e.target.classList.contains('chk-avisolav')) return;
       var oid = parseInt(this.getAttribute('data-oid'));
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid) { ox = orders[i]; break; } }
+      if (!ox) return;
+      // Abre el reporte de solo lectura (mismo que Historial -> Ver detalle
+      // / Imprimir reporte), no la ficha en vivo — asi Mario ve de un vistazo
+      // todo lo solicitado a lo largo del proceso (repuestos, quien los pidio,
+      // insumos de bodega, y los montos) en vez de tener que ir seccion por
+      // seccion en la ficha.
       closeAvisoLav();
-      openDrw(oid);
+      openHistDetail(ox);
     });
   });
   document.querySelectorAll('.chk-avisolav').forEach(function(cb) {
@@ -5502,6 +5518,22 @@ function businessHours(fromTs, toTs) {
   return hrs.toFixed(1) + ' h';
 }
 
+// A diferencia de businessMinutes()/businessHours(), el tiempo EN RUTA (ver
+// o.rutaSalidaTs/o.rutaMinutos) NO debe pausarse en almuerzo/refaccion ni
+// fuera de horario habil — el Jefe sale a probar vehiculos a cualquier
+// hora, incluso fuera de hora habil, asi que este tiempo corre de corrido
+// (reloj real), sin ninguna ventana de descuento.
+function rawMinutes(fromTs, toTs) {
+  if (!fromTs || !toTs || toTs <= fromTs) return 0;
+  return Math.round((toTs - fromTs) / 60000);
+}
+function rawHours(fromTs, toTs) {
+  var total = rawMinutes(fromTs, toTs);
+  var hrs = total / 60;
+  if (hrs < 1) return Math.round(total) + ' min';
+  return hrs.toFixed(1) + ' h';
+}
+
 // Ventanas habiles del dia, en minutos desde medianoche (para poder cortar
 // en un punto que no cae en hora exacta, ej. 10:15). Lun-Vie: 8:00-10:00,
 // 10:15-12:00, 13:00-17:00 (corte de 15 min de refaccion a las 10, mas el
@@ -6153,7 +6185,7 @@ function buildSigsContent() {
 function openHistDetail(o) {
   // Header
   var titleEl = document.getElementById('hist-detail-title');
-  var printBtnHtml = (role === 'jefe' || role === 'asesor')
+  var printBtnHtml = (role === 'jefe' || role === 'asesor' || role === 'partes')
     ? '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>'
     : '';
   if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
@@ -6215,7 +6247,7 @@ function openHistDetail(o) {
     '<div class="irow"><span class="ik">&#128202; % Productividad</span><span style="color:' + pctProdHistColor + ';font-weight:700">' + (pctProdHistDetail !== null ? pctProdHistDetail + '%' : '—') + '</span></div>' +
     '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
-    ((role === 'jefe' || role === 'asesor') ?
+    ((role === 'jefe' || role === 'asesor' || role === 'partes') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
       '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
       '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>'
@@ -6353,12 +6385,17 @@ function openHistDetail(o) {
         estadoLabel7 = '&#10003; Presupuesto completado';
         estadoColor7 = 'var(--gn)';
       }
+      // Quien lo pidio — distingue un repuesto que grabo el Asesor/Jefe al
+      // autorizar de uno que solicito el Tecnico (que ademas necesita, y
+      // muestra, el Vo.Bo. del Jefe antes de poder abastecerse).
+      var pedidoPorLabel7 = rp7.by ? ('Pedido por ' + esc(rp7.by)) : '';
+      if (rp7.addedByTec) { pedidoPorLabel7 += (rp7.vobo ? ' &middot; con Vo.Bo. del Jefe' : ' &middot; pendiente Vo.Bo. del Jefe'); }
       html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px' + (isDone7 ? ';opacity:.75' : '') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
           '<div style="font-size:12px;font-weight:500' + (isDone7 ? ';text-decoration:line-through' : '') + '">' + rp7.desc + '</div>' +
           '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:' + estadoColor7 + ';border:1px solid var(--bd);white-space:nowrap">' + estadoLabel7 + '</span>' +
         '</div>' +
-        '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + origenLabel7 + (rp7.ts ? ' &middot; ' + msgTs(rp7.ts) : '') + '</div>' +
+        '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + origenLabel7 + (rp7.ts ? ' &middot; ' + msgTs(rp7.ts) : '') + (pedidoPorLabel7 ? ' &middot; ' + pedidoPorLabel7 : '') + '</div>' +
       '</div>';
     }
     html += '</div>';
