@@ -418,6 +418,7 @@ button{cursor:pointer}
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Despacho, Repuestos y Subcontratos</button>
+    <button class="btn-map" id="btn-avisolav" onclick="openAvisoLav()" style="display:none;border-color:var(--gnbd);color:var(--gn)">&#129534; Preparar Facturacion<span id="avisolav-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-export" onclick="openExportPicker()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
 
     <input class="srch" id="srch" placeholder="Buscar placa, vehiculo, No. OT o tecnico..." oninput="renderBoard()">
@@ -534,6 +535,14 @@ button{cursor:pointer}
   <div class="rep-modal">
     <div class="modal-t"><span style="display:flex;align-items:center;gap:10px">📦 Despacho, Repuestos y Subcontratos</span><button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeRepParts()">✕</button></div>
     <div id="repparts-body"></div>
+  </div>
+</div>
+
+<!-- AVISO PARTES: preparar facturacion cuando el vehiculo entra a Lavado -->
+<div class="mwrap" id="m-avisolav" style="align-items:flex-end">
+  <div class="rep-modal">
+    <div class="modal-t"><span style="display:flex;align-items:center;gap:10px">🧾 Preparar Facturacion</span><button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeAvisoLav()">✕</button></div>
+    <div id="avisolav-body"></div>
   </div>
 </div>
 
@@ -1182,6 +1191,10 @@ function doLogin(rk) {
   document.getElementById('btn-new').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-repparts').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || rk === 'mensajero') ? 'inline-flex' : 'none';
+  // "Preparar Facturacion": aviso permanente para Mario (Partes) — el Jefe
+  // tambien lo ve para respaldo/supervision, igual que con otros avisos de
+  // este tipo en la app.
+  document.getElementById('btn-avisolav').style.display = (rk === 'jefe' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
   // Mapa: el Jefe lo usa para asignar espacios (funcional); los tecnicos solo
   // lo ven para saber donde esta cada vehiculo (openMap() lo deja de solo
@@ -1567,19 +1580,29 @@ function openDrw(id) {
   // 4 opciones SOLO para el jefe; el tecnico no hereda ese desbloqueo — para
   // el tecnico, las opciones se reducen a Lavado/Listo p/entrega, y solo se
   // desbloquean con SU PROPIA firma de "Inspeccion final".
-  var prbGateOverride = null; // null = se usa allOk normal (resto de fases, sin cambios)
+  var gateOverride = null; // null = se usa allOk normal (resto de fases, sin cambios)
   if (o.phase === 'prb') {
     if (r.tec) {
       nexts = ['lav', 'lst'];
-      prbGateOverride = !!o.sigs['tecnico'];
+      gateOverride = !!o.sigs['tecnico'];
     } else if (role === 'jefe') {
-      prbGateOverride = !!o.sigs['jefe'];
+      gateOverride = !!o.sigs['jefe'];
     } else {
       // Asesor, Partes, etc. NO tienen potestad de mover la orden desde
       // Prueba/Insp.Final aunque el Jefe ya haya firmado — mover de aqui es
       // exclusivo del Jefe (o del tecnico, por su propio camino arriba).
-      prbGateOverride = false;
+      gateOverride = false;
     }
+  }
+  // Caso especial: fase DETENIDO. El camino normal (NEXT['det']=['aa'],
+  // gateado por la firma "Jefe confirma reactivacion") sigue igual para
+  // todos los demas roles. Pero el/los tecnico(s) ASIGNADOS a esta orden
+  // ahora pueden reanudarla ellos mismos, directo a Trabajando, sin
+  // necesitar esa firma del Jefe — un tecnico no asignado a esta orden NO
+  // obtiene este atajo (sigue viendo el flujo normal, bloqueado).
+  if (o.phase === 'det' && r.tec && (o.tech === r.tn || o.tech2 === r.tn)) {
+    nexts = ['ab'];
+    gateOverride = true;
   }
 
   /* header */
@@ -1903,7 +1926,7 @@ function openDrw(id) {
 
   /* phase btns */
   if (nexts.length) {
-    var effectiveOk = (prbGateOverride !== null) ? prbGateOverride : allOk;
+    var effectiveOk = (gateOverride !== null) ? gateOverride : allOk;
     var phBtns = '';
     for (var i = 0; i < nexts.length; i++) {
       var n = nexts[i];
@@ -3543,6 +3566,16 @@ function advance(id, newPhase) {
   } else {
     o.pendingConfirm = null;
   }
+  // Aviso permanente para Partes: la primera vez que el vehiculo entra a
+  // Lavado, Mario tiene que dejar la orden lista para que Ricardo pueda
+  // cobrarle al cliente. Solo se marca la PRIMERA vez (si ya estaba
+  // resuelto y el vehiculo vuelve a pasar por Lavado — ej. "Vo.Bo. lavado,
+  // regresar a Lavado" para repasar el lavado — no se reabre el aviso).
+  // No se limpia al avanzar a Listo p/entrega ni al cerrar la orden — solo
+  // desaparece cuando Partes lo marca listo (ver getAvisoLavRows).
+  if (newPhase === 'lav' && !o.lavAvisoPartesTs) {
+    o.lavAvisoPartesTs = Date.now();
+  }
   addNotif(o.plate + ' avanzo a: ' + newLbl, id);
   save(); toast('Orden avanzada'); closeDrw();
   // Recordatorio: se cerro con fecha retroactiva pero todavia no esta
@@ -3700,6 +3733,7 @@ function addNotif(txt, oid) {
 }
 function updateNDot() {
   if (role) updateSigDot();
+  if (role) updateAvisoLavBadge();
   var unread = 0;
   for (var i = 0; i < notifs.length; i++) { if (!notifs[i].read) unread++; }
   var dot = document.getElementById('nb-dot');
@@ -4703,6 +4737,99 @@ function downloadBodegaCsv() {
     csv += [_csvCell(o.ot||''), _csvCell(o.client||''), _csvCell(o.model||''), _csvCell(it.cantidad||''), _csvCell(it.desc||''), _csvCell(it.especificacion||''), _csvCell(it.by||''), _csvCell(it.despachado ? 'Despachado' : 'Pendiente')].join(CSV_DELIM) + '\n';
   }
   _downloadCSV(csv, 'tallerflow_despacho_bodega_' + _todayKey() + '.csv');
+}
+
+/* AVISO PARTES — "Preparar Facturacion": lista permanente para Mario de
+   ordenes que ya entraron a Lavado y todavia no ha dejado listas para que
+   Ricardo pueda cobrarle al cliente. No se filtra por fase (a diferencia
+   de getBodegaRows/getPendingRepRows) — se queda ahi sin importar si la
+   orden ya avanzo a Listo p/entrega, Entregado o incluso Cerrada; el UNICO
+   modo de que un item salga de esta lista es que Partes (o el Jefe) lo
+   marque listo (ver checkbox .chk-avisolav abajo). */
+function getAvisoLavRows() {
+  var rows = [];
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.lavAvisoPartesTs && !o.lavAvisoPartesListo) rows.push(o);
+  }
+  return rows;
+}
+
+function updateAvisoLavBadge() {
+  var badge = document.getElementById('avisolav-count');
+  if (!badge) return;
+  var pending = getAvisoLavRows().length;
+  if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; }
+  else { badge.style.display = 'none'; }
+}
+
+function openAvisoLav() {
+  buildAvisoLavContent();
+  document.getElementById('m-avisolav').classList.add('on');
+}
+function closeAvisoLav() { document.getElementById('m-avisolav').classList.remove('on'); }
+
+function buildAvisoLavContent() {
+  var rows = getAvisoLavRows().slice().sort(function(a,b){ return (a.lavAvisoPartesTs||0) - (b.lavAvisoPartesTs||0); });
+  var canManageAviso = role === 'jefe' || role === 'partes';
+  var fmtQAviso = function(n) { return 'Q.' + (n||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + rows.length + '</div><div class="kpi-l">Por preparar</div></div>' +
+  '</div>';
+
+  if (!rows.length) {
+    html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay ordenes pendientes de preparar</div>';
+  } else {
+    html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:520px">' +
+      '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
+        (canManageAviso ? '<th style="padding:7px 8px;text-align:center;border-bottom:2px solid #FFD700;white-space:nowrap">&#10003;</th>' : '') +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">OR #</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cliente</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Vehiculo</th>' +
+        '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Total general</th>' +
+      '</tr></thead><tbody>';
+    for (var k = 0; k < rows.length; k++) {
+      var o = rows[k];
+      var rowBg = k % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
+      var chkCell = canManageAviso
+        ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav"><input type="checkbox" class="chk-avisolav" data-oid="' + o.id + '" style="width:16px;height:16px;cursor:pointer"></td>'
+        : '';
+      html += '<tr style="background:' + rowBg + ';cursor:pointer" class="avisolav-row" data-oid="' + o.id + '">' +
+        chkCell +
+        '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(o.ot||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.client||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.model||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:600;color:var(--gn)">' + fmtQAviso(o.montoTotal) + '</td>' +
+      '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+
+  document.getElementById('avisolav-body').innerHTML = html;
+  document.querySelectorAll('.avisolav-row').forEach(function(row) {
+    row.addEventListener('click', function(e) {
+      if (e.target && e.target.classList && e.target.classList.contains('chk-avisolav')) return;
+      var oid = parseInt(this.getAttribute('data-oid'));
+      closeAvisoLav();
+      openDrw(oid);
+    });
+  });
+  document.querySelectorAll('.chk-avisolav').forEach(function(cb) {
+    cb.addEventListener('click', function(e) { e.stopPropagation(); });
+    cb.addEventListener('change', function() {
+      if (role !== 'jefe' && role !== 'partes') { toast('Solo el asesor de partes o el Jefe pueden marcar esto'); this.checked = false; return; }
+      var oid = parseInt(this.getAttribute('data-oid'));
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid) { ox = orders[i]; break; } }
+      if (!ox) return;
+      ox.lavAvisoPartesListo = true;
+      ox.lavAvisoPartesListoTs = Date.now();
+      var who = ROLES[role] ? ROLES[role].label : role;
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:who, txt:'&#10003; Orden preparada para facturacion (Partes)', ts:Date.now(), type:'system'});
+      save(); toast('Marcado como listo'); updateAvisoLavBadge(); buildAvisoLavContent();
+    });
+  });
 }
 
 /* UTILS */
