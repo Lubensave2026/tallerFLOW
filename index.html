@@ -1192,9 +1192,10 @@ function doLogin(rk) {
   document.getElementById('btn-rpt').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-repparts').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || rk === 'mensajero') ? 'inline-flex' : 'none';
   // "Preparar Facturacion": aviso permanente para Mario (Partes) — el Jefe
-  // tambien lo ve para respaldo/supervision, igual que con otros avisos de
-  // este tipo en la app.
-  document.getElementById('btn-avisolav').style.display = (rk === 'jefe' || rk === 'partes') ? 'inline-flex' : 'none';
+  // tambien lo ve para respaldo/supervision, y el Asesor de servicio
+  // tambien lo ve (puede consultar el detalle de cada orden, pero no marcar
+  // el check de "listo" — eso sigue siendo solo de Partes/Jefe).
+  document.getElementById('btn-avisolav').style.display = (rk === 'jefe' || rk === 'partes' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
   // Mapa: el Jefe lo usa para asignar espacios (funcional); los tecnicos solo
   // lo ven para saber donde esta cada vehiculo (openMap() lo deja de solo
@@ -4844,6 +4845,7 @@ function buildAvisoLavContent() {
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cliente</th>' +
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Vehiculo</th>' +
         '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Total general</th>' +
+        (role === 'jefe' ? '<th style="padding:7px 8px;border-bottom:2px solid #FFD700;white-space:nowrap"></th>' : '') +
       '</tr></thead><tbody>';
     for (var k = 0; k < rows.length; k++) {
       var o = rows[k];
@@ -4851,12 +4853,21 @@ function buildAvisoLavContent() {
       var chkCell = canManageAviso
         ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav"><input type="checkbox" class="chk-avisolav" data-oid="' + o.id + '" style="width:16px;height:16px;cursor:pointer"></td>'
         : '';
+      // Solo el Jefe puede quitar un caso de esta lista sin marcarlo listo —
+      // por ejemplo si, ya pasado por Lavado, el cliente autoriza algo mas y
+      // hay que agregarle trabajo a la orden: al eliminarlo aqui, si la
+      // orden vuelve a pasar por Lavado, el aviso se vuelve a generar desde
+      // cero (ver advance(), que solo lo marca si no existe todavia).
+      var delCell = role === 'jefe'
+        ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav"><button class="btn-avisolav-del" data-oid="' + o.id + '" title="Quitar de esta lista" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button></td>'
+        : '';
       html += '<tr style="background:' + rowBg + ';cursor:pointer" class="avisolav-row" data-oid="' + o.id + '">' +
         chkCell +
         '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(o.ot||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.client||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.model||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:600;color:var(--gn)">' + fmtQAviso(o.montoTotal) + '</td>' +
+        delCell +
       '</tr>';
     }
     html += '</tbody></table></div>';
@@ -4865,18 +4876,16 @@ function buildAvisoLavContent() {
   document.getElementById('avisolav-body').innerHTML = html;
   document.querySelectorAll('.avisolav-row').forEach(function(row) {
     row.addEventListener('click', function(e) {
-      if (e.target && e.target.classList && e.target.classList.contains('chk-avisolav')) return;
+      if (e.target && e.target.classList && (e.target.classList.contains('chk-avisolav') || e.target.classList.contains('btn-avisolav-del'))) return;
       var oid = parseInt(this.getAttribute('data-oid'));
       var ox = null;
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid) { ox = orders[i]; break; } }
       if (!ox) return;
-      // Abre el reporte de solo lectura (mismo que Historial -> Ver detalle
-      // / Imprimir reporte), no la ficha en vivo — asi Mario ve de un vistazo
-      // todo lo solicitado a lo largo del proceso (repuestos, quien los pidio,
-      // insumos de bodega, y los montos) en vez de tener que ir seccion por
-      // seccion en la ficha.
+      // Resumen enfocado (no la ficha en vivo, ni el reporte completo de
+      // Historial con fechas/bitacora/productividad/avisos) — solo el
+      // encabezado y lo que se pidio a lo largo del proceso.
       closeAvisoLav();
-      openHistDetail(ox);
+      openAvisoLavResumen(ox);
     });
   });
   document.querySelectorAll('.chk-avisolav').forEach(function(cb) {
@@ -4895,6 +4904,99 @@ function buildAvisoLavContent() {
       save(); toast('Marcado como listo'); updateAvisoLavBadge(); buildAvisoLavContent();
     });
   });
+  document.querySelectorAll('.btn-avisolav-del').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede quitar un caso de esta lista'); return; }
+      var oid = parseInt(this.getAttribute('data-oid'));
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid) { ox = orders[i]; break; } }
+      if (!ox) return;
+      if (!confirm('¿Quitar la orden ' + (ox.ot||ox.plate) + ' de "Preparar Facturacion"? Si el cliente autoriza algo mas y la orden vuelve a pasar por Lavado, el aviso se generara de nuevo.')) return;
+      delete ox.lavAvisoPartesTs;
+      delete ox.lavAvisoPartesListo;
+      delete ox.lavAvisoPartesListoTs;
+      var who = ROLES[role] ? ROLES[role].label : role;
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:who, txt:'&#x2715; Orden quitada de "Preparar Facturacion" (Jefe)', ts:Date.now(), type:'system'});
+      save(); toast('Orden quitada de la lista'); updateAvisoLavBadge(); buildAvisoLavContent();
+    });
+  });
+}
+
+// "Preparar Facturacion" -> click en una linea: resumen ENFOCADO (no la
+// ficha en vivo, ni el reporte completo de Historial con fechas / bitacora
+// de tiempos / % productividad / avisos) — solo el encabezado
+// (OT/Cliente/Vehiculo) y lo que se pidio a lo largo del proceso: repuestos,
+// mano de obra, y despachos de bodega. Reutiliza el modal/campos de
+// Historial (m-hist-detail) para heredar gratis el soporte de impresion,
+// pero construye su propio HTML — no llama a openHistDetail().
+function openAvisoLavResumen(o) {
+  var canPrint = (role === 'jefe' || role === 'asesor' || role === 'partes');
+  var printBtnHtml = canPrint
+    ? '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>'
+    : '';
+  var titleEl = document.getElementById('hist-detail-title');
+  if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
+    '<span style="margin-left:auto;display:flex;gap:6px">' + printBtnHtml +
+    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeHistDetail()">&#x2715;</button></span>';
+
+  var html = '<div class="sec"><div class="sec-l">Informacion</div>' +
+    '<div class="irow"><span class="ik">No. OT</span><span style="font-family:var(--mo)">' + esc(o.ot||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+  '</div>';
+
+  if (o.repuestos && o.repuestos.length) {
+    html += '<div class="sec"><div class="sec-l">Repuestos solicitados</div>' +
+      '<div style="font-size:11px;font-weight:700;color:var(--tx);margin-bottom:6px">' + o.repuestos.length + ' repuesto(s)/subcontrato(s)</div>';
+    for (var ri = 0; ri < o.repuestos.length; ri++) {
+      var rp = o.repuestos[ri];
+      var isDone = !!rp.ck3;
+      var origenLabel = (rp.origen === 'importacion') ? '&#9992; Importacion' : 'Local';
+      var estadoLabel = isDone ? '&#10003; Instalado' : (rp.ck2 ? 'Confirmado por Partes' : (rp.ck1 ? 'Confirmado por Mensajero' : 'Pendiente'));
+      var estadoColor = isDone ? 'var(--gn)' : 'var(--or)';
+      var pedidoPorLabel = rp.by ? ('Pedido por ' + esc(rp.by)) : '';
+      if (rp.addedByTec) { pedidoPorLabel += (rp.vobo ? ' &middot; con Vo.Bo. del Jefe' : ' &middot; pendiente Vo.Bo. del Jefe'); }
+      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px' + (isDone ? ';opacity:.75' : '') + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rp.desc + '</div>' +
+          '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:' + estadoColor + ';border:1px solid var(--bd);white-space:nowrap">' + estadoLabel + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + origenLabel + (rp.ts ? ' &middot; ' + msgTs(rp.ts) : '') + (pedidoPorLabel ? ' &middot; ' + pedidoPorLabel : '') + '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+
+  if (o.bodega && o.bodega.length) {
+    html += '<div class="sec"><div class="sec-l">Solicitudes de bodega</div>' +
+      '<div style="font-size:11px;font-weight:700;color:var(--tx);margin-bottom:6px">' + o.bodega.length + ' solicitud(es)</div>';
+    for (var bi = 0; bi < o.bodega.length; bi++) {
+      var bit = o.bodega[bi];
+      var bitDesc = esc(bit.cantidad || '') + ' ' + esc(bit.desc || '') + (bit.especificacion ? ' — ' + esc(bit.especificacion) : '');
+      var isDoneB = !!bit.despachado;
+      var estadoLabelB = isDoneB ? '&#10003; Despachado' : (bit.vobo ? 'Vo.Bo. dado — esperando despacho' : 'Pendiente Vo.Bo. Jefe');
+      var estadoColorB = isDoneB ? 'var(--gn)' : 'var(--or)';
+      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px' + (isDoneB ? ';opacity:.75' : '') + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:12px;font-weight:500' + (isDoneB ? ';text-decoration:line-through' : '') + '">' + bitDesc + '</div>' +
+          '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:' + estadoColorB + ';border:1px solid var(--bd);white-space:nowrap">' + estadoLabelB + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + esc(bit.by||'') + (bit.ts ? ' &middot; ' + msgTs(bit.ts) : '') + '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+
+  if ((!o.repuestos || !o.repuestos.length) && (!o.bodega || !o.bodega.length) && !o.montoMO) {
+    html += '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:12px">Sin repuestos, mano de obra ni solicitudes de bodega registradas todavia.</div>';
+  }
+
+  var bodyEl = document.getElementById('hist-detail-body');
+  if (bodyEl) bodyEl.innerHTML = html;
+  document.getElementById('m-hist-detail').classList.add('on');
 }
 
 /* UTILS */
