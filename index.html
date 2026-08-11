@@ -314,21 +314,23 @@ button{cursor:pointer}
    alcanza para que todo el reporte se imprima en claro sin tener que tocar
    cada seccion una por una. */
 @media print {
-  #ap, .np, .ov, .drw, .mwrap:not(#m-hist-detail) { display:none !important; }
+  #ap, .np, .ov, .drw, .mwrap:not(#m-hist-detail):not(#m-repparts) { display:none !important; }
   /* .mwrap es position:fixed;inset:0 — eso recorta la impresion al tamano
      de una sola pantalla. Para que el contenido fluya y pagine normal, hay
      que sacarlo de fixed/flex durante la impresion. */
-  #m-hist-detail {
+  #m-hist-detail, #m-repparts {
     position:static !important; display:block !important; inset:auto !important;
     background:#fff !important; backdrop-filter:none !important;
   }
-  #m-hist-detail .rep-modal {
+  #m-hist-detail .rep-modal, #m-repparts .rep-modal {
     box-shadow:none; max-width:100%; width:100%; border-radius:0; border:none;
     max-height:none !important; overflow:visible !important; position:static;
   }
   #m-hist-detail #hist-detail-body { max-height:none !important; overflow:visible !important }
   #m-hist-detail .chat-box { max-height:none !important; overflow:visible !important }
   #hist-detail-title button { display:none }
+  #m-repparts .modal-t button { display:none }
+  .no-print { display:none !important; }
   :root {
     --bg:#fff; --bg2:#fff; --bg3:#f2f2f2; --bg4:#e8e8e8;
     --tx:#111; --tx2:#333; --tx3:#666;
@@ -415,7 +417,7 @@ button{cursor:pointer}
     <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS</button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
-    <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Reporte Repuestos</button>
+    <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Despacho, Repuestos y Subcontratos</button>
     <button class="btn-map" id="btn-export" onclick="openExportPicker()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
 
     <input class="srch" id="srch" placeholder="Buscar placa, vehiculo, No. OT o tecnico..." oninput="renderBoard()">
@@ -530,7 +532,7 @@ button{cursor:pointer}
 <!-- REPORTE DE REPUESTOS PENDIENTES -->
 <div class="mwrap" id="m-repparts" style="align-items:flex-end">
   <div class="rep-modal">
-    <div class="modal-t"><span style="display:flex;align-items:center;gap:10px">📦 Repuestos pendientes</span><button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeRepParts()">✕</button></div>
+    <div class="modal-t"><span style="display:flex;align-items:center;gap:10px">📦 Despacho, Repuestos y Subcontratos</span><button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeRepParts()">✕</button></div>
     <div id="repparts-body"></div>
   </div>
 </div>
@@ -2150,6 +2152,60 @@ function openDrw(id) {
     repuestosHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">' + noAddMsg + '</div>';
   }
 
+  /* despacho bodega — el tecnico pide insumos/materiales de bodega
+     (aceites, refrigerante, lija, wipe, etc.) mientras esta Trabajando; el
+     Jefe da Vo.Bo.; una vez con Vo.Bo. el pedido se "carga" a la lista
+     agregada que ve Partes/Asesor/Mensajero en el boton "Despacho,
+     Repuestos y Subcontratos" (ver getBodegaRows/buildRepPartsContent).
+     La seccion en si solo se muestra al tecnico asignado (mientras
+     Trabajando) y al Jefe (para dar Vo.Bo. en cualquier fase) — a
+     diferencia de repuestos/03, no es visible para los demas roles aqui;
+     ellos la ven en la lista agregada una vez autorizada. */
+  var showBodegaSection = (r.tec && o.phase === 'ab') || role === 'jefe';
+  var bodegaHtml = '';
+  if (showBodegaSection) {
+    var canAddBodega = r.tec && o.phase === 'ab';
+    var bodegaList = o.bodega || [];
+    bodegaHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+      '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Solicitudes de bodega</span>' +
+      '<span style="font-size:11px;font-weight:700;color:var(--tx)">' + bodegaList.filter(function(b){return !b.despachado;}).length + ' pendiente(s)</span>' +
+    '</div>';
+    if (bodegaList.length === 0) {
+      bodegaHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Sin solicitudes registradas</div>';
+    }
+    for (var bi = 0; bi < bodegaList.length; bi++) {
+      var bit = bodegaList[bi];
+      var bitDesc = esc(bit.cantidad || '') + ' ' + esc(bit.desc || '') + (bit.especificacion ? ' — ' + esc(bit.especificacion) : '');
+      var bitDone = bit.despachado;
+      var bitStatus = bitDone
+        ? '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Despachado</span>'
+        : (bit.vobo
+          ? '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--acbd,var(--bd));background:var(--bg4);color:var(--ac);font-weight:600">&#128230; Vo.Bo. dado — esperando despacho</span>'
+          : (role === 'jefe'
+            ? '<button class="btn-bod-vobo" data-bi="' + bi + '" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo.</button>'
+            : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Pendiente Vo.Bo. Jefe</span>'));
+      bodegaHtml += '<div style="background:var(--bg3);border:1px solid ' + (bitDone ? 'var(--gnbd)' : 'var(--bd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (bitDone ? 'opacity:.6' : '') + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
+          '<div style="font-size:12px;font-weight:500' + (bitDone ? ';text-decoration:line-through' : '') + '">' + bitDesc + '</div>' +
+          (role === 'jefe' ? '<button class="btn-bod-del" data-bi="' + bi + '" title="Eliminar solicitud" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1;flex-shrink:0">&#x2715;</button>' : '') +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' + bitStatus +
+          '<span style="font-size:9px;color:var(--tx3)">' + esc(bit.by||'') + ' &middot; ' + msgTs(bit.ts) + '</span>' +
+        '</div>' +
+      '</div>';
+    }
+    if (canAddBodega) {
+      bodegaHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
+        '<input id="bod-cant" class="cin" placeholder="Cantidad (ej. 5 litros, 2, 1 pliego)..." style="flex:0 0 160px">' +
+        '<input id="bod-desc" class="cin" placeholder="Descripcion (ej. aceite, refrigerante, lija)..." style="flex:1;min-width:140px">' +
+        '<input id="bod-esp" class="cin" placeholder="Especificacion (ej. 5w30, rosado, 40)..." style="flex:1;min-width:140px">' +
+        '<button id="btn-add-bod" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Solicitar</button>' +
+      '</div>';
+    } else if (role === 'jefe') {
+      bodegaHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">&#128274; Solo el tecnico asignado puede solicitar insumos, mientras la orden esta en Trabajando.</div>';
+    }
+  }
+
   /* trabajos realizados (registro de operaciones + tiempo flat rate) */
   var trabajosHtml = '';
   var ordTecs = [];
@@ -2303,7 +2359,8 @@ function openDrw(id) {
     secBox(null, 'Mensajes internos', msgsBoxInner, null) +
     secBox('03', 'Solicitud de repuestos y subcontratos', repuestosHtml, 'reps') +
     secBox('04', 'Bitacora', phaseLogHtml, 'bitacora') +
-    secBox('05', 'Trabajos realizados', trabajosHtml, 'trabajos');
+    secBox('05', 'Trabajos realizados', trabajosHtml, 'trabajos') +
+    (showBodegaSection ? secBox('06', 'Despacho bodega', bodegaHtml, 'bodega') : '');
 
   /* seccion collapse/expand */
   var secBoxes = body.querySelectorAll('.sec-box[data-sec-key]');
@@ -2430,6 +2487,71 @@ function openDrw(id) {
     });
     var repInp = document.getElementById('rep-inp');
     if (repInp) repInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addRepBtn.click(); });
+  }
+
+  /* despacho bodega events */
+  var bodVoboBtns = body.querySelectorAll('.btn-bod-vobo');
+  for (var bvi = 0; bvi < bodVoboBtns.length; bvi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede dar el Vo.Bo.'); return; }
+        var bi2 = parseInt(this.getAttribute('data-bi'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.bodega || !ox.bodega[bi2]) return;
+        ox.bodega[bi2].vobo = true;
+        ox.bodega[bi2].voboTs = Date.now();
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        var bDesc = (ox.bodega[bi2].cantidad || '') + ' ' + (ox.bodega[bi2].desc || '') + (ox.bodega[bi2].especificacion ? ' — ' + ox.bodega[bi2].especificacion : '');
+        ox.msgs.push({who:who, txt:'&#10003; Vo.Bo. Jefe — despacho bodega: "' + esc(bDesc) + '"', ts:Date.now(), type:'system'});
+        addNotif('Solicitud de bodega autorizada en ' + ox.plate + ': ' + bDesc, id);
+        save(); toast('Vo.Bo. otorgado'); openDrw(id);
+      });
+    })(bodVoboBtns[bvi]);
+  }
+  var bodDelBtns = body.querySelectorAll('.btn-bod-del');
+  for (var bdi = 0; bdi < bodDelBtns.length; bdi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar solicitudes de bodega'); return; }
+        var bi3 = parseInt(this.getAttribute('data-bi'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.bodega || !ox.bodega[bi3]) return;
+        var bDescDel = (ox.bodega[bi3].cantidad || '') + ' ' + (ox.bodega[bi3].desc || '') + (ox.bodega[bi3].especificacion ? ' — ' + ox.bodega[bi3].especificacion : '');
+        if (!confirm('¿Eliminar la solicitud "' + bDescDel + '"? Esta accion no se puede deshacer.')) return;
+        ox.bodega.splice(bi3, 1);
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'&#x2715; Solicitud de bodega eliminada: "' + esc(bDescDel) + '"', ts:Date.now(), type:'system'});
+        save(); toast('Solicitud eliminada'); openDrw(id);
+      });
+    })(bodDelBtns[bdi]);
+  }
+  var addBodBtn = document.getElementById('btn-add-bod');
+  if (addBodBtn) {
+    addBodBtn.addEventListener('click', function() {
+      var cantInp = document.getElementById('bod-cant');
+      var descInp = document.getElementById('bod-desc');
+      var espInp = document.getElementById('bod-esp');
+      var cant = cantInp ? cantInp.value.trim() : '';
+      var descB = descInp ? descInp.value.trim() : '';
+      var esp = espInp ? espInp.value.trim() : '';
+      if (!descB) { toast('Escribe la descripcion del insumo'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      ox.bodega = ox.bodega || [];
+      ox.bodega.push({cantidad:esc(cant), desc:esc(descB), especificacion:esc(esp), by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), vobo:false, despachado:false});
+      ox.msgs = ox.msgs || [];
+      var bDescNew = (cant ? cant + ' ' : '') + descB + (esp ? ' — ' + esp : '');
+      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Solicitud a bodega: ' + esc(bDescNew) + ' — requiere Vo.Bo. del Jefe', ts:Date.now(), type:'system'});
+      addNotif('Solicitud de bodega en ' + ox.plate + ': ' + bDescNew + ' (requiere Vo.Bo. del Jefe)', id);
+      save(); toast('Solicitud enviada'); openDrw(id);
+    });
+    var bodDescInp = document.getElementById('bod-desc');
+    if (bodDescInp) bodDescInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addBodBtn.click(); });
   }
 
   /* trabajos realizados events */
@@ -4285,35 +4407,71 @@ function getPendingRepRows() {
   return rows;
 }
 
+// Junta los pedidos de bodega ya autorizados (Vo.Bo. del Jefe) de todas las
+// ordenes activas. Antes del Vo.Bo. el pedido solo es visible en la seccion
+// 06 de la propia orden (ver openDrw/showBodegaSection) — recien con Vo.Bo.
+// se "carga" a esta lista agregada. A diferencia de getPendingRepRows(),
+// NO se filtra por despachado: los items ya despachados se quedan
+// visibles (tachados) — Partes los "depura" con una casilla, nunca se
+// eliminan de aqui (ver btn-bod-del en openDrw, que si borra, pero esa es
+// una accion aparte solo del Jefe, desde la propia orden).
+function getBodegaRows() {
+  var rows = [];
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.phase === 'cer') continue;
+    var items = o.bodega || [];
+    for (var j = 0; j < items.length; j++) {
+      var it = items[j];
+      if (!it.vobo) continue;
+      rows.push({o:o, item:it, idx:j});
+    }
+  }
+  return rows;
+}
+
 function buildRepPartsContent() {
   var allRows = getPendingRepRows();
+  var bodegaRows = getBodegaRows();
   var html = '';
 
   if (_repPartsFilter === null) {
-    // Menu selector — elegir Local o Importacion
+    // Menu selector — elegir Local, Importacion o Despacho Bodega
     var nLocal = allRows.filter(function(r){ return r.origen === 'local'; }).length;
     var nImp = allRows.filter(function(r){ return r.origen === 'importacion'; }).length;
+    var nBod = bodegaRows.filter(function(r){ return !r.item.despachado; }).length;
     html += '<div style="max-width:340px;margin:0 auto">' +
       '<div style="font-size:11px;color:var(--tx3);text-transform:uppercase;margin-bottom:12px;font-weight:600;text-align:center">Elige que reporte ver</div>' +
       '<div onclick="repPartsChoose(\'local\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
         '<span style="font-size:22px">&#127968;</span>' +
         '<div><div style="font-size:14px;font-weight:600">Repuestos Locales y Subcontratos</div><div style="font-size:11px;color:var(--tx3)">' + nLocal + ' pendiente(s)</div></div>' +
       '</div>' +
-      '<div onclick="repPartsChoose(\'importacion\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);cursor:pointer">' +
+      '<div onclick="repPartsChoose(\'importacion\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
         '<span style="font-size:22px">&#9992;</span>' +
         '<div><div style="font-size:14px;font-weight:600">Repuestos de Importacion</div><div style="font-size:11px;color:var(--tx3)">' + nImp + ' pendiente(s)</div></div>' +
+      '</div>' +
+      '<div onclick="repPartsChoose(\'bodega\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);cursor:pointer">' +
+        '<span style="font-size:22px">&#128167;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">Despacho Bodega</div><div style="font-size:11px;color:var(--tx3)">' + nBod + ' pendiente(s)</div></div>' +
       '</div>' +
     '</div>';
     document.getElementById('repparts-body').innerHTML = html;
     return;
   }
 
+  if (_repPartsFilter === 'bodega') { buildBodegaPartsTable(bodegaRows); return; }
+
   var rows = allRows.filter(function(r){ return r.origen === _repPartsFilter; });
   rows.sort(function(a,b){ return (a.rep.ts||0) - (b.rep.ts||0); }); // mas antiguo primero
 
   var esImp = _repPartsFilter === 'importacion';
-  html += '<div style="margin-bottom:10px">' +
+  var canManageRep = role === 'jefe' || role === 'partes';
+  html += '<div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
     '<button onclick="repPartsBack()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0">&#8592; Volver</button>' +
+    (canManageRep ? '<span class="no-print" style="display:flex;gap:8px">' +
+      '<button onclick="window.print()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button>' +
+      '<button onclick="downloadRepPartsCsv()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#8681; CSV</button>' +
+    '</span>' : '') +
   '</div>';
   html += '<div class="kpi-grid" style="margin-bottom:1rem">' +
     '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + rows.length + '</div><div class="kpi-l">' + (esImp ? 'Importacion pendientes' : 'Locales pendientes') + '</div></div>' +
@@ -4369,6 +4527,128 @@ function buildRepPartsContent() {
       openDrw(oid);
     });
   });
+}
+
+function downloadRepPartsCsv() {
+  var esImp = _repPartsFilter === 'importacion';
+  var rows = getPendingRepRows().filter(function(r){ return r.origen === _repPartsFilter; });
+  rows.sort(function(a,b){ return (a.rep.ts||0) - (b.rep.ts||0); });
+  var csv = ['OR#', 'Cliente', 'Vehiculo', 'Repuesto', 'Pedido por', 'Paso actual', (esImp?'Dias pendiente':'Tiempo pendiente')].join(CSV_DELIM) + '\n';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var tiempo = '—';
+    if (r.rep.ts) {
+      if (esImp) { var dias = Math.floor((Date.now() - r.rep.ts) / 86400000); tiempo = dias < 1 ? '< 1 dia' : dias + (dias===1?' dia':' dias'); }
+      else { tiempo = businessHours(r.rep.ts, Date.now()); }
+    }
+    csv += [_csvCell(r.o.ot||''), _csvCell(r.o.client||''), _csvCell(r.o.model||''), _csvCell(r.rep.desc||''), _csvCell(r.rep.by||''), _csvCell(r.paso||''), _csvCell(tiempo)].join(CSV_DELIM) + '\n';
+  }
+  _downloadCSV(csv, 'tallerflow_repuestos_' + _repPartsFilter + '_' + _todayKey() + '.csv');
+}
+
+// Tabla agregada de Despacho Bodega (3ra opcion del menu de "Despacho,
+// Repuestos y Subcontratos") — visible para jefe/asesor/partes/mensajero
+// (mismos roles que ya ven el boton, ver linea ~1154). Solo Partes o el
+// Jefe pueden marcar la casilla de despachado; el resto la ve de solo
+// lectura. Los items nunca se quitan de esta lista al marcarlos (a
+// diferencia de getPendingRepRows, que si excluye los ya instalados).
+function buildBodegaPartsTable(rows) {
+  rows = rows.slice().sort(function(a,b){ return (a.item.voboTs||0) - (b.item.voboTs||0); });
+  var pend = rows.filter(function(r){ return !r.item.despachado; }).length;
+  var canManageBod = role === 'jefe' || role === 'partes';
+  var html = '<div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
+    '<button onclick="repPartsBack()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0">&#8592; Volver</button>' +
+    (canManageBod ? '<span class="no-print" style="display:flex;gap:8px">' +
+      '<button onclick="window.print()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button>' +
+      '<button onclick="downloadBodegaCsv()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#8681; CSV</button>' +
+    '</span>' : '') +
+  '</div>';
+  html += '<div class="kpi-grid" style="margin-bottom:1rem">' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + pend + '</div><div class="kpi-l">Pendientes de despacho</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total autorizado</div></div>' +
+  '</div>';
+
+  if (!rows.length) {
+    html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay solicitudes de bodega autorizadas</div>';
+  } else {
+    html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:760px">' +
+      '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
+        (canManageBod ? '<th style="padding:7px 8px;text-align:center;border-bottom:2px solid #FFD700;white-space:nowrap" class="no-print">&#10003;</th>' : '') +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">OR #</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cliente</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Vehiculo</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cantidad</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700">Descripcion</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700">Especificacion</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Pedido por</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Estado</th>' +
+      '</tr></thead><tbody>';
+    for (var k = 0; k < rows.length; k++) {
+      var row = rows[k];
+      var it = row.item;
+      var rowBg = k % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
+      var strike = it.despachado ? ';text-decoration:line-through;color:var(--tx3)' : '';
+      var chkCell = canManageBod
+        ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav no-print"><input type="checkbox" class="chk-bod-desp" data-oid="' + row.o.id + '" data-idx="' + row.idx + '"' + (it.despachado ? ' checked' : '') + ' style="width:16px;height:16px;cursor:pointer"></td>'
+        : '';
+      html += '<tr style="background:' + rowBg + (it.despachado ? ';opacity:.6' : '') + ';cursor:pointer" class="bodparts-row" data-oid="' + row.o.id + '">' +
+        chkCell +
+        '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.ot||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.client||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.model||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.cantidad||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.desc||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.especificacion||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.by||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-weight:600;white-space:nowrap;color:' + (it.despachado ? 'var(--gn)' : 'var(--or)') + '">' + (it.despachado ? 'Despachado' : 'Pendiente') + '</td>' +
+      '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+
+  html += '<div style="text-align:center;font-size:11px;color:var(--tx3);padding-top:.5rem">' +
+    new Date().toLocaleDateString('es-GT',{weekday:'long',year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'}) +
+  '</div>';
+
+  document.getElementById('repparts-body').innerHTML = html;
+  document.querySelectorAll('.bodparts-row').forEach(function(row) {
+    row.addEventListener('click', function(e) {
+      if (e.target && e.target.classList && e.target.classList.contains('chk-bod-desp')) return;
+      var oid = parseInt(this.getAttribute('data-oid'));
+      closeRepParts();
+      openDrw(oid);
+    });
+  });
+  document.querySelectorAll('.chk-bod-desp').forEach(function(cb) {
+    cb.addEventListener('click', function(e) { e.stopPropagation(); });
+    cb.addEventListener('change', function() {
+      if (role !== 'jefe' && role !== 'partes') { toast('Solo el asesor de partes o el Jefe pueden marcar el despacho'); this.checked = !this.checked; return; }
+      var oid2 = parseInt(this.getAttribute('data-oid'));
+      var idx2 = parseInt(this.getAttribute('data-idx'));
+      var ox2 = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid2) { ox2 = orders[i]; break; } }
+      if (!ox2 || !ox2.bodega || !ox2.bodega[idx2]) return;
+      var newVal = this.checked;
+      ox2.bodega[idx2].despachado = newVal;
+      if (newVal) ox2.bodega[idx2].despachadoTs = Date.now(); else delete ox2.bodega[idx2].despachadoTs;
+      var who = ROLES[role] ? ROLES[role].label : role;
+      var it2 = ox2.bodega[idx2];
+      var bDesc2 = (it2.cantidad||'') + ' ' + (it2.desc||'') + (it2.especificacion ? ' — ' + it2.especificacion : '');
+      ox2.msgs = ox2.msgs || [];
+      ox2.msgs.push({who:who, txt:'Despacho bodega "' + esc(bDesc2) + '": ' + (newVal ? 'despachado' : 'desmarcado'), ts:Date.now(), type:'system'});
+      save(); toast(newVal ? 'Marcado como despachado' : 'Desmarcado'); buildRepPartsContent();
+    });
+  });
+}
+
+function downloadBodegaCsv() {
+  var rows = getBodegaRows().slice().sort(function(a,b){ return (a.item.voboTs||0) - (b.item.voboTs||0); });
+  var csv = ['OR#', 'Cliente', 'Vehiculo', 'Cantidad', 'Descripcion', 'Especificacion', 'Pedido por', 'Estado'].join(CSV_DELIM) + '\n';
+  for (var i = 0; i < rows.length; i++) {
+    var it = rows[i].item, o = rows[i].o;
+    csv += [_csvCell(o.ot||''), _csvCell(o.client||''), _csvCell(o.model||''), _csvCell(it.cantidad||''), _csvCell(it.desc||''), _csvCell(it.especificacion||''), _csvCell(it.by||''), _csvCell(it.despachado ? 'Despachado' : 'Pendiente')].join(CSV_DELIM) + '\n';
+  }
+  _downloadCSV(csv, 'tallerflow_despacho_bodega_' + _todayKey() + '.csv');
 }
 
 /* UTILS */
