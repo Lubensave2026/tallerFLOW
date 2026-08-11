@@ -2228,11 +2228,22 @@ function openDrw(id) {
       '</div>';
     }
     if (canAddBodega) {
-      bodegaHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
-        '<input id="bod-cant" class="cin" placeholder="Cantidad (ej. 5 litros, 2, 1 pliego)..." style="flex:0 0 160px">' +
-        '<input id="bod-desc" class="cin" placeholder="Descripcion (ej. aceite, refrigerante, lija)..." style="flex:1;min-width:140px">' +
-        '<input id="bod-esp" class="cin" placeholder="Especificacion (ej. 5w30, rosado, 40)..." style="flex:1;min-width:140px">' +
-        '<button id="btn-add-bod" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Solicitar</button>' +
+      var bodCantOptions = '';
+      for (var bci = 1; bci <= 10; bci++) { bodCantOptions += '<option value="' + bci + '"' + (bci === 1 ? ' selected' : '') + '>' + bci + '</option>'; }
+      var bodLbl = function(txt) { return '<label style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:3px">' + txt + '</label>'; };
+      bodegaHtml += '<div style="background:var(--bg4);border:1px solid var(--bd);border-radius:var(--rs);padding:10px;margin-top:6px">' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          '<div style="flex:0 0 80px">' + bodLbl('Cantidad') +
+            '<select id="bod-cant" class="cin" style="width:100%">' + bodCantOptions + '</select>' +
+          '</div>' +
+          '<div style="flex:1;min-width:140px">' + bodLbl('Descripcion') +
+            '<input id="bod-desc" class="cin" placeholder="ej. aceite, refrigerante, lija..." style="width:100%">' +
+          '</div>' +
+          '<div style="flex:1;min-width:140px">' + bodLbl('Especificacion') +
+            '<input id="bod-esp" class="cin" placeholder="ej. 5w30, rosado, 40..." style="width:100%">' +
+          '</div>' +
+        '</div>' +
+        '<button id="btn-add-bod" style="margin-top:8px;width:100%;padding:7px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Solicitar</button>' +
       '</div>';
     } else if (role === 'jefe') {
       bodegaHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">&#128274; Solo el tecnico asignado puede solicitar insumos, mientras la orden esta en Trabajando.</div>';
@@ -4586,7 +4597,13 @@ function downloadRepPartsCsv() {
 // lectura. Los items nunca se quitan de esta lista al marcarlos (a
 // diferencia de getPendingRepRows, que si excluye los ya instalados).
 function buildBodegaPartsTable(rows) {
-  rows = rows.slice().sort(function(a,b){ return (a.item.voboTs||0) - (b.item.voboTs||0); });
+  // Se agrupa por numero de orden (igual que el usuario ya pidio ver en
+  // REPUESTOS Y SUBCONTRATOS) — dentro de cada orden, el mas antiguo primero.
+  rows = rows.slice().sort(function(a,b){
+    var otA = parseInt(a.o.ot, 10), otB = parseInt(b.o.ot, 10);
+    if (isNaN(otA) || isNaN(otB) || otA !== otB) { return (a.o.ot||'').localeCompare(b.o.ot||'', undefined, {numeric:true}); }
+    return (a.item.voboTs||0) - (b.item.voboTs||0);
+  });
   var pend = rows.filter(function(r){ return !r.item.despachado; }).length;
   var canManageBod = role === 'jefe' || role === 'partes';
   var html = '<div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
@@ -4621,10 +4638,14 @@ function buildBodegaPartsTable(rows) {
       var it = row.item;
       var rowBg = k % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
       var strike = it.despachado ? ';text-decoration:line-through;color:var(--tx3)' : '';
+      // Separador visual entre grupos de distinta orden — hace que "separar
+      // por numero de orden" se vea, no solo se ordene.
+      var newGroup = (k > 0 && rows[k-1].o.ot !== row.o.ot);
+      var groupBorder = newGroup ? ';box-shadow:inset 0 2px 0 0 var(--ac)' : '';
       var chkCell = canManageBod
         ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav no-print"><input type="checkbox" class="chk-bod-desp" data-oid="' + row.o.id + '" data-idx="' + row.idx + '"' + (it.despachado ? ' checked' : '') + ' style="width:16px;height:16px;cursor:pointer"></td>'
         : '';
-      html += '<tr style="background:' + rowBg + (it.despachado ? ';opacity:.6' : '') + ';cursor:pointer" class="bodparts-row" data-oid="' + row.o.id + '">' +
+      html += '<tr style="background:' + rowBg + (it.despachado ? ';opacity:.6' : '') + groupBorder + ';cursor:pointer" class="bodparts-row" data-oid="' + row.o.id + '">' +
         chkCell +
         '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.ot||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.client||'—') + '</td>' +
@@ -6211,6 +6232,30 @@ function openHistDetail(o) {
           '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:' + estadoColor7 + ';border:1px solid var(--bd);white-space:nowrap">' + estadoLabel7 + '</span>' +
         '</div>' +
         '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + origenLabel7 + (rp7.ts ? ' &middot; ' + msgTs(rp7.ts) : '') + '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+
+  // ── Solicitudes de bodega (todas, no solo las autorizadas — eso ya se
+  // consulta aparte en "Despacho, Repuestos y Subcontratos", y ese listado
+  // deja de mostrar la orden en cuanto se cierra para no saturarse; aqui en
+  // el historial de la orden quedan siempre, se haya cerrado o no) ──
+  if (o.bodega && o.bodega.length) {
+    html += '<div class="sec"><div class="sec-l">Solicitudes de bodega</div>' +
+      '<div style="font-size:11px;font-weight:700;color:var(--tx);margin-bottom:6px">' + o.bodega.length + ' solicitud(es)</div>';
+    for (var bi7 = 0; bi7 < o.bodega.length; bi7++) {
+      var bit7 = o.bodega[bi7];
+      var bitDesc7 = esc(bit7.cantidad || '') + ' ' + esc(bit7.desc || '') + (bit7.especificacion ? ' — ' + esc(bit7.especificacion) : '');
+      var isDone8 = !!bit7.despachado;
+      var estadoLabel8 = isDone8 ? '&#10003; Despachado' : (bit7.vobo ? 'Vo.Bo. dado — esperando despacho' : 'Pendiente Vo.Bo. Jefe');
+      var estadoColor8 = isDone8 ? 'var(--gn)' : 'var(--or)';
+      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px' + (isDone8 ? ';opacity:.75' : '') + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:12px;font-weight:500' + (isDone8 ? ';text-decoration:line-through' : '') + '">' + bitDesc7 + '</div>' +
+          '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:' + estadoColor8 + ';border:1px solid var(--bd);white-space:nowrap">' + estadoLabel8 + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + esc(bit7.by||'') + (bit7.ts ? ' &middot; ' + msgTs(bit7.ts) : '') + '</div>' +
       '</div>';
     }
     html += '</div>';
