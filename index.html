@@ -597,6 +597,20 @@ var _hwmNxtId = 0;
 // empujarlos a Firebase antes de que llegue la data real — exactamente lo
 // que causo que aparecieran ordenes falsas el 14 de julio.
 var _hasReceivedFirebaseData = false;
+// _hasReceivedFirebaseData solo confirma que 'taller/meta' (chico, llega
+// rapido) ya respondio — NO que el snapshot completo de ordenes ya se
+// reconcilio. Si save() corre en esa ventana (p.ej. alguien interactua muy
+// rapido tras abrir la app, con localStorage desactualizado de un
+// dispositivo que no se uso en un rato), _lastSyncedOrders todavia esta
+// vacio {} para TODAS las ordenes, asi que save() las trata a todas como
+// "cambiadas" y reescribe el arreglo local (potencialmente viejo) encima
+// del estado real y mas nuevo del servidor para cualquier orden que
+// alguien mas haya movido mientras tanto — esto es lo que causo que 5
+// ordenes distintas aparecieran revertidas a su fase de un dia antes.
+// _ordersReconciled cierra esa ventana: solo se pone true cuando el
+// snapshot COMPLETO de taller/orders_by_id ya se leyo y _lastSyncedOrders
+// quedo poblado para cada orden real del servidor.
+var _ordersReconciled = false;
 try { _hwmNxtId = parseInt(localStorage.getItem(HWM_KEY) || '0') || 0; } catch(e) {}
 function _updateHwm(n) {
   if (n > _hwmNxtId) {
@@ -829,6 +843,10 @@ function initFirebase() {
           console.log('Reconciliacion inicial: se quitaron ' + (beforeCount - orders.length) + ' orden(es) local(es) obsoleta(s) que ya no existen en el servidor.');
           try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
         }
+        // Solo AHORA _lastSyncedOrders refleja de verdad el estado del
+        // servidor para cada orden — recien aqui es seguro dejar que save()
+        // escriba (ver _ordersReconciled arriba).
+        _ordersReconciled = true;
         _scheduleRender();
         attachIncrementalOrderListeners();
       }).catch(function(e) {
@@ -1001,6 +1019,16 @@ function save() {
     // que llegue la data real).
     if (!_hasReceivedFirebaseData) {
       console.log('BLOQUEADO: aun no se ha recibido la primera respuesta real de Firebase.');
+      return;
+    }
+    // GUARDA ANTI-SOBRESCRITURA (ver _ordersReconciled arriba): sin esto,
+    // guardar en la ventana entre "la app ya responde" y "el snapshot
+    // completo de ordenes ya se reconcilio" puede empujar el arreglo local
+    // (potencialmente viejo, restaurado de localStorage) encima del estado
+    // real de CUALQUIER orden en memoria, no solo la que se esta editando.
+    if (!_ordersReconciled) {
+      console.log('BLOQUEADO: las ordenes todavia no terminan de reconciliarse con el servidor.');
+      try { toast('Sincronizando... espera un momento antes de hacer cambios'); } catch(e2) {}
       return;
     }
     // GUARDA ANTI-SOBRESCRITURA: si este dispositivo tiene un nxtId menor
