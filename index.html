@@ -1696,6 +1696,11 @@ function openDrw(id) {
             '<option value="Z10"' + (o.loc === 'Z10' ? ' selected' : '') + '>Z10</option>' +
           '</select></div>'
         : '') +
+        // Nota: este bloque entero (canEdit) ya es jefe-only, asi que estos
+        // 2 campos son de facto exclusivos del Jefe — la excepcion para el
+        // Asesor de servicio en Espera de autorizacion vive en un control
+        // aparte, fuera de este formulario (ver "Mano de obra" mas abajo,
+        // mismo patron que el enlace de Clear Mechanic).
         ((role === 'jefe' || role === 'asesor') ?
           '<div class="fr2" style="margin-bottom:6px">' +
             '<div class="fg"><label class="fl">Total autorizado (Q)</label><input class="fi" id="e-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '"></div>' +
@@ -1773,8 +1778,19 @@ function openDrw(id) {
     ((role === 'jefe' || role === 'asesor') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
       '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
-      '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
-      '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Editar montos desde el boton &#9999; Editar arriba</div>'
+      (role === 'jefe'
+        ? '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+          '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Editar montos desde el boton &#9999; Editar arriba</div>'
+        // El Asesor de servicio NO tiene el boton "Editar" (es jefe-only) —
+        // la MANO DE OBRA es lo unico que el puede fijar, y SOLO mientras la
+        // orden esta en Espera de autorizacion (ea). El Total autorizado
+        // sigue siendo de solo lectura para el (solo lo edita el Jefe).
+        : (o.phase === 'ea'
+            ? '<div class="fg" style="margin-top:6px"><label class="fl">Mano de obra (Q)</label><div style="display:flex;gap:6px"><input class="fi" id="ea-mo-inp" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="flex:1"><button id="btn-save-ea-mo" data-oid="' + id + '" style="padding:0 14px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">Guardar</button></div></div>'
+            : '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+              '<div style="font-size:10px;color:var(--tx3);margin-top:4px">&#128274; Solo editable en Espera de autorizacion</div>'
+          )
+      )
     : '') +
     (o.phaseStart ? '<div class="irow"><span class="ik">Tiempo en fase</span><span style="color:var(--or)">' + elapsed(o.phaseStart) + '</span></div>' : '') +
     productividadOrdenHtml +
@@ -3170,6 +3186,29 @@ function openDrw(id) {
       save(); toast('Enlace actualizado'); openDrw(id);
     });
   }
+  var saveEaMoBtn = document.getElementById('btn-save-ea-mo');
+  if (saveEaMoBtn) {
+    saveEaMoBtn.addEventListener('click', function() {
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      // Defensa en profundidad: solo el Asesor de servicio, y solo mientras
+      // la orden sigue en Espera de autorizacion — igual que el gate que ya
+      // decide si este boton se renderiza o no.
+      if (role !== 'asesor') { toast('Solo el Asesor de servicio puede fijar la mano de obra aqui'); return; }
+      if (ox.phase !== 'ea') { toast('La mano de obra solo se puede fijar mientras la orden esta en Espera de autorizacion'); return; }
+      var inp = document.getElementById('ea-mo-inp');
+      var newMO = inp ? (parseFloat(inp.value) || 0) : null;
+      var oldMO = ox.montoMO;
+      ox.montoMO = newMO || null;
+      if ((oldMO || 0) !== (ox.montoMO || 0)) {
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'Mano de obra actualizada: Q.' + (oldMO||0) + ' -> Q.' + (ox.montoMO||0), ts:Date.now(), type:'system'});
+      }
+      save(); toast('Mano de obra actualizada'); openDrw(id);
+    });
+  }
   var desmarcarFacturadaBtn = document.getElementById('btn-desmarcar-facturada');
   if (desmarcarFacturadaBtn) {
     desmarcarFacturadaBtn.addEventListener('click', function() {
@@ -3343,6 +3382,13 @@ function doSign(id, sigId) {
     var eaR = (o.repuestos || []).filter(function(r){ return !r.ck3; });
     if (eaR.length === 0 && !o.noAutorizado) {
       toast('Agrega los repuestos necesarios antes de firmar, o marca "Cliente NO autorizo nada"'); return;
+    }
+    // Tampoco se puede confirmar la autorizacion si todavia falta fijar la
+    // mano de obra — es la unica fase donde el Asesor de servicio puede
+    // fijarla (ver btn-save-edit), asi que aqui se exige antes de dejarlo
+    // avanzar a la siguiente fase.
+    if (!o.montoMO && !o.noAutorizado) {
+      toast('Ingresa la mano de obra antes de firmar, o marca "Cliente NO autorizo nada"'); return;
     }
   }
   // ab phase, firma del tecnico: antes de dejarlo firmar, verificar que
