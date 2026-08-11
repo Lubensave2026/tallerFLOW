@@ -189,7 +189,7 @@ button{cursor:pointer}
 .irow{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd);font-size:12px}
 .irow:last-child{border-bottom:none}
 .ik{color:var(--tx2)}
-.dta{width:100%;font-size:12px;padding:8px 10px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg3);color:var(--tx);resize:none;height:60px;outline:none}
+.dta{width:100%;font-size:12px;padding:8px 10px;border-radius:var(--rs);border:2px solid var(--ac);background:var(--bg2);color:var(--tx);resize:none;height:60px;outline:none}
 .dta:focus{border-color:var(--ac)}
 .sg-item{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .sg-n{font-size:12px;font-weight:500}
@@ -1827,7 +1827,10 @@ function openDrw(id) {
      resto del personal (tecnicos, mensajero, partes) solo lectura. */
   var canEditDesc = (role === 'jefe' || role === 'asesor');
   html += '<div class="sec"><div class="sec-l" style="color:var(--ac)">&#128221; Trabajos solicitados por el cliente</div>' +
-    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')" style="border-left:3px solid var(--ac)' + (canEditDesc ? '' : ';opacity:.75;cursor:default') + '"' + (canEditDesc ? '' : ' readonly') + '>' + esc(o.desc) + '</textarea>' +
+    // Solo lectura: se sobreescribe el borde-acento fuerte de .dta (pensado
+    // para marcar "aqui se escribe") por uno neutro, para no sugerirle a
+    // quien no puede editar que si puede.
+    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')"' + (canEditDesc ? '' : ' style="border:1px solid var(--bd);background:var(--bg3);opacity:.75;cursor:default" readonly') + '>' + esc(o.desc) + '</textarea>' +
   '</div>';
 
   // Seccion 01) INFORMACION lista — todo lo de arriba (edicion, datos,
@@ -2210,7 +2213,7 @@ function openDrw(id) {
   }
   if (canAddRep) {
     repuestosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
-      '<input id="rep-inp" class="cin" placeholder="Descripcion del repuesto..." style="flex:1;min-width:140px">' +
+      '<input id="rep-inp" class="cin" placeholder="Descripcion del repuesto..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
       '<select id="rep-origen" class="cin" style="flex:0 0 auto">' +
         '<option value="local">Local</option>' +
         '<option value="importacion">Importacion</option>' +
@@ -2276,10 +2279,10 @@ function openDrw(id) {
             '<select id="bod-cant" class="cin" style="width:100%">' + bodCantOptions + '</select>' +
           '</div>' +
           '<div style="flex:1;min-width:140px">' + bodLbl('Descripcion') +
-            '<input id="bod-desc" class="cin" placeholder="ej. aceite, refrigerante, lija..." style="width:100%">' +
+            '<input id="bod-desc" class="cin" placeholder="ej. aceite, refrigerante, lija..." style="width:100%;border:2px solid var(--ac);background:var(--bg2)">' +
           '</div>' +
           '<div style="flex:1;min-width:140px">' + bodLbl('Especificacion') +
-            '<input id="bod-esp" class="cin" placeholder="ej. 5w30, rosado, 40..." style="width:100%">' +
+            '<input id="bod-esp" class="cin" placeholder="ej. 5w30, rosado, 40..." style="width:100%;border:2px solid var(--ac);background:var(--bg2)">' +
           '</div>' +
         '</div>' +
         '<button id="btn-add-bod" style="margin-top:8px;width:100%;padding:7px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Solicitar</button>' +
@@ -2432,7 +2435,7 @@ function openDrw(id) {
   var msgsBoxInner =
     '<div class="chat-box" id="chat-box">' + msgsHtml + '</div>' +
     '<div class="chat-row">' +
-      '<input class="cin" id="chat-in" placeholder="Escribe un mensaje...">' +
+      '<input class="cin" id="chat-in" placeholder="Escribe un mensaje..." style="border:2px solid var(--ac);background:var(--bg2)">' +
       '<button class="btn-snd" id="btn-snd" data-oid="' + id + '">&#10148;</button>' +
     '</div>';
 
@@ -5746,7 +5749,7 @@ function buildRepsContent() {
           html += '<div style="font-size:11px;color:var(--tx3);padding:2px 0 8px">Aun sin items del presupuesto</div>';
         }
         html += '<div style="display:flex;gap:6px;margin-top:4px;margin-bottom:8px;flex-wrap:wrap">' +
-          '<input id="presq-inp-' + po2.id + '" class="cin" placeholder="Item del presupuesto..." style="flex:1;min-width:140px">' +
+          '<input id="presq-inp-' + po2.id + '" class="cin" placeholder="Item del presupuesto..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
           '<button class="btn-presq-add" data-oid="' + po2.id + '" style="padding:6px 12px;border-radius:var(--rs);background:#8B5CF6;border:none;color:#fff;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
         '</div>';
         // Ruta de 3 pasos: Partes completa -> Asesor lo envia al cliente ->
