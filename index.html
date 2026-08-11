@@ -4945,8 +4945,34 @@ function openAvisoLavResumen(o) {
     '<div class="irow"><span class="ik">No. OT</span><span style="font-family:var(--mo)">' + esc(o.ot||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Total general (Q)</span><span style="font-family:var(--mo);font-weight:700;color:var(--gn)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
     '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
   '</div>';
+
+  // Operaciones de mano de obra registradas en "Trabajos realizados" —
+  // mismo contenido de solo lectura que ya se muestra en el reporte
+  // completo de Historial.
+  if (o.trabajos && o.trabajos.length) {
+    var totalHorasResumen = 0;
+    for (var twr = 0; twr < o.trabajos.length; twr++) { totalHorasResumen += parseFloat(o.trabajos[twr].horas) || 0; }
+    html += '<div class="sec"><div class="sec-l">Trabajos realizados</div>' +
+      '<div style="font-size:11px;font-weight:700;color:var(--tx);margin-bottom:6px">' + o.trabajos.length + ' operacion(es) &middot; ' + totalHorasResumen.toFixed(2).replace('.', ',') + ' hrs. com.</div>';
+    for (var twr2 = 0; twr2 < o.trabajos.length; twr2++) {
+      var twItem = o.trabajos[twr2];
+      var hrsValResumen = parseFloat(twItem.horas) || 0;
+      var hrsBadgeResumen = twItem.subcontrato
+        ? '&#128230; Subcontrato'
+        : (hrsValResumen > 0 ? hrsValResumen.toFixed(2).replace('.', ',') + ' hrs. com.' : 'Pendiente');
+      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:12px;font-weight:500">' + twItem.desc + '</div>' +
+          '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:var(--tx);border:1px solid var(--tx2);white-space:nowrap">' + hrsBadgeResumen + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + esc(twItem.tecnico||'') + (twItem.ts ? ' &middot; ' + msgTs(twItem.ts) : '') + '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
 
   if (o.repuestos && o.repuestos.length) {
     html += '<div class="sec"><div class="sec-l">Repuestos solicitados</div>' +
@@ -4990,7 +5016,7 @@ function openAvisoLavResumen(o) {
     html += '</div>';
   }
 
-  if ((!o.repuestos || !o.repuestos.length) && (!o.bodega || !o.bodega.length) && !o.montoMO) {
+  if ((!o.repuestos || !o.repuestos.length) && (!o.bodega || !o.bodega.length) && (!o.trabajos || !o.trabajos.length) && !o.montoMO && !o.montoTotal) {
     html += '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:12px">Sin repuestos, mano de obra ni solicitudes de bodega registradas todavia.</div>';
   }
 
