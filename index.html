@@ -4202,14 +4202,84 @@ function buildRepContent() {
     if ((ox.cat||0) >= todayTs) todayNew++;
   }
 
-  var html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + total + '</div><div class="kpi-l">Total</div></div>' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + active + '</div><div class="kpi-l">Activas</div></div>' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--tx3)">' + closed + '</div><div class="kpi-l">Cerradas</div></div>' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + todayNew + '</div><div class="kpi-l">Hoy</div></div>' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + urg + '</div><div class="kpi-l">Urgentes</div></div>' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repOrders.filter(function(o){return o.phase==='det';}).length + '</div><div class="kpi-l">Detenidas</div></div>' +
-  '</div>';
+  var isMgmtView = (role === 'jefe' || role === 'asesor' || role === 'partes');
+  // semData se necesita YA para el KPI "Cerradas (mes)" de la vista de
+  // gestion, y mas abajo tambien lo usa la tarjeta "Ya cerrado este mes" —
+  // se calcula una sola vez aqui y se reutiliza en los dos lugares.
+  var semData = isMgmtView ? semComputeFromOrders() : null;
+
+  var html;
+  if (isMgmtView) {
+    // Vista de gestion (Jefe/Asesor/Partes): en vez de Total/Hoy/Urgentes/
+    // Detenidas (poco accionables dia a dia), se muestran indicadores
+    // operativos globales del taller.
+    var kpiClosedIds = {};
+    var closedForProd = orders.concat(archived || []).filter(function(o) {
+      if (o.phase !== 'cer') return false;
+      if (kpiClosedIds[o.id]) return false;
+      kpiClosedIds[o.id] = true;
+      return true;
+    });
+    var prodCerHoras = 0, prodCerCom = 0;
+    for (var pci = 0; pci < closedForProd.length; pci++) {
+      var pco = closedForProd[pci];
+      prodCerHoras += _sumPhaseHours(pco, 'ab');
+      (pco.trabajos || []).forEach(function(tw){ prodCerCom += parseFloat(tw.horas) || 0; });
+    }
+    var prodCerPct = prodCerHoras > 0 ? Math.round(prodCerCom / prodCerHoras * 100) : null;
+
+    var prodActHoras = 0, prodActCom = 0;
+    var activeForProd = orders.filter(function(o){ return o.phase !== 'cer'; });
+    for (var pai = 0; pai < activeForProd.length; pai++) {
+      var pao = activeForProd[pai];
+      var realPa = _sumPhaseHours(pao, 'ab');
+      if (pao.phase === 'ab' && pao.timestamps && pao.timestamps.ab) realPa += businessMinutes(pao.timestamps.ab, Date.now()) / 60;
+      prodActHoras += realPa;
+      (pao.trabajos || []).forEach(function(tw){ prodActCom += parseFloat(tw.horas) || 0; });
+    }
+    var prodActPct = prodActHoras > 0 ? Math.round(prodActCom / prodActHoras * 100) : null;
+
+    var repuestosPendientesCount = getPendingRepRows().length;
+
+    // Reprocesos: solo los registrados por Jefe o Asesor en Inspeccion
+    // Final (prb) o Listo p/entrega (lst) — ni los que un tecnico registra
+    // por su propio camino en prb, ni los de Entregado. Los reprocesos
+    // guardados antes de que existiera byRole (ver advanceReproceso /
+    // registrarReprocesoSinAvance) no se pueden atribuir, asi que no se
+    // cuentan — el numero crece de forma exacta desde ahora en adelante.
+    var reprocesosIds = {};
+    var reprocesosCount = 0;
+    var reprocesosOrders = orders.concat(archived || []).filter(function(o) {
+      if (reprocesosIds[o.id]) return false;
+      reprocesosIds[o.id] = true;
+      return true;
+    });
+    for (var rpi = 0; rpi < reprocesosOrders.length; rpi++) {
+      var rpLog = reprocesosOrders[rpi].reprocesoLog || [];
+      for (var rli = 0; rli < rpLog.length; rli++) {
+        var rle = rpLog[rli];
+        if ((rle.from === 'prb' || rle.from === 'lst') && (rle.byRole === 'jefe' || rle.byRole === 'asesor')) reprocesosCount++;
+      }
+    }
+
+    html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + active + '</div><div class="kpi-l">Activas</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + semData.countCerradas + '</div><div class="kpi-l">Cerradas (mes)</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:' + (prodCerPct !== null ? _productividadColor(prodCerPct) : 'var(--tx3)') + '">' + (prodCerPct !== null ? prodCerPct + '%' : '—') + '</div><div class="kpi-l">Productividad cerrados</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:#888888">' + (prodActPct !== null ? prodActPct + '%' : '—') + '</div><div class="kpi-l">Productividad en proceso</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repuestosPendientesCount + '</div><div class="kpi-l">Repuestos pendientes</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + reprocesosCount + '</div><div class="kpi-l">Reprocesos</div></div>' +
+    '</div>';
+  } else {
+    html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + total + '</div><div class="kpi-l">Total</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + active + '</div><div class="kpi-l">Activas</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--tx3)">' + closed + '</div><div class="kpi-l">Cerradas</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + todayNew + '</div><div class="kpi-l">Hoy</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + urg + '</div><div class="kpi-l">Urgentes</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repOrders.filter(function(o){return o.phase==='det';}).length + '</div><div class="kpi-l">Detenidas</div></div>' +
+    '</div>';
+  }
 
   // Facturacion potencial + ya cerrado (jefe, asesor de servicio y encargado
   // de repuestos — REQ002: ambos perfiles ven exactamente los mismos indicadores)
@@ -4230,7 +4300,6 @@ function buildRepContent() {
       }
     }
     var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-    var semData = semComputeFromOrders();
     html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">' +
       '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
         '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#128181; Facturacion potencial (' + conMonto + ' de ' + active + ' ordenes activas con monto)</div>' +
@@ -6826,7 +6895,14 @@ function advanceReproceso(id, causa, nota) {
   o.phase = 'ab';
   o.reprocesos = (o.reprocesos || 0) + 1;
   if (!o.reprocesoLog) o.reprocesoLog = [];
-  o.reprocesoLog.push({causa:causa, nota:notaEsc, ts:Date.now(), from:oldPhase});
+  // byRole: el rol (clave, no la etiqueta) que registro el reproceso — lo
+  // usa el KPI "Reprocesos" del Reporte General para contar solo los que
+  // vienen de Jefe/Asesor en Inspeccion Final (prb) o Listo p/entrega
+  // (lst), sin incluir los que un tecnico registra por su propio camino en
+  // Inspeccion Final. Los reprocesos guardados ANTES de este campo no lo
+  // tienen — el KPI simplemente no los cuenta (no hay forma retroactiva de
+  // saber quien los registro).
+  o.reprocesoLog.push({causa:causa, nota:notaEsc, ts:Date.now(), from:oldPhase, byRole:role});
   if (!o.sigs) o.sigs = {};
   var phaseSigsR = SIGS['ab'] || [];
   for (var sr=0; sr<phaseSigsR.length; sr++) { delete o.sigs[phaseSigsR[sr].id]; }
@@ -6866,7 +6942,7 @@ function registrarReprocesoSinAvance(id, causa, nota) {
   var notaEsc = nota ? esc(nota) : '';
   o.reprocesos = (o.reprocesos || 0) + 1;
   if (!o.reprocesoLog) o.reprocesoLog = [];
-  o.reprocesoLog.push({causa:causa, nota:notaEsc, ts:Date.now(), from:o.phase});
+  o.reprocesoLog.push({causa:causa, nota:notaEsc, ts:Date.now(), from:o.phase, byRole:role});
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt:'&#9851; REPROCESO (informativo, sin cambiar de fase) — Causa: ' + causa + (notaEsc ? ' — ' + notaEsc : '') + ' (en ' + lbl + ')', ts:Date.now(), type:'system'});
