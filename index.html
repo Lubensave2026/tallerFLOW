@@ -340,6 +340,16 @@ button{cursor:pointer}
   #m-hist-detail.on .chat-box { max-height:none !important; overflow:visible !important }
   #hist-detail-title button { display:none }
   #m-repparts.on .modal-t button { display:none }
+  /* Asesor y Partes: en pantalla ven el reporte completo igual que el
+     Jefe (ver openHistDetail), pero AL IMPRIMIR solo deben salir Repuestos
+     y Subcontratos, Despacho Bodega y Trabajos realizados — mismo
+     contenido que ya ven en el resumen enfocado de "Preparar
+     Facturacion" (ver openAvisoLavResumen/_buildFocusedResumenHtml). El
+     modal recibe la clase .print-restringido solo para esos 2 roles (ver
+     openHistDetail); para el Jefe (sin esa clase) sigue imprimiendo todo,
+     sin cambios. */
+  #m-hist-detail.on.print-restringido #hist-detail-body { display:none !important; }
+  #m-hist-detail.on.print-restringido #hist-detail-print-only { display:block !important; }
   .no-print { display:none !important; }
   :root {
     --bg:#fff; --bg2:#fff; --bg3:#f2f2f2; --bg4:#e8e8e8;
@@ -5035,19 +5045,14 @@ function buildAvisoLavContent() {
 // mano de obra, y despachos de bodega. Reutiliza el modal/campos de
 // Historial (m-hist-detail) para heredar gratis el soporte de impresion,
 // pero construye su propio HTML — no llama a openHistDetail().
-function openAvisoLavResumen(o) {
-  // Mismo cuidado que openRepParts()/openHistDetail(): que nunca queden los
-  // 2 modales exentos de la regla de impresion abiertos a la vez.
-  closeRepParts();
-  var canPrint = (role === 'jefe' || role === 'asesor' || role === 'partes');
-  var printBtnHtml = canPrint
-    ? '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>'
-    : '';
-  var titleEl = document.getElementById('hist-detail-title');
-  if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
-    '<span style="margin-left:auto;display:flex;gap:6px">' + printBtnHtml +
-    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeHistDetail()">&#x2715;</button></span>';
-
+// Construye SOLO el HTML del resumen enfocado (encabezado + Trabajos
+// realizados + Repuestos solicitados + Solicitudes de bodega) — funcion
+// pura, sin tocar el DOM ni abrir ningun modal. La usan tanto
+// openAvisoLavResumen() (reemplaza todo #hist-detail-body) como
+// openHistDetail() para Asesor/Partes (se guarda aparte, en
+// #hist-detail-print-only, para que SOLO salga esto al imprimir mientras
+// en pantalla se sigue viendo el reporte completo).
+function _buildFocusedResumenHtml(o) {
   var html = '<div class="sec"><div class="sec-l">Informacion</div>' +
     '<div class="irow"><span class="ik">No. OT</span><span style="font-family:var(--mo)">' + esc(o.ot||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">Cliente</span><span>' + esc(o.client||'—') + '</span></div>' +
@@ -5127,8 +5132,35 @@ function openAvisoLavResumen(o) {
     html += '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:12px">Sin repuestos, mano de obra ni solicitudes de bodega registradas todavia.</div>';
   }
 
+  return html;
+}
+
+// "Preparar Facturacion" -> click en una linea: abre el resumen enfocado
+// como pantalla completa (reemplaza #hist-detail-body por entero) — a
+// diferencia de openHistDetail() para Asesor/Partes, que sigue mostrando el
+// reporte completo en pantalla y solo usa este mismo HTML para lo que se
+// imprime (ver _buildFocusedResumenHtml arriba).
+function openAvisoLavResumen(o) {
+  // Mismo cuidado que openRepParts()/openHistDetail(): que nunca queden los
+  // 2 modales exentos de la regla de impresion abiertos a la vez.
+  closeRepParts();
+  var canPrint = (role === 'jefe' || role === 'asesor' || role === 'partes');
+  var printBtnHtml = canPrint
+    ? '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>'
+    : '';
+  var titleEl = document.getElementById('hist-detail-title');
+  if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
+    '<span style="margin-left:auto;display:flex;gap:6px">' + printBtnHtml +
+    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeHistDetail()">&#x2715;</button></span>';
+
   var bodyEl = document.getElementById('hist-detail-body');
-  if (bodyEl) bodyEl.innerHTML = html;
+  if (bodyEl) bodyEl.innerHTML = _buildFocusedResumenHtml(o);
+  // Este camino siempre reemplaza todo el contenido — nunca es un reporte
+  // "completo" de fondo, asi que nunca necesita el modo restringido de
+  // impresion (ver openHistDetail).
+  document.getElementById('m-hist-detail').classList.remove('print-restringido');
+  var printOnlyElA = document.getElementById('hist-detail-print-only');
+  if (printOnlyElA) printOnlyElA.innerHTML = '';
   document.getElementById('m-hist-detail').classList.add('on');
 }
 
@@ -6745,7 +6777,25 @@ function openHistDetail(o) {
   var cb = document.querySelector('#hist-detail-body .chat-box');
   if (cb) cb.scrollTop = cb.scrollHeight;
 
-  document.getElementById('m-hist-detail').classList.add('on');
+  // Asesor y Partes ven el reporte completo en pantalla igual que el Jefe
+  // (arriba, sin cambios) — pero al IMPRIMIR solo debe salir Repuestos y
+  // Subcontratos, Despacho Bodega y Trabajos realizados, igual que en el
+  // resumen enfocado de "Preparar Facturacion". Se guarda ese contenido
+  // reducido aparte (#hist-detail-print-only) y se marca el modal con
+  // .print-restringido para que el CSS de impresion use ese en vez del
+  // reporte completo (ver @media print). El Jefe (u otro rol) no lleva esa
+  // clase, asi que sigue imprimiendo el reporte completo sin cambios.
+  var modalElHD = document.getElementById('m-hist-detail');
+  var printOnlyElHD = document.getElementById('hist-detail-print-only');
+  if (role === 'asesor' || role === 'partes') {
+    if (printOnlyElHD) printOnlyElHD.innerHTML = _buildFocusedResumenHtml(o);
+    modalElHD.classList.add('print-restringido');
+  } else {
+    if (printOnlyElHD) printOnlyElHD.innerHTML = '';
+    modalElHD.classList.remove('print-restringido');
+  }
+
+  modalElHD.classList.add('on');
 }
 
 function closeHistDetail() {
@@ -7276,6 +7326,11 @@ window.addEventListener('load', function() {
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeHistDetail()">&#x2715;</button>
     </div>
     <div id="hist-detail-body" style="overflow-y:auto;max-height:75vh"></div>
+    <!-- Solo se llena/usa cuando Asesor o Partes abren el reporte completo
+         (ver openHistDetail) — en pantalla se queda oculto siempre; solo se
+         muestra AL IMPRIMIR, en vez de #hist-detail-body, para esos 2 roles
+         (ver @media print / .print-restringido mas arriba en el <style>). -->
+    <div id="hist-detail-print-only" style="display:none"></div>
   </div>
 </div>
 
