@@ -316,21 +316,30 @@ button{cursor:pointer}
    cada seccion una por una. */
 @media print {
   #ap, .np, .ov, .drw, .mwrap:not(#m-hist-detail):not(#m-repparts) { display:none !important; }
-  /* .mwrap es position:fixed;inset:0 — eso recorta la impresion al tamano
+  /* Solo el modal que este REALMENTE abierto (clase .on) se imprime. Antes
+     esta regla forzaba display:block en #m-hist-detail Y #m-repparts sin
+     condicion — asi que si alguien habia dejado el otro modal abierto
+     detras (ej. entrar a Despacho Bodega y despues a Historial sin cerrar
+     el primero), al imprimir se mezclaban los dos listados en una sola
+     hoja. openRepParts()/openHistDetail()/openAvisoLavResumen() ya se
+     encargan de cerrar el otro modal al abrir cualquiera de los dos, pero
+     esta regla queda como segunda linea de defensa.
+     .mwrap es position:fixed;inset:0 — eso recorta la impresion al tamano
      de una sola pantalla. Para que el contenido fluya y pagine normal, hay
      que sacarlo de fixed/flex durante la impresion. */
-  #m-hist-detail, #m-repparts {
+  #m-hist-detail:not(.on), #m-repparts:not(.on) { display:none !important; }
+  #m-hist-detail.on, #m-repparts.on {
     position:static !important; display:block !important; inset:auto !important;
     background:#fff !important; backdrop-filter:none !important;
   }
-  #m-hist-detail .rep-modal, #m-repparts .rep-modal {
+  #m-hist-detail.on .rep-modal, #m-repparts.on .rep-modal {
     box-shadow:none; max-width:100%; width:100%; border-radius:0; border:none;
     max-height:none !important; overflow:visible !important; position:static;
   }
-  #m-hist-detail #hist-detail-body { max-height:none !important; overflow:visible !important }
-  #m-hist-detail .chat-box { max-height:none !important; overflow:visible !important }
+  #m-hist-detail.on #hist-detail-body { max-height:none !important; overflow:visible !important }
+  #m-hist-detail.on .chat-box { max-height:none !important; overflow:visible !important }
   #hist-detail-title button { display:none }
-  #m-repparts .modal-t button { display:none }
+  #m-repparts.on .modal-t button { display:none }
   .no-print { display:none !important; }
   :root {
     --bg:#fff; --bg2:#fff; --bg3:#f2f2f2; --bg4:#e8e8e8;
@@ -4603,6 +4612,11 @@ function closeRep() { document.getElementById('m-rep').classList.remove('on'); i
 var _repPartsFilter = null; // null = menu selector, 'local' | 'importacion' = tabla filtrada
 
 function openRepParts() {
+  // Nunca deja los 2 modales que comparten la excepcion de impresion
+  // (#m-hist-detail y #m-repparts) abiertos al mismo tiempo — si alguien
+  // entra aqui sin haber cerrado antes un detalle de Historial, al
+  // imprimir se mezclaban los dos listados (ver closeHistDetail abajo).
+  closeHistDetail();
   _repPartsFilter = null;
   buildRepPartsContent();
   document.getElementById('m-repparts').classList.add('on');
@@ -5022,6 +5036,9 @@ function buildAvisoLavContent() {
 // Historial (m-hist-detail) para heredar gratis el soporte de impresion,
 // pero construye su propio HTML — no llama a openHistDetail().
 function openAvisoLavResumen(o) {
+  // Mismo cuidado que openRepParts()/openHistDetail(): que nunca queden los
+  // 2 modales exentos de la regla de impresion abiertos a la vez.
+  closeRepParts();
   var canPrint = (role === 'jefe' || role === 'asesor' || role === 'partes');
   var printBtnHtml = canPrint
     ? '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>'
@@ -6450,6 +6467,11 @@ function buildSigsContent() {
 
 /* HISTORIAL DETALLE — solo lectura */
 function openHistDetail(o) {
+  // Mismo cuidado que openRepParts()/openAvisoLavResumen(): que nunca queden
+  // los 2 modales exentos de la regla de impresion abiertos a la vez — si
+  // no, al imprimir se mezclaban el reporte de la orden con el listado de
+  // Despacho, Repuestos y Subcontratos que hubiera quedado abierto detras.
+  closeRepParts();
   // Header
   var titleEl = document.getElementById('hist-detail-title');
   var printBtnHtml = (role === 'jefe' || role === 'asesor' || role === 'partes')
