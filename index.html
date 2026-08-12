@@ -2450,6 +2450,7 @@ function openDrw(id) {
     pastillasDiscosDel: '09 C/ PASTILLAS Y D/M DISCOS FRENOS DEL.',
     pastillasDiscosTras: '10 C/ PASTILLAS Y D/M DISCOS FRENOS TRAS.',
     cambioCandelas: '11 CAMBIO DE CANDELAS', cambioFiltro: '12 CAMBIO DE FILTRO',
+    subcontrato: '13 SUBCONTRATO',
   };
   trabajosHtml += '<div style="margin-bottom:8px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center">' +
@@ -2751,7 +2752,7 @@ function openDrw(id) {
   }
 
   /* trabajos realizados events */
-  var TIPO_OPERACION_SUBCONTRATABLE = {alineacion:1, diagnostico:1, soldadura:1, pinchazo:1};
+  var TIPO_OPERACION_SUBCONTRATABLE = {alineacion:1, diagnostico:1, soldadura:1, pinchazo:1, subcontrato:1};
   var hrsTrabBtns = body.querySelectorAll('.btn-trab-hrs.jf');
   for (var hti = 0; hti < hrsTrabBtns.length; hti++) {
     (function(btn) {
@@ -2900,7 +2901,15 @@ function openDrw(id) {
         var inpT2 = document.getElementById('trab-inp');
         if (!inpT2) return;
         for (var catKeyChg in TIPO_OPERACION_CATALOG) {
-          if (TIPO_OPERACION_CATALOG[catKeyChg] === this.value) { inpT2.value = TIPO_OPERACION_CATALOG[catKeyChg]; break; }
+          if (TIPO_OPERACION_CATALOG[catKeyChg] === this.value) {
+            // "Subcontrato" es una etiqueta generica del catalogo — en vez
+            // de autocompletar la descripcion con ese texto (como con el
+            // resto del catalogo), se deja vacia y lista para escribir que
+            // trabajo especifico se esta subcontratando (ej. "Enderezado y
+            // pintura").
+            inpT2.value = catKeyChg === 'subcontrato' ? '' : TIPO_OPERACION_CATALOG[catKeyChg];
+            break;
+          }
         }
       });
     }
