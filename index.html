@@ -4220,7 +4220,6 @@ function buildRepContent() {
     // aplica un corte mensual para esos dos.
     var nowKpi = new Date();
     var curYKpi = nowKpi.getFullYear(), curMKpi = nowKpi.getMonth();
-    var startOfMonthTs = new Date(curYKpi, curMKpi, 1).getTime();
     var _eventInCurrentMonth = function(ts) {
       if (!ts) return false;
       var d = new Date(ts);
@@ -4247,27 +4246,22 @@ function buildRepContent() {
     })();
     var prodCerPct = prodCerHoras > 0 ? Math.round(prodCerCom / prodCerHoras * 100) : null;
 
-    // Productividad EN PROCESO del mes: de las ordenes activas, solo cuentan
-    // las horas Trabajando y de comision que caen DENTRO del mes en curso —
-    // si una orden lleva abierta desde un mes anterior, ese tiempo viejo NO
-    // se suma aqui (se recorta al inicio del mes), para que este indicador
-    // tambien arranque en cero cada mes.
+    // Productividad EN PROCESO: SIN corte mensual — a diferencia de
+    // "cerrados" (que tiene un evento de cierre que ancla a que mes
+    // pertenece), una orden activa es un estado en vivo sin ese punto de
+    // corte natural, igual que "Activas"/"Repuestos pendientes". Se
+    // reutiliza _calcTecHorasAgregado(tec,'activas') por cada tecnico del
+    // roster — la misma fuente ya usada por la tabla "Productividad por
+    // tecnico — CASOS EN PROCESO" — para que ambos numeros coincidan
+    // siempre exacto (antes se calculaba aparte con phaseLog crudo +
+    // recorte al mes, lo que daba una diferencia real: 76% vs. el 80% de
+    // esa tabla en cuanto alguna orden activa llevaba abierta desde el mes
+    // anterior).
     var prodActHoras = 0, prodActCom = 0;
-    var activeForProd = orders.filter(function(o){ return o.phase !== 'cer'; });
-    for (var pai = 0; pai < activeForProd.length; pai++) {
-      var pao = activeForProd[pai];
-      var logPa = pao.phaseLog || [];
-      for (var lpi = 0; lpi < logPa.length; lpi++) {
-        if (logPa[lpi].phase !== 'ab') continue;
-        var segFrom = Math.max(logPa[lpi].from || 0, startOfMonthTs);
-        var segTo = logPa[lpi].to || 0;
-        if (segTo > segFrom) prodActHoras += businessMinutes(segFrom, segTo) / 60;
-      }
-      if (pao.phase === 'ab' && pao.timestamps && pao.timestamps.ab) {
-        var liveFrom = Math.max(pao.timestamps.ab, startOfMonthTs);
-        if (Date.now() > liveFrom) prodActHoras += businessMinutes(liveFrom, Date.now()) / 60;
-      }
-      (pao.trabajos || []).forEach(function(tw){ if (tw.ts && tw.ts >= startOfMonthTs) prodActCom += parseFloat(tw.horas) || 0; });
+    for (var pti2 = 0; pti2 < _TEC_NAMES_PROD.length; pti2++) {
+      var aggAct = _calcTecHorasAgregado(_TEC_NAMES_PROD[pti2], 'activas');
+      prodActHoras += aggAct.real;
+      prodActCom += aggAct.flat;
     }
     var prodActPct = prodActHoras > 0 ? Math.round(prodActCom / prodActHoras * 100) : null;
 
@@ -4493,13 +4487,14 @@ function buildRepContent() {
 
   // Panel "Productividad por tecnico" (jefe-only, toggle) — un vistazo de
   // los 6 tecnicos con sus horas Trabajando/Comision/% acumuladas, separado
-  // en 2 tablas: casos ya cerrados (azul) y casos en proceso (gris), para
-  // monitorear el desempeno global de cada uno.
+  // en 2 tablas con encabezados invertidos para diferenciarlas de un
+  // vistazo: casos ya cerrados (negro/amarillo) y casos en proceso
+  // (amarillo/negro), para monitorear el desempeno global de cada uno.
   if (role === 'jefe' && _jefeShowProdTecnicos) {
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:12px;margin-bottom:1rem">' +
       '<div style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:10px">&#128101; Productividad por tecnico</div>' +
-      _buildTecProdTable('cerradas', '#3D7EFF', 'rgba(61,126,255,.12)', '&#128309; Casos ya cerrados (mes en curso: ' + new Date().toLocaleDateString('es-GT', {month:'long', year:'numeric'}) + ')') +
-      _buildTecProdTable('activas', '#999999', 'rgba(153,153,153,.15)', '&#9898; Casos en proceso') +
+      _buildTecProdTable('cerradas', '#000000', '#FFD700', '&#128309; Casos ya cerrados (mes en curso: ' + new Date().toLocaleDateString('es-GT', {month:'long', year:'numeric'}) + ')') +
+      _buildTecProdTable('activas', '#FFD700', '#000000', '&#9898; Casos en proceso') +
     '</div>';
   }
 
@@ -7361,7 +7356,7 @@ function _calcTecHorasAgregado(tecName, source) {
 
 // Arma una de las 2 tablas del panel "Productividad por tecnico" — una fila
 // por cada uno de los 6 tecnicos, con sus 3 columnas agregadas.
-function _buildTecProdTable(source, colorAccent, bgAccent, title) {
+function _buildTecProdTable(source, headerBg, headerText, title) {
   var rows = '';
   for (var i = 0; i < _TEC_NAMES_PROD.length; i++) {
     var tn = _TEC_NAMES_PROD[i];
@@ -7374,14 +7369,19 @@ function _buildTecProdTable(source, colorAccent, bgAccent, title) {
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:700;color:' + pctColor + '">' + (agg.pct !== null ? agg.pct + '%' : '—') + '</td>' +
     '</tr>';
   }
+  // Encabezado (etiqueta + fila del thead) en fondo solido + texto
+  // contrastante, para diferenciar de un vistazo Cerrados (negro/amarillo)
+  // de En proceso (amarillo/negro, invertido) — pedido explicito del
+  // usuario tras ver ambas tablas una junto a la otra y costarle
+  // distinguirlas rapido.
   return '<div style="margin-bottom:14px">' +
-    '<div style="font-size:11px;font-weight:700;color:' + colorAccent + ';text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">' + title + '</div>' +
+    '<div style="font-size:11px;font-weight:700;background:' + headerBg + ';color:' + headerText + ';text-transform:uppercase;letter-spacing:.4px;padding:6px 10px;border-radius:6px 6px 0 0">' + title + '</div>' +
     '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:380px">' +
-    '<thead><tr style="background:' + bgAccent + ';color:' + colorAccent + ';font-weight:700">' +
-      '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid ' + colorAccent + '">Tecnico</th>' +
-      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + colorAccent + '">Hrs. Trabajando</th>' +
-      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + colorAccent + '">Hrs. Comision</th>' +
-      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + colorAccent + '">% Productividad</th>' +
+    '<thead><tr style="background:' + headerBg + ';color:' + headerText + ';font-weight:700">' +
+      '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid ' + headerText + '">Tecnico</th>' +
+      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + headerText + '">Hrs. Trabajando</th>' +
+      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + headerText + '">Hrs. Comision</th>' +
+      '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid ' + headerText + '">% Productividad</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
   '</div>';
 }
