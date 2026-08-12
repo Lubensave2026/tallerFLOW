@@ -15,6 +15,7 @@
 <script defer src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-check-compat.js"></script>
 <style>
 /* Scrollbars mas anchas y visibles (Chrome/Edge/Safari) — mejora usabilidad
    en computadora sin afectar layout ni funcionalidad */
@@ -810,6 +811,18 @@ function initFirebase() {
       return;
     }
     firebase.initializeApp(FB_CONFIG);
+
+    // App Check: confirma que las solicitudes vengan de verdad desde esta
+    // app cargada en un navegador (via reCAPTCHA v3, invisible para quien
+    // usa la app), no de un script/bot que solo tenga esta configuracion
+    // copiada. Se activa ANTES de leer/escribir nada. La "site key" de abajo
+    // es publica a proposito (asi funciona reCAPTCHA en cualquier sitio) —
+    // la validacion real ocurre del lado de Google con la clave secreta,
+    // que se configuro en la consola de Firebase y nunca vive aqui.
+    if (typeof firebase.appCheck === 'function') {
+      firebase.appCheck().activate('6LepqIItAAAAAOfTtenc_iCxEGp4fGutjq04oi0r', true);
+    }
+
     db = firebase.database();
 
     // Esperar confirmacion de auth ANTES de leer/escribir datos
@@ -1279,7 +1292,7 @@ function doLogin(rk) {
   // lectura para ellos, ver mas abajo); el resto de roles (asesor, partes,
   // mensajero, lavador) ya no lo necesitan.
   document.getElementById('btn-map').style.display = (rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
-  document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
+  document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   document.getElementById('btn-export').style.display = (rk === 'jefe') ? 'inline-flex' : 'none';
   document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
