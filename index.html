@@ -4212,41 +4212,78 @@ function buildRepContent() {
   if (isMgmtView) {
     // Vista de gestion (Jefe/Asesor/Partes): en vez de Total/Hoy/Urgentes/
     // Detenidas (poco accionables dia a dia), se muestran indicadores
-    // operativos globales del taller.
-    var kpiClosedIds = {};
-    var closedForProd = orders.concat(archived || []).filter(function(o) {
-      if (o.phase !== 'cer') return false;
-      if (kpiClosedIds[o.id]) return false;
-      kpiClosedIds[o.id] = true;
-      return true;
-    });
+    // operativos globales del taller. TODOS los que representan un evento
+    // acumulado (cierres, horas trabajadas, reprocesos) se acotan al MES EN
+    // CURSO y se reinician solos al cambiar de mes. "Activas" y "Repuestos
+    // pendientes" son conteos en vivo del estado actual (no hay nada que
+    // "acumular" en un mes — siempre reflejan ahora mismo), asi que no
+    // aplica un corte mensual para esos dos.
+    var nowKpi = new Date();
+    var curYKpi = nowKpi.getFullYear(), curMKpi = nowKpi.getMonth();
+    var startOfMonthTs = new Date(curYKpi, curMKpi, 1).getTime();
+    var _eventInCurrentMonth = function(ts) {
+      if (!ts) return false;
+      var d = new Date(ts);
+      return d.getFullYear() === curYKpi && d.getMonth() === curMKpi;
+    };
+
+    // Productividad CERRADOS del mes: reutiliza EXACTAMENTE la misma fuente
+    // que ya alimenta la tabla "Productividad por tecnico — CASOS YA
+    // CERRADOS" (solo Jefe) — se suma _calcTecHorasCerradasEnMes() de cada
+    // tecnico del roster fijo y se agrega. Antes esta tarjeta calculaba las
+    // horas por su cuenta con _sumPhaseHours() (sin reparto "regla de 3"
+    // entre 2 tecnicos ni el ajuste de horasFacturadoSnapshot que congela
+    // "Ya facturada"), lo que daba un % muy distinto (16% vs. el ~60% real
+    // de la tabla) — ver reporte del usuario. Reusar la funcion ya probada
+    // garantiza que ambos numeros siempre coincidan.
     var prodCerHoras = 0, prodCerCom = 0;
-    for (var pci = 0; pci < closedForProd.length; pci++) {
-      var pco = closedForProd[pci];
-      prodCerHoras += _sumPhaseHours(pco, 'ab');
-      (pco.trabajos || []).forEach(function(tw){ prodCerCom += parseFloat(tw.horas) || 0; });
-    }
+    (function() {
+      var nowKpi2 = new Date();
+      for (var pti = 0; pti < _TEC_NAMES_PROD.length; pti++) {
+        var agg = _calcTecHorasCerradasEnMes(_TEC_NAMES_PROD[pti], nowKpi2.getFullYear(), nowKpi2.getMonth());
+        prodCerHoras += agg.real;
+        prodCerCom += agg.flat;
+      }
+    })();
     var prodCerPct = prodCerHoras > 0 ? Math.round(prodCerCom / prodCerHoras * 100) : null;
 
+    // Productividad EN PROCESO del mes: de las ordenes activas, solo cuentan
+    // las horas Trabajando y de comision que caen DENTRO del mes en curso —
+    // si una orden lleva abierta desde un mes anterior, ese tiempo viejo NO
+    // se suma aqui (se recorta al inicio del mes), para que este indicador
+    // tambien arranque en cero cada mes.
     var prodActHoras = 0, prodActCom = 0;
     var activeForProd = orders.filter(function(o){ return o.phase !== 'cer'; });
     for (var pai = 0; pai < activeForProd.length; pai++) {
       var pao = activeForProd[pai];
-      var realPa = _sumPhaseHours(pao, 'ab');
-      if (pao.phase === 'ab' && pao.timestamps && pao.timestamps.ab) realPa += businessMinutes(pao.timestamps.ab, Date.now()) / 60;
-      prodActHoras += realPa;
-      (pao.trabajos || []).forEach(function(tw){ prodActCom += parseFloat(tw.horas) || 0; });
+      var logPa = pao.phaseLog || [];
+      for (var lpi = 0; lpi < logPa.length; lpi++) {
+        if (logPa[lpi].phase !== 'ab') continue;
+        var segFrom = Math.max(logPa[lpi].from || 0, startOfMonthTs);
+        var segTo = logPa[lpi].to || 0;
+        if (segTo > segFrom) prodActHoras += businessMinutes(segFrom, segTo) / 60;
+      }
+      if (pao.phase === 'ab' && pao.timestamps && pao.timestamps.ab) {
+        var liveFrom = Math.max(pao.timestamps.ab, startOfMonthTs);
+        if (Date.now() > liveFrom) prodActHoras += businessMinutes(liveFrom, Date.now()) / 60;
+      }
+      (pao.trabajos || []).forEach(function(tw){ if (tw.ts && tw.ts >= startOfMonthTs) prodActCom += parseFloat(tw.horas) || 0; });
     }
     var prodActPct = prodActHoras > 0 ? Math.round(prodActCom / prodActHoras * 100) : null;
 
     var repuestosPendientesCount = getPendingRepRows().length;
 
-    // Reprocesos: solo los registrados por Jefe o Asesor en Inspeccion
-    // Final (prb) o Listo p/entrega (lst) — ni los que un tecnico registra
-    // por su propio camino en prb, ni los de Entregado. Los reprocesos
-    // guardados antes de que existiera byRole (ver advanceReproceso /
-    // registrarReprocesoSinAvance) no se pueden atribuir, asi que no se
-    // cuentan — el numero crece de forma exacta desde ahora en adelante.
+    // Reprocesos DEL MES: cuenta TODAS las entradas de o.reprocesoLog[] con
+    // fecha en el mes en curso — la misma fuente cruda que ya exporta
+    // "Exportar Bitacora > Reprocesos" (_buildReprocesosCSV), sin filtrar
+    // por fase ni por quien lo registro. Antes se exigia
+    // from in {prb,lst} + byRole in {jefe,asesor}, pero byRole solo se
+    // empezo a guardar esta temporada — todo reproceso previo (incluidos
+    // los "5 de agosto" que el usuario confirmo contra el CSV) no tiene ese
+    // campo y quedaba en cero aunque si existieran. Se prioriza que el
+    // numero coincida con el reporte ya confiable; si mas adelante se
+    // quiere volver a acotar solo a prb/lst + jefe/asesor (una vez que haya
+    // suficiente historial con byRole), ajustar aqui.
     var reprocesosIds = {};
     var reprocesosCount = 0;
     var reprocesosOrders = orders.concat(archived || []).filter(function(o) {
@@ -4257,8 +4294,7 @@ function buildRepContent() {
     for (var rpi = 0; rpi < reprocesosOrders.length; rpi++) {
       var rpLog = reprocesosOrders[rpi].reprocesoLog || [];
       for (var rli = 0; rli < rpLog.length; rli++) {
-        var rle = rpLog[rli];
-        if ((rle.from === 'prb' || rle.from === 'lst') && (rle.byRole === 'jefe' || rle.byRole === 'asesor')) reprocesosCount++;
+        if (_eventInCurrentMonth(rpLog[rli].ts)) reprocesosCount++;
       }
     }
 
@@ -4981,17 +5017,16 @@ function downloadBodegaCsv() {
 }
 
 /* AVISO PARTES — "Preparar Facturacion": lista permanente para Mario de
-   ordenes que ya entraron a Lavado y todavia no ha dejado listas para que
-   Ricardo pueda cobrarle al cliente. No se filtra por fase (a diferencia
-   de getBodegaRows/getPendingRepRows) — se queda ahi sin importar si la
-   orden ya avanzo a Listo p/entrega, Entregado o incluso Cerrada; el UNICO
-   modo de que un item salga de esta lista es que Partes (o el Jefe) lo
-   marque listo (ver checkbox .chk-avisolav abajo). */
+   ordenes que ya entraron a Lavado. NO se filtra por marcado listo — el
+   check queda visible/tachado en la lista (igual patron que Despacho
+   Bodega), no desaparece: el UNICO modo de que un item salga de esta lista
+   es que la orden llegue a fase 'cer' (Cerrada), o que el Jefe la quite a
+   mano (ver btn-avisolav-del). */
 function getAvisoLavRows() {
   var rows = [];
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
-    if (o.lavAvisoPartesTs && !o.lavAvisoPartesListo) rows.push(o);
+    if (o.lavAvisoPartesTs && o.phase !== 'cer') rows.push(o);
   }
   return rows;
 }
@@ -4999,7 +5034,10 @@ function getAvisoLavRows() {
 function updateAvisoLavBadge() {
   var badge = document.getElementById('avisolav-count');
   if (!badge) return;
-  var pending = getAvisoLavRows().length;
+  // El numero del badge (y el "Por preparar" dentro del modal) cuenta solo
+  // lo que sigue PENDIENTE de marcar — la lista completa (incluye lo ya
+  // marcado) se ve al abrir el modal, ver buildAvisoLavContent().
+  var pending = getAvisoLavRows().filter(function(o){ return !o.lavAvisoPartesListo; }).length;
   if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; }
   else { badge.style.display = 'none'; }
 }
@@ -5014,8 +5052,10 @@ function buildAvisoLavContent() {
   var rows = getAvisoLavRows().slice().sort(function(a,b){ return (a.lavAvisoPartesTs||0) - (b.lavAvisoPartesTs||0); });
   var canManageAviso = role === 'jefe' || role === 'partes';
   var fmtQAviso = function(n) { return 'Q.' + (n||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var pendCount = rows.filter(function(o){ return !o.lavAvisoPartesListo; }).length;
   var html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + rows.length + '</div><div class="kpi-l">Por preparar</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + pendCount + '</div><div class="kpi-l">Por preparar</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total en la lista</div></div>' +
   '</div>';
 
   if (!rows.length) {
@@ -5033,23 +5073,26 @@ function buildAvisoLavContent() {
     for (var k = 0; k < rows.length; k++) {
       var o = rows[k];
       var rowBg = k % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
+      var isListo = !!o.lavAvisoPartesListo;
+      var strike = isListo ? ';text-decoration:line-through;color:var(--tx3)' : '';
       var chkCell = canManageAviso
-        ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav"><input type="checkbox" class="chk-avisolav" data-oid="' + o.id + '" style="width:16px;height:16px;cursor:pointer"></td>'
+        ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav"><input type="checkbox" class="chk-avisolav" data-oid="' + o.id + '"' + (isListo ? ' checked' : '') + ' style="width:16px;height:16px;cursor:pointer"></td>'
         : '';
-      // Solo el Jefe puede quitar un caso de esta lista sin marcarlo listo —
-      // por ejemplo si, ya pasado por Lavado, el cliente autoriza algo mas y
-      // hay que agregarle trabajo a la orden: al eliminarlo aqui, si la
-      // orden vuelve a pasar por Lavado, el aviso se vuelve a generar desde
-      // cero (ver advance(), que solo lo marca si no existe todavia).
+      // Solo el Jefe puede quitar un caso de esta lista antes de que la
+      // orden cierre — por ejemplo si, ya pasado por Lavado, el cliente
+      // autoriza algo mas y hay que agregarle trabajo a la orden: al
+      // eliminarlo aqui, si la orden vuelve a pasar por Lavado, el aviso se
+      // vuelve a generar desde cero (ver advance(), que solo lo marca si no
+      // existe todavia).
       var delCell = role === 'jefe'
         ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav"><button class="btn-avisolav-del" data-oid="' + o.id + '" title="Quitar de esta lista" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button></td>'
         : '';
-      html += '<tr style="background:' + rowBg + ';cursor:pointer" class="avisolav-row" data-oid="' + o.id + '">' +
+      html += '<tr style="background:' + rowBg + (isListo ? ';opacity:.6' : '') + ';cursor:pointer" class="avisolav-row" data-oid="' + o.id + '">' +
         chkCell +
-        '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(o.ot||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.client||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.model||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:600;color:var(--gn)">' + fmtQAviso(o.montoTotal) + '</td>' +
+        '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)' + strike + '">' + esc(o.ot||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(o.client||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(o.model||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:600;color:' + (isListo ? 'var(--tx3)' : 'var(--gn)') + '">' + fmtQAviso(o.montoTotal) + '</td>' +
         delCell +
       '</tr>';
     }
@@ -5074,17 +5117,18 @@ function buildAvisoLavContent() {
   document.querySelectorAll('.chk-avisolav').forEach(function(cb) {
     cb.addEventListener('click', function(e) { e.stopPropagation(); });
     cb.addEventListener('change', function() {
-      if (role !== 'jefe' && role !== 'partes') { toast('Solo el asesor de partes o el Jefe pueden marcar esto'); this.checked = false; return; }
+      if (role !== 'jefe' && role !== 'partes') { toast('Solo el asesor de partes o el Jefe pueden marcar esto'); this.checked = !this.checked; return; }
       var oid = parseInt(this.getAttribute('data-oid'));
       var ox = null;
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid) { ox = orders[i]; break; } }
       if (!ox) return;
-      ox.lavAvisoPartesListo = true;
-      ox.lavAvisoPartesListoTs = Date.now();
+      var newVal = this.checked;
+      ox.lavAvisoPartesListo = newVal;
+      if (newVal) { ox.lavAvisoPartesListoTs = Date.now(); } else { delete ox.lavAvisoPartesListoTs; }
       var who = ROLES[role] ? ROLES[role].label : role;
       ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:who, txt:'&#10003; Orden preparada para facturacion (Partes)', ts:Date.now(), type:'system'});
-      save(); toast('Marcado como listo'); updateAvisoLavBadge(); buildAvisoLavContent();
+      ox.msgs.push({who:who, txt: newVal ? '&#10003; Orden preparada para facturacion (Partes)' : 'Se desmarco "lista para facturar" (Partes)', ts:Date.now(), type:'system'});
+      save(); toast(newVal ? 'Marcado como listo' : 'Desmarcado'); updateAvisoLavBadge(); buildAvisoLavContent();
     });
   });
   document.querySelectorAll('.btn-avisolav-del').forEach(function(btn) {
