@@ -4959,7 +4959,11 @@ function buildBodegaPartsTable(rows) {
       var chkCell = canManageBod
         ? '<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bd)" class="no-row-nav no-print"><input type="checkbox" class="chk-bod-desp" data-oid="' + row.o.id + '" data-idx="' + row.idx + '"' + (it.despachado ? ' checked' : '') + ' style="width:16px;height:16px;cursor:pointer"></td>'
         : '';
-      html += '<tr style="background:' + rowBg + (it.despachado ? ';opacity:.6' : '') + groupBorder + ';cursor:pointer" class="bodparts-row" data-oid="' + row.o.id + '">' +
+      // El Mensajero solo consulta el listado (que se despacho / que falta) —
+      // para evitarle confusion se le quita el click-para-abrir-la-ficha que
+      // si tienen Jefe/Asesor/Partes (sin casilla de despachado, un click en
+      // cualquier parte de su fila abriria la orden sin querer).
+      html += '<tr style="background:' + rowBg + (it.despachado ? ';opacity:.6' : '') + groupBorder + (role !== 'mensajero' ? ';cursor:pointer' : '') + '" class="bodparts-row" data-oid="' + row.o.id + '">' +
         chkCell +
         '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.ot||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.client||'—') + '</td>' +
@@ -4979,14 +4983,16 @@ function buildBodegaPartsTable(rows) {
   '</div>';
 
   document.getElementById('repparts-body').innerHTML = html;
-  document.querySelectorAll('.bodparts-row').forEach(function(row) {
-    row.addEventListener('click', function(e) {
-      if (e.target && e.target.classList && e.target.classList.contains('chk-bod-desp')) return;
-      var oid = parseInt(this.getAttribute('data-oid'));
-      closeRepParts();
-      openDrw(oid);
+  if (role !== 'mensajero') {
+    document.querySelectorAll('.bodparts-row').forEach(function(row) {
+      row.addEventListener('click', function(e) {
+        if (e.target && e.target.classList && e.target.classList.contains('chk-bod-desp')) return;
+        var oid = parseInt(this.getAttribute('data-oid'));
+        closeRepParts();
+        openDrw(oid);
+      });
     });
-  });
+  }
   document.querySelectorAll('.chk-bod-desp').forEach(function(cb) {
     cb.addEventListener('click', function(e) { e.stopPropagation(); });
     cb.addEventListener('change', function() {
@@ -6122,11 +6128,15 @@ function buildRepsContent() {
         // borraba un repuesto real del historial.
         var poRepList = po2.presupuestoItems || [];
         html += '<div style="background:var(--bg3);border:1px solid #8B5CF6;border-left:4px solid #8B5CF6;border-radius:var(--r);padding:10px 12px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.3)">' +
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+          // OT bien identificado (antes 10px gris, facil de pasar por alto) +
+          // tecnico que trabajo la orden — para saber a quien consultar sin
+          // tener que abrir la ficha completa.
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+            '<span style="font-size:12px;font-weight:800;font-family:var(--mo);color:#8B5CF6;background:rgba(139,92,246,.15);border:1px solid #8B5CF6;border-radius:6px;padding:2px 8px">OT ' + esc(po2.ot||'—') + '</span>' +
             '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px">' + esc(po2.plate) + '</span>' +
             '<span style="font-size:11px;color:var(--tx2)">' + esc(po2.model) + '</span>' +
-            '<span style="font-size:10px;color:var(--tx3);font-family:var(--mo);margin-left:auto">' + esc(po2.ot) + '</span>' +
-          '</div>';
+          '</div>' +
+          '<div style="font-size:11px;color:var(--tx2);margin-bottom:10px">&#128295; Tecnico: <b>' + esc(po2.tech || 'Sin asignar') + (po2.tech2 ? ' + ' + esc(po2.tech2) : '') + '</b></div>';
         for (var pri = 0; pri < poRepList.length; pri++) {
           var prItem = poRepList[pri];
           html += '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 9px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
@@ -6140,6 +6150,16 @@ function buildRepsContent() {
         html += '<div style="display:flex;gap:6px;margin-top:4px;margin-bottom:8px;flex-wrap:wrap">' +
           '<input id="presq-inp-' + po2.id + '" class="cin" placeholder="Item del presupuesto..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
           '<button class="btn-presq-add" data-oid="' + po2.id + '" style="padding:6px 12px;border-radius:var(--rs);background:#8B5CF6;border:none;color:#fff;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
+        '</div>';
+        // Enlace de Clear Mechanic — reusa el MISMO campo o.cmUrl que ya
+        // existe en la ficha de la orden (no un campo paralelo): lo que se
+        // agregue/edite aqui es lo mismo que se ve alla, y viceversa.
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:7px 9px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);flex-wrap:wrap">' +
+          '<span style="font-size:11px;color:var(--tx2);flex-shrink:0">&#128279; Clear Mechanic</span>' +
+          (po2.cmUrl
+            ? '<a href="' + esc(po2.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>'
+            : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
+          '<button class="btn-presq-cm" data-oid="' + po2.id + '" style="margin-left:auto;background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (po2.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>' +
         '</div>';
         // Ruta de 3 pasos: Partes completa -> Asesor lo envia al cliente ->
         // Jefe da Vo.Bo. final (solo entonces desaparece del pendiente).
@@ -6344,6 +6364,37 @@ function buildRepsContent() {
         save(); toast('Item eliminado'); buildRepsContent();
       });
     })(presqDelBtns[pdi]);
+  }
+  // Enlace de Clear Mechanic desde la tarjeta de presupuesto pendiente —
+  // mismo flujo (prompt + campo o.cmUrl) que btn-cm-link en la ficha de la
+  // orden, mismos 3 roles con permiso de editarlo.
+  var presqCmBtns = body.querySelectorAll('.btn-presq-cm');
+  for (var pcmi = 0; pcmi < presqCmBtns.length; pcmi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) { toast('No tienes permiso para editar este enlace'); return; }
+        var oidCm = parseInt(this.getAttribute('data-oid'));
+        var oxCm = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidCm) { oxCm = orders[j]; break; } }
+        if (!oxCm) return;
+        var nuevoUrlP = prompt('Enlace de Clear Mechanic para esta orden:', oxCm.cmUrl || '');
+        if (nuevoUrlP === null) return;
+        nuevoUrlP = nuevoUrlP.trim();
+        var whoCm = ROLES[role] ? ROLES[role].label : role;
+        oxCm.msgs = oxCm.msgs || [];
+        if (!nuevoUrlP) {
+          if (oxCm.cmUrl) {
+            delete oxCm.cmUrl;
+            oxCm.msgs.push({who:whoCm, txt:'&#128279; Enlace de Clear Mechanic eliminado', ts:Date.now(), type:'system'});
+          } else { return; }
+        } else {
+          var esNuevoP = !oxCm.cmUrl;
+          oxCm.cmUrl = nuevoUrlP;
+          oxCm.msgs.push({who:whoCm, txt:(esNuevoP ? '&#128279; Enlace de Clear Mechanic agregado' : '&#128279; Enlace de Clear Mechanic actualizado'), ts:Date.now(), type:'system'});
+        }
+        save(); toast('Enlace actualizado'); buildRepsContent();
+      });
+    })(presqCmBtns[pcmi]);
   }
   var presqCompletadoBtns = body.querySelectorAll('.btn-presq-completado');
   for (var pci = 0; pci < presqCompletadoBtns.length; pci++) {
