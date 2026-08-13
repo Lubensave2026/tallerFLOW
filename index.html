@@ -2686,6 +2686,17 @@ function openDrw(id) {
       ox.repuestos.push({desc:esc(desc), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen, addedByTec:addedByTec});
       ox.msgs = ox.msgs || [];
       ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + esc(desc) + (addedByTec ? ' — requiere Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
+      // Si la orden tenia marcado "cliente no autorizo nada" (bypasa los 2
+      // requisitos de 'ea' — repuestos Y mano de obra), agregar un repuesto
+      // ahora lo contradice directamente: se limpia solo. Bug real
+      // reportado: una orden con esa marca pegada de antes dejaba firmar
+      // 'ea' sin pedir la mano de obra aunque ya tuviera un repuesto nuevo,
+      // porque el bypass seguia activo sin que nadie lo notara.
+      if (ox.noAutorizado) {
+        delete ox.noAutorizado;
+        delete ox.noAutorizadoBy;
+        ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'Se quito la marca de "cliente no autorizo nada" — se agrego un repuesto', ts:Date.now(), type:'system'});
+      }
       addNotif('Repuesto pendiente en ' + ox.plate + ': ' + desc + (addedByTec ? ' (requiere Vo.Bo. del Jefe)' : ''), id);
       save(); toast('Repuesto agregado'); openDrw(id);
     });
@@ -3511,6 +3522,23 @@ function doSign(id, sigId) {
     var eaR = (o.repuestos || []).filter(function(r){ return !r.ck3; });
     if (eaR.length === 0 && !o.noAutorizado) {
       toast('Agrega los repuestos necesarios antes de firmar, o marca "Cliente NO autorizo nada"'); return;
+    }
+    // Recoge la mano de obra si el Asesor la escribio en la casilla pero
+    // firmo sin haber tocado "Guardar" primero (bug real reportado: escribia
+    // el monto, firmaba, y le seguia saliendo "falta la mano de obra" porque
+    // el valor nunca habia llegado a guardarse en o.montoMO — quedaba solo
+    // en el input). Mismo guardado que btn-save-ea-mo, solo que disparado
+    // aqui tambien para no exigir un paso intermedio aparte.
+    if (role === 'asesor') {
+      var eaMoInp = document.getElementById('ea-mo-inp');
+      var pendingMO = eaMoInp ? (parseFloat(eaMoInp.value) || 0) : 0;
+      if (pendingMO && pendingMO !== (o.montoMO || 0)) {
+        var oldMOAuto = o.montoMO;
+        o.montoMO = pendingMO;
+        var whoAuto = ROLES[role] ? ROLES[role].label : role;
+        o.msgs = o.msgs || [];
+        o.msgs.push({who:whoAuto, txt:'Mano de obra actualizada: Q.' + (oldMOAuto||0) + ' -> Q.' + (o.montoMO||0), ts:Date.now(), type:'system'});
+      }
     }
     // Tampoco se puede confirmar la autorizacion si todavia falta fijar la
     // mano de obra — es la unica fase donde el Asesor de servicio puede
