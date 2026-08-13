@@ -2349,7 +2349,11 @@ function openDrw(id) {
   var showBodegaSection = (r.tec && o.phase === 'ab') || role === 'jefe';
   var bodegaHtml = '';
   if (showBodegaSection) {
-    var canAddBodega = r.tec && o.phase === 'ab';
+    // El Jefe tambien puede solicitar (en cualquier fase, igual que ya ve la
+    // seccion) — antes solo podia dar Vo.Bo. La solicitud que el mismo hace
+    // sigue el mismo camino que la de un tecnico (queda pendiente de su
+    // propio Vo.Bo.), para que el flujo sea uno solo y no una excepcion.
+    var canAddBodega = (r.tec && o.phase === 'ab') || role === 'jefe';
     var bodegaList = o.bodega || [];
     bodegaHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
       '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Solicitudes de bodega</span>' +
@@ -2397,8 +2401,6 @@ function openDrw(id) {
         '</div>' +
         '<button id="btn-add-bod" style="margin-top:8px;width:100%;padding:7px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Solicitar</button>' +
       '</div>';
-    } else if (role === 'jefe') {
-      bodegaHtml += '<div style="font-size:10px;color:var(--tx3);font-style:italic;padding-top:4px">&#128274; Solo el tecnico asignado puede solicitar insumos, mientras la orden esta en Trabajando.</div>';
     }
   }
 
@@ -6107,7 +6109,13 @@ function buildRepsContent() {
       html += '<div style="font-size:11px;font-weight:700;color:#8B5CF6;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">&#128221; Presupuestos pendientes (vehiculo ya entregado)</div>';
       for (var pqi = 0; pqi < pendingPresq.length; pqi++) {
         var po2 = pendingPresq[pqi];
-        var poRepList = po2.repuestos || [];
+        // Lista propia (o.presupuestoItems), NUNCA o.repuestos — este
+        // presupuesto adicional son lineas de cotizacion nuevas, no los
+        // repuestos ya solicitados/instalados durante la reparacion. Antes
+        // se reusaba o.repuestos y por eso al activar la casilla aparecian
+        // los repuestos reales de toda la orden, y borrar un item de aqui
+        // borraba un repuesto real del historial.
+        var poRepList = po2.presupuestoItems || [];
         html += '<div style="background:var(--bg3);border:1px solid #8B5CF6;border-left:4px solid #8B5CF6;border-radius:var(--r);padding:10px 12px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.3)">' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px">' + esc(po2.plate) + '</span>' +
@@ -6303,8 +6311,8 @@ function buildRepsContent() {
         var inpP = document.getElementById('presq-inp-' + oidP);
         var descP = inpP ? inpP.value.trim() : '';
         if (!descP) { toast('Escribe el item del presupuesto'); return; }
-        oxP.repuestos = oxP.repuestos || [];
-        oxP.repuestos.push({desc:esc(descP), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:'local'});
+        oxP.presupuestoItems = oxP.presupuestoItems || [];
+        oxP.presupuestoItems.push({desc:esc(descP), by:ROLES[role]?ROLES[role].label:role, ts:Date.now()});
         var whoP = ROLES[role] ? ROLES[role].label : role;
         oxP.msgs = oxP.msgs || [];
         oxP.msgs.push({who:whoP, txt:'&#128221; Item de presupuesto agregado: ' + esc(descP), ts:Date.now(), type:'system'});
@@ -6321,10 +6329,10 @@ function buildRepsContent() {
         var riD = parseInt(this.getAttribute('data-ri'));
         var oxD = null;
         for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidD) { oxD = orders[j]; break; } }
-        if (!oxD || !oxD.repuestos || !oxD.repuestos[riD]) return;
-        var descDelP = oxD.repuestos[riD].desc;
+        if (!oxD || !oxD.presupuestoItems || !oxD.presupuestoItems[riD]) return;
+        var descDelP = oxD.presupuestoItems[riD].desc;
         if (!confirm('¿Eliminar el item "' + descDelP + '" del presupuesto?')) return;
-        oxD.repuestos.splice(riD, 1);
+        oxD.presupuestoItems.splice(riD, 1);
         var whoD = ROLES[role] ? ROLES[role].label : role;
         oxD.msgs = oxD.msgs || [];
         oxD.msgs.push({who:whoD, txt:'&#x2715; Item de presupuesto eliminado: "' + esc(descDelP) + '"', ts:Date.now(), type:'system'});
@@ -6806,15 +6814,6 @@ function openHistDetail(o) {
       var origenLabel7 = (rp7.origen === 'importacion') ? '&#9992; Importacion' : 'Local';
       var estadoLabel7 = isDone7 ? '&#10003; Instalado' : (rp7.ck2 ? 'Confirmado por Partes' : (rp7.ck1 ? 'Confirmado por Mensajero' : 'Pendiente'));
       var estadoColor7 = isDone7 ? 'var(--gn)' : 'var(--or)';
-      // Los items de un presupuesto adicional (vehiculo ya entregado, ver
-      // buildRepsContent()) nunca pasan por ck1/ck2/ck3 — no son repuestos
-      // fisicos en camino, son lineas de una cotizacion. Si esa orden ya
-      // recibio el Vo.Bo. final del Jefe, mostrar "Pendiente" es enganoso —
-      // el presupuesto (y por lo tanto estos items) ya quedo completado.
-      if (o.presupuestoPendiente && o.presupuestoVobo && !isDone7 && !rp7.ck1) {
-        estadoLabel7 = '&#10003; Presupuesto completado';
-        estadoColor7 = 'var(--gn)';
-      }
       // Quien lo pidio — distingue un repuesto que grabo el Asesor/Jefe al
       // autorizar de uno que solicito el Tecnico (que ademas necesita, y
       // muestra, el Vo.Bo. del Jefe antes de poder abastecerse).
