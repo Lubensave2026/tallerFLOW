@@ -2386,7 +2386,12 @@ function openDrw(id) {
     if (canAddBodega) {
       var bodCantOptions = '';
       for (var bci = 1; bci <= 10; bci++) { bodCantOptions += '<option value="' + bci + '"' + (bci === 1 ? ' selected' : '') + '>' + bci + '</option>'; }
-      var bodLbl = function(txt) { return '<label style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:3px">' + txt + '</label>'; };
+      // Etiquetas deliberadamente destacadas (11px, negrita, color de texto
+      // principal) — antes eran 9px en var(--tx3), el gris mas apagado de la
+      // paleta, y pasaban desapercibidas: los tecnicos terminaban metiendo la
+      // cantidad real dentro de "Especificacion" (ej. "15w40 8 litros") sin
+      // notar que cada campo era distinto.
+      var bodLbl = function(txt) { return '<label style="font-size:11px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px">' + txt + '</label>'; };
       bodegaHtml += '<div style="background:var(--bg4);border:1px solid var(--bd);border-radius:var(--rs);padding:10px;margin-top:6px">' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
           '<div style="flex:0 0 80px">' + bodLbl('Cantidad') +
