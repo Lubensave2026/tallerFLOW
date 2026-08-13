@@ -4396,26 +4396,18 @@ function buildRepContent() {
     html += '<div style="background:var(--blbg);border:1px solid var(--blbd);border-radius:var(--r);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--ac)">Mostrando solo tus casos asignados</div>';
 
     // Productividad: horas de comision (flat rate) acumuladas vs. horas
-    // reales trabajadas (fase Trabajando). En ordenes con 2 tecnicos, el
-    // tiempo real se reparte 50/50 entre ambos. Solo considera lo que
-    // sigue visible en el board (hasta que el Jefe archiva ordenes viejas
-    // desde 📁 Historial — ver archiveOld()); no incluye historial archivado.
-    var hrsFlat = 0, hrsReal = 0;
-    for (var pi = 0; pi < orders.length; pi++) {
-      var po = orders[pi];
-      var isTech1 = po.tech === myName;
-      var isTech2 = po.tech2 === myName;
-      if (!isTech1 && !isTech2) continue;
-      var share = (po.tech && po.tech2) ? 0.5 : 1;
-      var abMin = 0;
-      (po.phaseLog || []).forEach(function(pl) { if (pl.phase === 'ab') abMin += (pl.minutes || 0); });
-      var abHoras = abMin / 60;
-      if (po.phase === 'ab' && po.timestamps && po.timestamps.ab) {
-        abHoras += businessMinutes(po.timestamps.ab, Date.now()) / 60;
-      }
-      hrsReal += abHoras * share;
-      (po.trabajos || []).forEach(function(tw) { if (tw.tecnico === myName) hrsFlat += (parseFloat(tw.horas) || 0); });
-    }
+    // reales trabajadas (fase Trabajando). Reusa _calcTecHorasAgregado(tec,
+    // 'activas') — la MISMA fuente que ya usan la tabla "Productividad por
+    // tecnico — CASOS EN PROCESO" (solo Jefe) y la tarjeta KPI "Productividad
+    // en proceso" del Reporte General — para que los tres SIEMPRE coincidan.
+    // Antes esta tarjeta calculaba aparte con reparto 50/50 fijo entre 2
+    // tecnicos (en vez del reparto "regla de 3" por horas de comision que ya
+    // usa calcTecHoras) y sin excluir ordenes ya cerradas del mismo array
+    // 'orders' (antes de que el Jefe las archive) — ambos bugs juntos podian
+    // inflar mucho el numero, como se reporto para Henry Barillas (51% aqui
+    // vs. 99% en la tabla real).
+    var aggActiveProd = _calcTecHorasAgregado(myName, 'activas');
+    var hrsFlat = aggActiveProd.flat, hrsReal = aggActiveProd.real;
     var prodPct = hrsReal > 0 ? (hrsFlat / hrsReal * 100) : null;
     var prodColor = prodPct === null ? 'var(--tx3)' : (prodPct >= 100 ? 'var(--gn)' : (prodPct >= 70 ? 'var(--or)' : 'var(--rd)'));
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px;margin-bottom:10px">' +
