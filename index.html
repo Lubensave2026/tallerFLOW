@@ -1895,11 +1895,16 @@ function openDrw(id) {
         // la MANO DE OBRA es lo unico que el puede fijar, y SOLO mientras la
         // orden esta en Espera de autorizacion (ea). El Total autorizado
         // sigue siendo de solo lectura para el (solo lo edita el Jefe).
-        : (o.phase === 'ea'
-            ? '<div class="fg" style="margin-top:6px"><label class="fl">Mano de obra (Q)</label><div style="display:flex;gap:6px"><input class="fi" id="ea-mo-inp" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="flex:1"><button id="btn-save-ea-mo" data-oid="' + id + '" style="padding:0 14px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">Guardar</button></div></div>'
-            : '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
-              '<div style="font-size:10px;color:var(--tx3);margin-top:4px">&#128274; Solo editable en Espera de autorizacion</div>'
-          )
+        // La casilla EDITABLE ya no vive aqui (seccion 01, arriba, que
+        // ademas empieza colapsada) — se movio a la seccion 02 "Firmas y
+        // cambios de fase", justo junto al aviso y al boton Firmar, para
+        // que no haya que ir a buscarla a otra seccion aparte (bug real
+        // reportado: no la encontraba a tiempo de firmar). Aqui solo queda
+        // el valor de solo lectura con un puntero a donde editarla.
+        : '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+          (o.phase === 'ea'
+            ? '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Se edita en &#9997; Firmas y cambios de fase, mas abajo</div>'
+            : '<div style="font-size:10px;color:var(--tx3);margin-top:4px">&#128274; Solo editable en Espera de autorizacion</div>')
       )
     : '') +
     (o.phaseStart ? '<div class="irow"><span class="ik">Tiempo en fase</span><span style="color:var(--or)">' + elapsed(o.phaseStart) + '</span></div>' : '') +
@@ -1965,6 +1970,16 @@ function openDrw(id) {
     var eaReps = (o.repuestos || []).filter(function(r){ return !r.ck3; });
     var eaFaltaRep = eaReps.length === 0;
     var eaFaltaMO = !o.montoMO;
+    // Casilla de mano de obra: se movio aqui (seccion 02, junto al aviso y
+    // al boton Firmar) porque antes vivia solo arriba en la seccion 01
+    // "Informacion" — que ademas empieza colapsada — y era facil no
+    // encontrarla a tiempo de firmar (bug real reportado). Se muestra
+    // siempre para el Asesor mientras la orden este en 'ea', no solo
+    // cuando falta: asi tambien puede ajustarla despues si ya la habia
+    // puesto.
+    var eaMoInputHtml = (role === 'asesor')
+      ? '<div class="fg" style="margin-bottom:6px"><label class="fl">Mano de obra (Q)</label><div style="display:flex;gap:6px"><input class="fi" id="ea-mo-inp" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="flex:1"><button id="btn-save-ea-mo" data-oid="' + id + '" style="padding:0 14px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">Guardar</button></div></div>'
+      : '';
     if ((eaFaltaRep || eaFaltaMO) && !o.noAutorizado) {
       var eaFaltantes = eaFaltaRep && eaFaltaMO
         ? 'los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo y la mano de obra autorizada'
@@ -1973,12 +1988,19 @@ function openDrw(id) {
           : 'la mano de obra autorizada');
       eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--orbd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--or)">'+
         '&#128230; Antes de firmar, agrega ' + eaFaltantes + ((role === 'jefe' || role === 'asesor') ? ', o si el cliente no autorizo nada:' : '.') + '</div>' +
+        eaMoInputHtml +
         ((role === 'jefe' || role === 'asesor') ? '<button id="btn-no-aut" style="width:100%;margin-bottom:4px;padding:8px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;cursor:pointer">&#x2715; Cliente NO autorizo nada</button>' : '');
     } else if (o.noAutorizado && eaFaltaRep) {
       eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--rd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--rd);display:flex;justify-content:space-between;align-items:center">'+
         '<span>&#x2715; Cliente no autorizo nada — registrado' + (o.noAutorizadoBy ? ' por ' + o.noAutorizadoBy : '') + '</span>' +
         (role === 'jefe' ? '<button id="btn-undo-no-aut" style="background:none;border:none;color:var(--tx3);font-size:11px;text-decoration:underline;cursor:pointer">deshacer</button>' : '') +
       '</div>';
+    } else {
+      // Ya hay repuestos y mano de obra (o esta en noAutorizado sin
+      // repuestos pendientes) — sin aviso naranja, pero la casilla sigue
+      // disponible por si el Asesor todavia quiere ajustar el monto antes
+      // de firmar.
+      eaRepBlock = eaMoInputHtml;
     }
   }
   // Boton para marcar el momento exacto en que el vehiculo sale a la prueba
