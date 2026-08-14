@@ -444,6 +444,7 @@ button{cursor:pointer}
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
     <button class="btn-map" id="btn-map" onclick="openMap()" style="display:none">🗺 Mapa</button>
     <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS</button>
+    <button class="btn-map" id="btn-presq-pend" onclick="openPresqPend()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#128221; Presupuestos pendientes (OT cerradas)<span id="presq-pend-count" style="display:none;background:#8B5CF6;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Despacho, Repuestos y Subcontratos</button>
@@ -1306,6 +1307,11 @@ function doLogin(rk) {
   // el check de "listo" — eso sigue siendo solo de Partes/Jefe).
   document.getElementById('btn-avisolav').style.display = (rk === 'jefe' || rk === 'partes' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-reps').style.display = (rk === 'mensajero' || rk === 'partes' || rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
+  // Mismos 3 roles que ya veian esta seccion cuando vivia mezclada dentro de
+  // REPUESTOS Y SUBCONTRATOS (ver buildPresqPendContent) — ahora en su
+  // propio boton para no mezclar los presupuestos de ordenes ya cerradas
+  // con los repuestos pendientes de ordenes activas.
+  document.getElementById('btn-presq-pend').style.display = (rk === 'jefe' || rk === 'partes' || rk === 'asesor') ? 'inline-flex' : 'none';
   // Mapa: el Jefe lo usa para asignar espacios (funcional); los tecnicos solo
   // lo ven para saber donde esta cada vehiculo (openMap() lo deja de solo
   // lectura para ellos, ver mas abajo); el resto de roles (asesor, partes,
@@ -1331,6 +1337,7 @@ function logout() {
   try { localStorage.removeItem('taller_session'); } catch(e) {}
   document.getElementById('btn-arch').style.display = 'none';
   document.getElementById('btn-reps').style.display = 'none';
+  document.getElementById('btn-presq-pend').style.display = 'none';
   document.getElementById('btn-sigs').style.display = 'none';
   document.getElementById('btn-sem').style.display = 'none';
   document.getElementById('btn-export').style.display = 'none';
@@ -1479,7 +1486,7 @@ function renderBoard() {
         // con el morado de "Prueba/Insp.Final".
         presqBadgeEl.style.cssText = 'background:#2A2A2A;color:#888888;font-size:10px;font-weight:800;padding:5px 8px;text-align:center;letter-spacing:.3px;cursor:pointer;flex-shrink:0';
         presqBadgeEl.textContent = '⚠ ' + pendingPresqBoardCount + ' PRESUPUESTO' + (pendingPresqBoardCount > 1 ? 'S' : '') + ' DE ORDEN CERRADA PENDIENTE' + (pendingPresqBoardCount > 1 ? 'S' : '');
-        presqBadgeEl.addEventListener('click', function() { openReps(); });
+        presqBadgeEl.addEventListener('click', function() { openPresqPend(); });
       }
     }
     var body = document.createElement('div');
@@ -1969,7 +1976,14 @@ function openDrw(id) {
   if (o.phase === 'ea') {
     var eaReps = (o.repuestos || []).filter(function(r){ return !r.ck3; });
     var eaFaltaRep = eaReps.length === 0;
-    var eaFaltaMO = !o.montoMO;
+    // 'nueva' = nunca se puso; 'reconfirmar' = ya habia mano de obra (ej. de
+    // un servicio original) pero se agrego un repuesto DESPUES de la
+    // ultima vez que se confirmo — caso real reportado: ordenes que
+    // llegaron primero a servicio (con su propia mano de obra ya cargada)
+    // y luego les salieron trabajos adicionales con repuestos nuevos; el
+    // monto viejo no cubre lo nuevo, asi que hay que volver a confirmarlo.
+    var eaMoStatus = _eaFaltaConfirmarMO(o);
+    var eaFaltaMO = !!eaMoStatus;
     // Casilla de mano de obra: se movio aqui (seccion 02, junto al aviso y
     // al boton Firmar) porque antes vivia solo arriba en la seccion 01
     // "Informacion" — que ademas empieza colapsada — y era facil no
@@ -1981,13 +1995,11 @@ function openDrw(id) {
       ? '<div class="fg" style="margin-bottom:6px"><label class="fl">Mano de obra (Q)</label><div style="display:flex;gap:6px"><input class="fi" id="ea-mo-inp" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="flex:1"><button id="btn-save-ea-mo" data-oid="' + id + '" style="padding:0 14px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">Guardar</button></div></div>'
       : '';
     if ((eaFaltaRep || eaFaltaMO) && !o.noAutorizado) {
-      var eaFaltantes = eaFaltaRep && eaFaltaMO
-        ? 'los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo y la mano de obra autorizada'
-        : (eaFaltaRep
-          ? 'los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo'
-          : 'la mano de obra autorizada');
+      var eaAcciones = [];
+      if (eaFaltaRep) eaAcciones.push('agrega los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo');
+      if (eaFaltaMO) eaAcciones.push(eaMoStatus === 'reconfirmar' ? 'confirma la mano de obra (se agregaron repuestos nuevos desde la ultima vez)' : 'agrega la mano de obra autorizada');
       eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--orbd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--or)">'+
-        '&#128230; Antes de firmar, agrega ' + eaFaltantes + ((role === 'jefe' || role === 'asesor') ? ', o si el cliente no autorizo nada:' : '.') + '</div>' +
+        '&#128230; Antes de firmar, ' + eaAcciones.join(' y ') + ((role === 'jefe' || role === 'asesor') ? ', o si el cliente no autorizo nada:' : '.') + '</div>' +
         eaMoInputHtml +
         ((role === 'jefe' || role === 'asesor') ? '<button id="btn-no-aut" style="width:100%;margin-bottom:4px;padding:8px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;cursor:pointer">&#x2715; Cliente NO autorizo nada</button>' : '');
     } else if (o.noAutorizado && eaFaltaRep) {
@@ -3376,6 +3388,13 @@ function openDrw(id) {
       var newMO = inp ? (parseFloat(inp.value) || 0) : null;
       var oldMO = ox.montoMO;
       ox.montoMO = newMO || null;
+      // A diferencia del auto-guardado silencioso de doSign() (que solo
+      // cuenta como confirmacion si el valor cambio), tocar este boton es
+      // una accion EXPLICITA del Asesor — siempre marca la reconfirmacion,
+      // aunque vuelva a guardar el mismo monto (ver _eaFaltaConfirmarMO):
+      // es la forma de decir "ya revise esto, incluyendo los repuestos
+      // nuevos" sin necesidad de que el numero cambie.
+      ox.montoMOTs = Date.now();
       if ((oldMO || 0) !== (ox.montoMO || 0)) {
         var who = ROLES[role] ? ROLES[role].label : role;
         ox.msgs = ox.msgs || [];
@@ -3547,6 +3566,32 @@ function showFreezeReminderModal(orderId) {
   });
 }
 
+// Determina si a una orden en 'ea' le falta CONFIRMAR la mano de obra —
+// devuelve null si esta al dia, 'nueva' si nunca se puso, o 'reconfirmar'
+// si ya se habia puesto pero se agrego un repuesto DESPUES de la ultima
+// vez que se confirmo (o.montoMOTs). Centralizado aqui porque lo usan tanto
+// el aviso/casilla en el drawer como el guard de doSign() — un solo lugar,
+// no duplicar el criterio.
+//
+// Bug real reportado: una orden que ya habia venido a servicio (con su
+// propia mano de obra ya cargada) recibia despues trabajos ADICIONALES con
+// repuestos nuevos — el sistema veia que "ya habia mano de obra" (la del
+// servicio original, que no cubre lo nuevo) y dejaba firmar sin pedir que
+// se revisara/actualizara. o.montoMOTs se guarda cada vez que el Asesor
+// confirma la mano de obra (boton Guardar, o al firmar si escribio un
+// valor nuevo) — si hay algun repuesto pendiente con fecha posterior a esa
+// confirmacion, la mano de obra ya guardada no se puede dar por buena para
+// ESE repuesto todavia.
+function _eaFaltaConfirmarMO(o) {
+  if (!o.montoMO) return 'nueva';
+  if (!o.montoMOTs) return 'reconfirmar'; // guardada antes de que existiera este control
+  var eaR = (o.repuestos || []).filter(function(r){ return !r.ck3; });
+  for (var i = 0; i < eaR.length; i++) {
+    if ((eaR[i].ts || 0) > o.montoMOTs) return 'reconfirmar';
+  }
+  return null;
+}
+
 function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
@@ -3567,20 +3612,26 @@ function doSign(id, sigId) {
     if (role === 'asesor') {
       var eaMoInp = document.getElementById('ea-mo-inp');
       var pendingMO = eaMoInp ? (parseFloat(eaMoInp.value) || 0) : 0;
+      // Solo cuenta como confirmacion si el valor REALMENTE cambio (escribio
+      // algo nuevo) — si el input solo muestra el mismo monto ya guardado
+      // sin que lo haya tocado, no debe "reconfirmar" solo, o el guard de
+      // abajo (reconfirmar tras un repuesto nuevo) quedaria sin efecto: cada
+      // intento de firmar recogeria en silencio el mismo valor pre-llenado.
       if (pendingMO && pendingMO !== (o.montoMO || 0)) {
         var oldMOAuto = o.montoMO;
         o.montoMO = pendingMO;
+        o.montoMOTs = Date.now();
         var whoAuto = ROLES[role] ? ROLES[role].label : role;
         o.msgs = o.msgs || [];
         o.msgs.push({who:whoAuto, txt:'Mano de obra actualizada: Q.' + (oldMOAuto||0) + ' -> Q.' + (o.montoMO||0), ts:Date.now(), type:'system'});
       }
     }
-    // Tampoco se puede confirmar la autorizacion si todavia falta fijar la
-    // mano de obra — es la unica fase donde el Asesor de servicio puede
-    // fijarla (ver btn-save-edit), asi que aqui se exige antes de dejarlo
-    // avanzar a la siguiente fase.
-    if (!o.montoMO && !o.noAutorizado) {
-      toast('Ingresa la mano de obra antes de firmar, o marca "Cliente NO autorizo nada"'); return;
+    // Tampoco se puede confirmar la autorizacion si todavia falta fijar (o
+    // reconfirmar, ver _eaFaltaConfirmarMO) la mano de obra — es la unica
+    // fase donde el Asesor de servicio puede fijarla (ver btn-save-edit),
+    // asi que aqui se exige antes de dejarlo avanzar a la siguiente fase.
+    if (_eaFaltaConfirmarMO(o) && !o.noAutorizado) {
+      toast('Ingresa o confirma la mano de obra antes de firmar, o marca "Cliente NO autorizo nada"'); return;
     }
   }
   // ab phase, firma del tecnico: antes de dejarlo firmar, verificar que
@@ -3974,6 +4025,7 @@ function addNotif(txt, oid) {
 function updateNDot() {
   if (role) updateSigDot();
   if (role) updateAvisoLavBadge();
+  if (role) updatePresqPendBadge();
   var unread = 0;
   for (var i = 0; i < notifs.length; i++) { if (!notifs[i].read) unread++; }
   var dot = document.getElementById('nb-dot');
@@ -5114,6 +5166,14 @@ function updateAvisoLavBadge() {
   else { badge.style.display = 'none'; }
 }
 
+function updatePresqPendBadge() {
+  var badge = document.getElementById('presq-pend-count');
+  if (!badge) return;
+  var pending = orders.filter(function(o){ return o.phase === 'cer' && o.presupuestoPendiente && !o.presupuestoVobo; }).length;
+  if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; }
+  else { badge.style.display = 'none'; }
+}
+
 function openAvisoLav() {
   buildAvisoLavContent();
   document.getElementById('m-avisolav').classList.add('on');
@@ -6166,94 +6226,6 @@ function buildRepsContent() {
   var rMe = role ? ROLES[role] : null;
   var myName = rMe && rMe.tec ? rMe.tn : null;
 
-  // ── Presupuestos pendientes de ordenes YA CERRADAS (el vehiculo ya se
-  // entrego, pero el cliente pidio que se le siguiera armando un
-  // presupuesto). NO se reabre la orden como activa — es la MISMA orden,
-  // solo se muestra aqui mientras el flag este activo (sin alterar su
-  // trazabilidad ni duplicar nada). Flujo: Partes agrega/edita items y
-  // marca "completado" -> Asesor de servicio lo envia al cliente -> Jefe da
-  // el Vo.Bo. final -> desaparece de esta lista (deja de cumplir el filtro
-  // de abajo) — misma ruta que sigue un presupuesto normal (Partes cotiza,
-  // Asesor lo entrega al cliente, Jefe cierra el ciclo). ──
-  var pendingPresqCount = 0;
-  if (role === 'jefe' || role === 'partes' || role === 'asesor') {
-    var pendingPresq = orders.filter(function(po) { return po.phase === 'cer' && po.presupuestoPendiente && !po.presupuestoVobo; });
-    pendingPresqCount = pendingPresq.length;
-    if (pendingPresq.length) {
-      html += '<div style="font-size:11px;font-weight:700;color:#8B5CF6;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">&#128221; Presupuestos pendientes (vehiculo ya entregado)</div>';
-      for (var pqi = 0; pqi < pendingPresq.length; pqi++) {
-        var po2 = pendingPresq[pqi];
-        // Lista propia (o.presupuestoItems), NUNCA o.repuestos — este
-        // presupuesto adicional son lineas de cotizacion nuevas, no los
-        // repuestos ya solicitados/instalados durante la reparacion. Antes
-        // se reusaba o.repuestos y por eso al activar la casilla aparecian
-        // los repuestos reales de toda la orden, y borrar un item de aqui
-        // borraba un repuesto real del historial.
-        var poRepList = po2.presupuestoItems || [];
-        html += '<div style="background:var(--bg3);border:1px solid #8B5CF6;border-left:4px solid #8B5CF6;border-radius:var(--r);padding:10px 12px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.3)">' +
-          // OT bien identificado (antes 10px gris, facil de pasar por alto) +
-          // tecnico que trabajo la orden — para saber a quien consultar sin
-          // tener que abrir la ficha completa.
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
-            '<span style="font-size:12px;font-weight:800;font-family:var(--mo);color:#8B5CF6;background:rgba(139,92,246,.15);border:1px solid #8B5CF6;border-radius:6px;padding:2px 8px">OT ' + esc(po2.ot||'—') + '</span>' +
-            '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px">' + esc(po2.plate) + '</span>' +
-            '<span style="font-size:11px;color:var(--tx2)">' + esc(po2.model) + '</span>' +
-          '</div>' +
-          '<div style="font-size:11px;color:var(--tx2);margin-bottom:10px">&#128295; Tecnico: <b>' + esc(po2.tech || 'Sin asignar') + (po2.tech2 ? ' + ' + esc(po2.tech2) : '') + '</b></div>';
-        for (var pri = 0; pri < poRepList.length; pri++) {
-          var prItem = poRepList[pri];
-          html += '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 9px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-            '<div style="font-size:12px">' + prItem.desc + '</div>' +
-            (role === 'jefe' ? '<button class="btn-presq-del" data-oid="' + po2.id + '" data-ri="' + pri + '" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
-          '</div>';
-        }
-        if (!poRepList.length) {
-          html += '<div style="font-size:11px;color:var(--tx3);padding:2px 0 8px">Aun sin items del presupuesto</div>';
-        }
-        html += '<div style="display:flex;gap:6px;margin-top:4px;margin-bottom:8px;flex-wrap:wrap">' +
-          '<input id="presq-inp-' + po2.id + '" class="cin" placeholder="Item del presupuesto..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
-          '<button class="btn-presq-add" data-oid="' + po2.id + '" style="padding:6px 12px;border-radius:var(--rs);background:#8B5CF6;border:none;color:#fff;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
-        '</div>';
-        // Enlace de Clear Mechanic — reusa el MISMO campo o.cmUrl que ya
-        // existe en la ficha de la orden (no un campo paralelo): lo que se
-        // agregue/edite aqui es lo mismo que se ve alla, y viceversa.
-        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:7px 9px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);flex-wrap:wrap">' +
-          '<span style="font-size:11px;color:var(--tx2);flex-shrink:0">&#128279; Clear Mechanic</span>' +
-          (po2.cmUrl
-            ? '<a href="' + esc(po2.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>'
-            : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
-          '<button class="btn-presq-cm" data-oid="' + po2.id + '" style="margin-left:auto;background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (po2.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>' +
-        '</div>';
-        // Ruta de 3 pasos: Partes completa -> Asesor lo envia al cliente ->
-        // Jefe da Vo.Bo. final (solo entonces desaparece del pendiente).
-        if (!po2.presupuestoListoPartes) {
-          html += (role === 'partes'
-            ? '<button class="btn-presq-completado" data-oid="' + po2.id + '" style="width:100%;padding:8px;border-radius:var(--rs);border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600;font-size:12px;cursor:pointer">&#10003; Marcar presupuesto completado</button>'
-            : '<div style="font-size:10px;color:var(--tx3);font-style:italic">&#128274; Esperando que Partes complete el presupuesto.</div>');
-        } else if (!po2.presupuestoEnviadoAsesor) {
-          html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-            '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Completado por Partes</span>' +
-            (role === 'asesor'
-              ? '<button class="btn-presq-enviado" data-oid="' + po2.id + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600;cursor:pointer">&#9993; Ya lo envie al cliente</button>'
-              : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#128274; Esperando envio al cliente (Asesor)</span>') +
-          '</div>';
-        } else {
-          // Ya se envio al cliente: deja de presionar en el tablero (el
-          // aviso de la columna PRESUP. M/O ya no lo cuenta) y pasa a ser
-          // seguimiento postventa del Asesor mientras se espera el Vo.Bo.
-          // final del Jefe.
-          html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-            '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#9993; Enviado al cliente — seguimiento postventa (Asesor)</span>' +
-            (role === 'jefe'
-              ? '<button class="btn-presq-vobo" data-oid="' + po2.id + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. final</button>'
-              : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Esperando Vo.Bo. Jefe</span>') +
-          '</div>';
-        }
-        html += '</div>';
-      }
-    }
-  }
-
   // Collect all orders with pending repuestos
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
@@ -6320,7 +6292,7 @@ function buildRepsContent() {
     html += '</div>';
   }
 
-  if (!found && !pendingPresqCount) {
+  if (!found) {
     html = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Sin repuestos pendientes</div>';
   }
 
@@ -6386,7 +6358,119 @@ function buildRepsContent() {
     })(voboBtns2[vbi2]);
   }
 
-  /* presupuestos pendientes de ordenes ya cerradas */
+}
+
+// ── Presupuestos pendientes de ordenes YA CERRADAS (el vehiculo ya se
+// entrego, pero el cliente pidio que se le siguiera armando un
+// presupuesto). Boton y panel PROPIOS — antes vivia mezclado arriba de
+// REPUESTOS Y SUBCONTRATOS (ver buildRepsContent), lo que juntaba en una
+// sola pantalla los presupuestos de ordenes YA CERRADAS con los repuestos
+// pendientes de ordenes ACTIVAS; se separan para no mezclarlos (bug real
+// reportado). NO se reabre la orden como activa — es la MISMA orden, solo
+// se muestra aqui mientras el flag este activo (sin alterar su
+// trazabilidad ni duplicar nada). Flujo: Partes agrega/edita items y marca
+// "completado" -> Asesor de servicio lo envia al cliente -> Jefe da el
+// Vo.Bo. final -> desaparece de esta lista (deja de cumplir el filtro de
+// abajo) — misma ruta que sigue un presupuesto normal (Partes cotiza,
+// Asesor lo entrega al cliente, Jefe cierra el ciclo).
+function openPresqPend() {
+  buildPresqPendContent();
+  document.getElementById('m-presq-pend').classList.add('on');
+  if (window._presqPendInt) clearInterval(window._presqPendInt);
+  window._presqPendInt = setInterval(function() {
+    var m = document.getElementById('m-presq-pend');
+    if (m && m.classList.contains('on')) buildPresqPendContent();
+    else clearInterval(window._presqPendInt);
+  }, 15000);
+}
+function closePresqPend() {
+  document.getElementById('m-presq-pend').classList.remove('on');
+  if (window._presqPendInt) clearInterval(window._presqPendInt);
+}
+
+function buildPresqPendContent() {
+  var html = '';
+  if (role === 'jefe' || role === 'partes' || role === 'asesor') {
+    var pendingPresq = orders.filter(function(po) { return po.phase === 'cer' && po.presupuestoPendiente && !po.presupuestoVobo; });
+    for (var pqi = 0; pqi < pendingPresq.length; pqi++) {
+      var po2 = pendingPresq[pqi];
+      // Lista propia (o.presupuestoItems), NUNCA o.repuestos — este
+      // presupuesto adicional son lineas de cotizacion nuevas, no los
+      // repuestos ya solicitados/instalados durante la reparacion. Antes
+      // se reusaba o.repuestos y por eso al activar la casilla aparecian
+      // los repuestos reales de toda la orden, y borrar un item de aqui
+      // borraba un repuesto real del historial.
+      var poRepList = po2.presupuestoItems || [];
+      html += '<div style="background:var(--bg3);border:1px solid #8B5CF6;border-left:4px solid #8B5CF6;border-radius:var(--r);padding:10px 12px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.3)">' +
+        // OT bien identificado (antes 10px gris, facil de pasar por alto) +
+        // tecnico que trabajo la orden — para saber a quien consultar sin
+        // tener que abrir la ficha completa.
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+          '<span style="font-size:12px;font-weight:800;font-family:var(--mo);color:#8B5CF6;background:rgba(139,92,246,.15);border:1px solid #8B5CF6;border-radius:6px;padding:2px 8px">OT ' + esc(po2.ot||'—') + '</span>' +
+          '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px">' + esc(po2.plate) + '</span>' +
+          '<span style="font-size:11px;color:var(--tx2)">' + esc(po2.model) + '</span>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--tx2);margin-bottom:10px">&#128295; Tecnico: <b>' + esc(po2.tech || 'Sin asignar') + (po2.tech2 ? ' + ' + esc(po2.tech2) : '') + '</b></div>';
+      for (var pri = 0; pri < poRepList.length; pri++) {
+        var prItem = poRepList[pri];
+        html += '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 9px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:12px">' + prItem.desc + '</div>' +
+          (role === 'jefe' ? '<button class="btn-presq-del" data-oid="' + po2.id + '" data-ri="' + pri + '" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
+        '</div>';
+      }
+      if (!poRepList.length) {
+        html += '<div style="font-size:11px;color:var(--tx3);padding:2px 0 8px">Aun sin items del presupuesto</div>';
+      }
+      html += '<div style="display:flex;gap:6px;margin-top:4px;margin-bottom:8px;flex-wrap:wrap">' +
+        '<input id="presq-inp-' + po2.id + '" class="cin" placeholder="Item del presupuesto..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
+        '<button class="btn-presq-add" data-oid="' + po2.id + '" style="padding:6px 12px;border-radius:var(--rs);background:#8B5CF6;border:none;color:#fff;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
+      '</div>';
+      // Enlace de Clear Mechanic — reusa el MISMO campo o.cmUrl que ya
+      // existe en la ficha de la orden (no un campo paralelo): lo que se
+      // agregue/edite aqui es lo mismo que se ve alla, y viceversa.
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:7px 9px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);flex-wrap:wrap">' +
+        '<span style="font-size:11px;color:var(--tx2);flex-shrink:0">&#128279; Clear Mechanic</span>' +
+        (po2.cmUrl
+          ? '<a href="' + esc(po2.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>'
+          : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
+        '<button class="btn-presq-cm" data-oid="' + po2.id + '" style="margin-left:auto;background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (po2.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>' +
+      '</div>';
+      // Ruta de 3 pasos: Partes completa -> Asesor lo envia al cliente ->
+      // Jefe da Vo.Bo. final (solo entonces desaparece del pendiente).
+      if (!po2.presupuestoListoPartes) {
+        html += (role === 'partes'
+          ? '<button class="btn-presq-completado" data-oid="' + po2.id + '" style="width:100%;padding:8px;border-radius:var(--rs);border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600;font-size:12px;cursor:pointer">&#10003; Marcar presupuesto completado</button>'
+          : '<div style="font-size:10px;color:var(--tx3);font-style:italic">&#128274; Esperando que Partes complete el presupuesto.</div>');
+      } else if (!po2.presupuestoEnviadoAsesor) {
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Completado por Partes</span>' +
+          (role === 'asesor'
+            ? '<button class="btn-presq-enviado" data-oid="' + po2.id + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600;cursor:pointer">&#9993; Ya lo envie al cliente</button>'
+            : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#128274; Esperando envio al cliente (Asesor)</span>') +
+        '</div>';
+      } else {
+        // Ya se envio al cliente: deja de presionar en el tablero (el
+        // aviso de la columna PRESUP. M/O ya no lo cuenta) y pasa a ser
+        // seguimiento postventa del Asesor mientras se espera el Vo.Bo.
+        // final del Jefe.
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--blbd);background:var(--blbg);color:var(--ac);font-weight:600">&#9993; Enviado al cliente — seguimiento postventa (Asesor)</span>' +
+          (role === 'jefe'
+            ? '<button class="btn-presq-vobo" data-oid="' + po2.id + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. final</button>'
+            : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Esperando Vo.Bo. Jefe</span>') +
+        '</div>';
+      }
+      html += '</div>';
+    }
+  }
+
+  if (!html) {
+    html = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Sin presupuestos pendientes de ordenes cerradas</div>';
+  }
+
+  var body = document.getElementById('presqpend-body');
+  body.innerHTML = html;
+
   var presqAddBtns = body.querySelectorAll('.btn-presq-add');
   for (var pai = 0; pai < presqAddBtns.length; pai++) {
     (function(btn) {
@@ -6404,7 +6488,7 @@ function buildRepsContent() {
         var whoP = ROLES[role] ? ROLES[role].label : role;
         oxP.msgs = oxP.msgs || [];
         oxP.msgs.push({who:whoP, txt:'&#128221; Item de presupuesto agregado: ' + esc(descP), ts:Date.now(), type:'system'});
-        save(); toast('Item agregado'); buildRepsContent();
+        save(); toast('Item agregado'); buildPresqPendContent();
       });
     })(presqAddBtns[pai]);
   }
@@ -6424,7 +6508,7 @@ function buildRepsContent() {
         var whoD = ROLES[role] ? ROLES[role].label : role;
         oxD.msgs = oxD.msgs || [];
         oxD.msgs.push({who:whoD, txt:'&#x2715; Item de presupuesto eliminado: "' + esc(descDelP) + '"', ts:Date.now(), type:'system'});
-        save(); toast('Item eliminado'); buildRepsContent();
+        save(); toast('Item eliminado'); buildPresqPendContent();
       });
     })(presqDelBtns[pdi]);
   }
@@ -6455,7 +6539,7 @@ function buildRepsContent() {
           oxCm.cmUrl = nuevoUrlP;
           oxCm.msgs.push({who:whoCm, txt:(esNuevoP ? '&#128279; Enlace de Clear Mechanic agregado' : '&#128279; Enlace de Clear Mechanic actualizado'), ts:Date.now(), type:'system'});
         }
-        save(); toast('Enlace actualizado'); buildRepsContent();
+        save(); toast('Enlace actualizado'); buildPresqPendContent();
       });
     })(presqCmBtns[pcmi]);
   }
@@ -6473,7 +6557,7 @@ function buildRepsContent() {
         var whoC = ROLES[role] ? ROLES[role].label : role;
         oxC.msgs = oxC.msgs || [];
         oxC.msgs.push({who:whoC, txt:'&#10003; Presupuesto completado por Partes — esperando que Asesor lo envie al cliente', ts:Date.now(), type:'system'});
-        save(); toast('Marcado como completado — esperando envio al cliente'); buildRepsContent();
+        save(); toast('Marcado como completado — esperando envio al cliente'); buildPresqPendContent();
       });
     })(presqCompletadoBtns[pci]);
   }
@@ -6491,7 +6575,7 @@ function buildRepsContent() {
         var whoE = ROLES[role] ? ROLES[role].label : role;
         oxE.msgs = oxE.msgs || [];
         oxE.msgs.push({who:whoE, txt:'&#9993; Presupuesto enviado al cliente por Asesor — esperando Vo.Bo. del Jefe', ts:Date.now(), type:'system'});
-        save(); toast('Marcado como enviado — esperando Vo.Bo. del Jefe'); buildRepsContent();
+        save(); toast('Marcado como enviado — esperando Vo.Bo. del Jefe'); buildPresqPendContent();
       });
     })(presqEnviadoBtns[pei]);
   }
@@ -6510,7 +6594,7 @@ function buildRepsContent() {
         var whoV = ROLES[role] ? ROLES[role].label : role;
         oxV.msgs = oxV.msgs || [];
         oxV.msgs.push({who:whoV, txt:'&#10003; Vo.Bo. final del presupuesto — pendiente resuelto', ts:Date.now(), type:'system'});
-        save(); toast('Vo.Bo. otorgado — el pendiente ya no aparecera en la lista'); buildRepsContent();
+        save(); toast('Vo.Bo. otorgado — el pendiente ya no aparecera en la lista'); buildPresqPendContent();
       });
     })(presqVoboBtns[pvi]);
   }
@@ -7545,6 +7629,19 @@ window.addEventListener('load', function() {
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeReps()">&#x2715;</button>
     </div>
     <div id="reps-body"></div>
+  </div>
+</div>
+
+<!-- Presupuestos pendientes de ordenes YA CERRADAS — panel propio, separado
+     de REPUESTOS Y SUBCONTRATOS (ver buildPresqPendContent) para no
+     mezclar los presupuestos de ordenes cerradas con los repuestos
+     pendientes de ordenes activas. -->
+<div class="mwrap" id="m-presq-pend">
+  <div class="rep-modal">
+    <div class="modal-t">&#128221; Presupuestos pendientes (OT cerradas)
+      <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closePresqPend()">&#x2715;</button>
+    </div>
+    <div id="presqpend-body"></div>
   </div>
 </div>
 
