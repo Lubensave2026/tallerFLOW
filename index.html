@@ -443,7 +443,7 @@ button{cursor:pointer}
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
     <button class="btn-map" id="btn-map" onclick="openMap()" style="display:none">🗺 Mapa</button>
-    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS</button>
+    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS<span id="reps-vobo-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-presq-pend" onclick="openPresqPend()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#128221; Presupuestos pendientes (OT cerradas)<span id="presq-pend-count" style="display:none;background:#8B5CF6;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
@@ -4026,6 +4026,7 @@ function updateNDot() {
   if (role) updateSigDot();
   if (role) updateAvisoLavBadge();
   if (role) updatePresqPendBadge();
+  if (role) updateRepsVoboBadge();
   var unread = 0;
   for (var i = 0; i < notifs.length; i++) { if (!notifs[i].read) unread++; }
   var dot = document.getElementById('nb-dot');
@@ -5174,6 +5175,32 @@ function updatePresqPendBadge() {
   else { badge.style.display = 'none'; }
 }
 
+// Repuestos que un tecnico agrego (addedByTec) y que todavia no tienen el
+// Vo.Bo. del Jefe — sin esto, Mensajero no puede avanzar el paso ck1 (ver
+// buildRepsContent). Centralizado aqui para que el badge del boton y la
+// seccion destacada de arriba del reporte usen exactamente el mismo criterio.
+function _getPendingVoboReps() {
+  var out = [];
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.phase === 'cer') continue;
+    var repList = o.repuestos || [];
+    for (var ri = 0; ri < repList.length; ri++) {
+      var r = repList[ri];
+      if (r.ck3) continue;
+      if (r.addedByTec && !r.vobo) out.push({o: o, rep: r, ri: ri});
+    }
+  }
+  return out;
+}
+function updateRepsVoboBadge() {
+  var badge = document.getElementById('reps-vobo-count');
+  if (!badge) return;
+  var pending = _getPendingVoboReps().length;
+  if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; }
+  else { badge.style.display = 'none'; }
+}
+
 function openAvisoLav() {
   buildAvisoLavContent();
   document.getElementById('m-avisolav').classList.add('on');
@@ -6226,6 +6253,34 @@ function buildRepsContent() {
   var rMe = role ? ROLES[role] : null;
   var myName = rMe && rMe.tec ? rMe.tn : null;
 
+  // Seccion destacada arriba de todo: solo lo que el Jefe necesita revisar
+  // AHORA (repuestos pedidos por un tecnico, sin Vo.Bo. todavia) — para que
+  // no tenga que abrir orden por orden buscando el boton "Dar Vo.Bo." entre
+  // el resto de repuestos pendientes (mensajero/partes/instalado) de abajo.
+  var voboSummaryHtml = '';
+  if (role === 'jefe') {
+    var voboItems = _getPendingVoboReps();
+    if (voboItems.length) {
+      voboSummaryHtml = '<div style="background:var(--orbg);border:2px solid var(--orbd);border-radius:var(--r);padding:10px 12px;margin-bottom:16px">' +
+        '<div style="font-size:12px;font-weight:800;color:var(--or);margin-bottom:8px;text-transform:uppercase;letter-spacing:.3px">&#9888; Necesitan tu Vo.Bo. (' + voboItems.length + ')</div>';
+      for (var vi = 0; vi < voboItems.length; vi++) {
+        var vItem = voboItems[vi];
+        voboSummaryHtml += '<div style="background:var(--bg2);border:1px solid var(--orbd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+          '<div style="min-width:0">' +
+            '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">' +
+              '<span style="font-size:13px;font-weight:800;font-family:var(--mo)">' + esc(vItem.o.plate) + '</span>' +
+              '<span style="font-size:10px;color:var(--or);font-family:var(--mo);font-weight:700">&#35;' + esc(vItem.o.ot) + '</span>' +
+              '<span style="font-size:10px;color:var(--tx2)">&#128295; ' + esc(vItem.o.tech || 'Sin tecnico') + '</span>' +
+            '</div>' +
+            '<div style="font-size:12px;color:var(--tx)">' + vItem.rep.desc + '</div>' +
+          '</div>' +
+          '<button class="btn-reps-vobo" data-oid="' + vItem.o.id + '" data-ri="' + vItem.ri + '" style="font-size:11px;padding:5px 12px;border-radius:10px;border:1px solid var(--orbd);background:var(--or);color:#000;font-weight:700;cursor:pointer;white-space:nowrap">&#9888; Dar Vo.Bo.</button>' +
+        '</div>';
+      }
+      voboSummaryHtml += '</div>';
+    }
+  }
+
   // Collect all orders with pending repuestos
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
@@ -6297,7 +6352,7 @@ function buildRepsContent() {
   }
 
   var body = document.getElementById('reps-body');
-  body.innerHTML = html;
+  body.innerHTML = voboSummaryHtml + html;
 
   // Attach events
   var cks = body.querySelectorAll('.btn-reps-ck');
