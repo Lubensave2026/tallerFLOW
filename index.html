@@ -1951,17 +1951,30 @@ function openDrw(id) {
   html = '';
 
   /* sigs */
-  // ea phase: show warning if no repuestos added yet — con opcion de marcar
-  // que el cliente no autorizo nada (desbloquea la firma sin crear un
-  // repuesto falso que confundiria a Partes)
+  // ea phase: show warning if no repuestos added yet, o si falta la mano de
+  // obra — con opcion de marcar que el cliente no autorizo nada (desbloquea
+  // la firma sin crear un repuesto falso que confundiria a Partes). Antes
+  // este aviso solo consideraba repuestos, y desaparecia por completo en
+  // cuanto se agregaba uno solo — aunque la mano de obra siguiera faltando
+  // (doSign() la sigue exigiendo igual, pero el unico aviso que quedaba era
+  // un toast pasajero al intentar firmar, facil de pasar por alto: bug real
+  // reportado, el asesor pensaba que ya no faltaba nada porque el aviso ya
+  // no se veia). Ahora el aviso se queda mientras falte CUALQUIERA de los 2.
   var eaRepBlock = '';
   if (o.phase === 'ea') {
     var eaReps = (o.repuestos || []).filter(function(r){ return !r.ck3; });
-    if (eaReps.length === 0 && !o.noAutorizado) {
+    var eaFaltaRep = eaReps.length === 0;
+    var eaFaltaMO = !o.montoMO;
+    if ((eaFaltaRep || eaFaltaMO) && !o.noAutorizado) {
+      var eaFaltantes = eaFaltaRep && eaFaltaMO
+        ? 'los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo y la mano de obra autorizada'
+        : (eaFaltaRep
+          ? 'los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo'
+          : 'la mano de obra autorizada');
       eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--orbd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--or)">'+
-        '&#128230; Antes de firmar, agrega los repuestos necesarios en la seccion &ldquo;Repuestos pendientes&rdquo; de abajo' + ((role === 'jefe' || role === 'asesor') ? ', o si el cliente no autorizo nada:' : '.') + '</div>' +
+        '&#128230; Antes de firmar, agrega ' + eaFaltantes + ((role === 'jefe' || role === 'asesor') ? ', o si el cliente no autorizo nada:' : '.') + '</div>' +
         ((role === 'jefe' || role === 'asesor') ? '<button id="btn-no-aut" style="width:100%;margin-bottom:4px;padding:8px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;cursor:pointer">&#x2715; Cliente NO autorizo nada</button>' : '');
-    } else if (o.noAutorizado && eaReps.length === 0) {
+    } else if (o.noAutorizado && eaFaltaRep) {
       eaRepBlock = '<div style="background:#1a1000;border:1px solid var(--rd);border-radius:var(--rs);padding:10px 12px;margin-bottom:4px;font-size:12px;color:var(--rd);display:flex;justify-content:space-between;align-items:center">'+
         '<span>&#x2715; Cliente no autorizo nada — registrado' + (o.noAutorizadoBy ? ' por ' + o.noAutorizadoBy : '') + '</span>' +
         (role === 'jefe' ? '<button id="btn-undo-no-aut" style="background:none;border:none;color:var(--tx3);font-size:11px;text-decoration:underline;cursor:pointer">deshacer</button>' : '') +
