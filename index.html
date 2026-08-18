@@ -436,6 +436,7 @@ button{cursor:pointer}
       <span class="hdr-role" id="hdr-role">—</span>
       <button class="btn-nb" id="btn-nb" onclick="toggleNP()">🔔<span class="nb-dot" id="nb-dot"></span></button>
       <button class="btn-nb" id="btn-sigs" onclick="openSigs()" style="display:none;position:relative">✍️<span class="nb-dot" id="sig-dot" style="background:var(--or)"></span></button>
+      <button class="btn-nb" id="btn-autoriz" onclick="openAutoriz()" style="display:none;position:relative;border-color:var(--orbd)">🔓<span class="nb-dot" id="autoriz-count" style="background:var(--or);width:auto;min-width:15px;height:15px;border-radius:8px;font-size:9px;font-weight:700;color:#000;line-height:15px;text-align:center;padding:0 3px;top:2px;right:2px"></span></button>
       <button class="btn-rpt" id="btn-rpt" onclick="openRep()" style="display:none">📊</button>
       <button class="btn-out" onclick="logout()">Salir</button>
     </div>
@@ -1370,10 +1371,11 @@ function logout() {
   document.getElementById('btn-reps').style.display = 'none';
   document.getElementById('btn-presq-pend').style.display = 'none';
   document.getElementById('btn-sigs').style.display = 'none';
+  document.getElementById('btn-autoriz').style.display = 'none';
   document.getElementById('btn-sem').style.display = 'none';
   document.getElementById('btn-export').style.display = 'none';
   document.getElementById('btn-map').style.display = 'none';
-  closeDrw(); closeNO(); closeRep(); closeMap();
+  closeDrw(); closeNO(); closeRep(); closeMap(); closeAutoriz();
   if (window._ri) clearInterval(window._ri);
   showSc('lg');
 }
@@ -4058,6 +4060,7 @@ function updateNDot() {
   if (role) updateAvisoLavBadge();
   if (role) updatePresqPendBadge();
   if (role) updateRepsVoboBadge();
+  if (role) updateAutorizBadge();
   var unread = 0;
   for (var i = 0; i < notifs.length; i++) { if (!notifs[i].read) unread++; }
   var dot = document.getElementById('nb-dot');
@@ -5291,6 +5294,145 @@ function updateRepsVoboBadge() {
   var pending = _getPendingVoboReps().length;
   if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; }
   else { badge.style.display = 'none'; }
+}
+
+// Pedidos de material de bodega que un tecnico solicito y que todavia no
+// tienen el Vo.Bo. del Jefe. Ojo: getBodegaRows() lista lo CONTRARIO (lo ya
+// autorizado, que es lo que se despacha) — antes de autorizar, el pedido
+// solo se veia abriendo la seccion 06 de esa orden en particular, que es
+// justo lo que obligaba a revisar orden por orden.
+function _getPendingVoboBodega() {
+  var out = [];
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.phase === 'cer') continue;
+    var items = o.bodega || [];
+    for (var bi = 0; bi < items.length; bi++) {
+      if (!items[bi].vobo) out.push({o: o, item: items[bi], idx: bi});
+    }
+  }
+  return out;
+}
+
+// Aviso dedicado del Jefe: todo lo que un tecnico pidio y espera SU
+// autorizacion (repuestos + material de bodega), junto en un solo lugar.
+// Se separa de la campanita general (que mezcla firmas, avances de fase,
+// ordenes nuevas... y se limpia al abrirla) porque esto debe seguir
+// encendido hasta que realmente se autorice, no hasta que se lea.
+function _getPendingAutorizaciones() {
+  var reps = _getPendingVoboReps().map(function(r) {
+    return {tipo: 'repuesto', o: r.o, ri: r.ri, desc: r.rep.desc, ts: r.rep.ts || 0, by: r.rep.by || ''};
+  });
+  var bods = _getPendingVoboBodega().map(function(b) {
+    var cant = b.item.cantidad ? b.item.cantidad + ' — ' : '';
+    return {tipo: 'bodega', o: b.o, ri: b.idx, desc: cant + b.item.desc +
+      (b.item.especificacion ? ' (' + b.item.especificacion + ')' : ''), ts: b.item.ts || 0, by: b.item.by || ''};
+  });
+  // Mas viejo primero: lo que lleva mas tiempo esperando es lo que mas
+  // urge autorizar.
+  return reps.concat(bods).sort(function(a, b){ return a.ts - b.ts; });
+}
+
+function updateAutorizBadge() {
+  var btn = document.getElementById('btn-autoriz');
+  var badge = document.getElementById('autoriz-count');
+  if (!btn || !badge) return;
+  if (role !== 'jefe') { btn.style.display = 'none'; return; }
+  var pend = _getPendingAutorizaciones();
+  if (!pend.length) {
+    btn.style.display = 'none';
+    return;
+  }
+  // Solo aparece cuando hay algo que autorizar — asi su sola presencia en el
+  // encabezado ya es la alerta, sin tener que ir a buscar un numero.
+  btn.style.display = 'flex';
+  badge.textContent = String(pend.length);
+  // Lleva mas de 1 hora habil esperando -> rojo y parpadeando, igual que el
+  // criterio de "firmas atrasadas" que ya usa el boton de firmas.
+  var hasOld = pend.some(function(p) { return p.ts && businessMinutes(p.ts, Date.now()) > 60; });
+  badge.className = 'nb-dot on' + (hasOld ? ' sig-urgent' : '');
+  badge.style.background = hasOld ? 'var(--rd)' : 'var(--or)';
+  btn.title = hasOld
+    ? '⚠ Hay solicitudes de tecnicos esperando tu Vo.Bo. hace mas de 1 hora'
+    : 'Solicitudes de tecnicos esperando tu Vo.Bo.';
+  // Si el panel esta abierto, refrescarlo tambien — asi una solicitud que
+  // acaba de entrar desde el celular de un tecnico aparece sola, sin cerrar
+  // y volver a abrir (updateNDot corre con cada cambio que llega de Firebase
+  // y ademas cada minuto).
+  var m = document.getElementById('m-autoriz');
+  if (m && m.classList.contains('on')) buildAutorizContent();
+}
+
+function openAutoriz() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller autoriza estas solicitudes'); return; }
+  buildAutorizContent();
+  document.getElementById('m-autoriz').classList.add('on');
+}
+function closeAutoriz() { document.getElementById('m-autoriz').classList.remove('on'); }
+
+function buildAutorizContent() {
+  var body = document.getElementById('autoriz-body');
+  if (!body) return;
+  var pend = _getPendingAutorizaciones();
+  if (!pend.length) {
+    body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Nada pendiente de autorizar</div>';
+    return;
+  }
+  var html = '<div style="font-size:11px;color:var(--tx3);margin-bottom:10px">' +
+    pend.length + ' solicitud(es) de tecnicos esperando tu Vo.Bo. — de la mas antigua a la mas reciente.</div>';
+  for (var i = 0; i < pend.length; i++) {
+    var p = pend[i];
+    var esRep = p.tipo === 'repuesto';
+    var espera = p.ts ? businessHours(p.ts, Date.now()) : '—';
+    var vieja = p.ts && businessMinutes(p.ts, Date.now()) > 60;
+    html += '<div style="background:var(--bg2);border:1px solid ' + (vieja ? 'var(--rd)' : 'var(--orbd)') + ';border-left:4px solid ' + (esRep ? 'var(--or)' : '#8B5CF6') + ';border-radius:var(--rs);padding:9px 11px;margin-bottom:8px">' +
+      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
+        '<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;padding:1px 7px;border-radius:8px;background:' + (esRep ? 'var(--orbg)' : '#2a1f3d') + ';color:' + (esRep ? 'var(--or)' : '#B794F6') + ';border:1px solid ' + (esRep ? 'var(--orbd)' : '#8B5CF6') + '">' + (esRep ? '&#128230; Repuesto' : '&#127981; Bodega') + '</span>' +
+        '<span style="font-size:13px;font-weight:800;font-family:var(--mo)">' + esc(p.o.plate) + '</span>' +
+        '<span style="font-size:10px;color:var(--or);font-family:var(--mo);font-weight:700">&#35;' + esc(p.o.ot) + '</span>' +
+        '<span style="font-size:10px;color:var(--tx2)">&#128295; ' + esc(p.o.tech || 'Sin tecnico') + '</span>' +
+        '<span style="font-size:10px;color:' + (vieja ? 'var(--rd)' : 'var(--tx3)') + ';margin-left:auto;font-weight:' + (vieja ? '700' : '400') + '">&#9201; ' + espera + '</span>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+        '<div style="font-size:12px;color:var(--tx);min-width:0">' + p.desc + '</div>' +
+        '<button class="btn-autoriz-ok" data-tipo="' + p.tipo + '" data-oid="' + p.o.id + '" data-ri="' + p.ri + '" style="font-size:11px;padding:5px 12px;border-radius:10px;border:1px solid var(--orbd);background:var(--or);color:#000;font-weight:700;cursor:pointer;white-space:nowrap">&#10003; Dar Vo.Bo.</button>' +
+      '</div>' +
+    '</div>';
+  }
+  body.innerHTML = html;
+
+  var btns = body.querySelectorAll('.btn-autoriz-ok');
+  for (var bi = 0; bi < btns.length; bi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede dar el Vo.Bo.'); return; }
+        var tipo = this.getAttribute('data-tipo');
+        var oid = parseInt(this.getAttribute('data-oid'));
+        var ri = parseInt(this.getAttribute('data-ri'));
+        var ox = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oid) { ox = orders[j]; break; } }
+        if (!ox) return;
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        if (tipo === 'repuesto') {
+          if (!ox.repuestos || !ox.repuestos[ri]) return;
+          ox.repuestos[ri].vobo = true;
+          ox.repuestos[ri].voboTs = Date.now();
+          ox.msgs.push({who:who, txt:'&#10003; Vo.Bo. Jefe: "' + esc(ox.repuestos[ri].desc) + '"', ts:Date.now(), type:'system'});
+        } else {
+          if (!ox.bodega || !ox.bodega[ri]) return;
+          ox.bodega[ri].vobo = true;
+          ox.bodega[ri].voboTs = Date.now();
+          ox.msgs.push({who:who, txt:'&#10003; Vo.Bo. Jefe (bodega): "' + esc(ox.bodega[ri].desc) + '"', ts:Date.now(), type:'system'});
+          addNotif('Solicitud de bodega autorizada en ' + ox.plate + ': ' + ox.bodega[ri].desc, oid);
+        }
+        save();
+        toast('Vo.Bo. otorgado');
+        buildAutorizContent();
+        updateNDot();
+      });
+    })(btns[bi]);
+  }
 }
 
 function openAvisoLav() {
@@ -7825,6 +7967,16 @@ window.addEventListener('load', function() {
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeSigs()">&#x2715;</button>
     </div>
     <div id="sigs-body"></div>
+  </div>
+</div>
+
+<!-- PENDIENTES DE AUTORIZAR (Jefe) -->
+<div class="mwrap" id="m-autoriz">
+  <div class="rep-modal" style="max-width:480px">
+    <div class="modal-t">&#128275; Esperando tu autorizacion
+      <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeAutoriz()">&#x2715;</button>
+    </div>
+    <div id="autoriz-body"></div>
   </div>
 </div>
 
