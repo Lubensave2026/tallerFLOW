@@ -1131,6 +1131,19 @@ function save() {
       // Solo escribir las ordenes que realmente cambiaron desde la ultima
       // sincronizacion — cada una en su propio path, para que dos personas
       // editando ordenes distintas al mismo tiempo nunca se pisen.
+      //
+      // Ademas, DENTRO de una misma orden que ya existia en el servidor, se
+      // escribe SOLO el/los campo(s) que este dispositivo realmente cambio
+      // (taller/orders_by_id/{id}/{campo}), no la orden completa — bug real
+      // reportado: dos personas trabajando la MISMA orden en 'ea' (una fija
+      // la mano de obra, otra/un tecnico/mensajero toca los repuestos) casi
+      // al mismo tiempo, donde el guardado de una borraba sin querer el
+      // cambio de la otra porque cada quien subia su copia completa de la
+      // orden (que todavia no tenia el cambio ajeno) y la ultima en llegar
+      // ganaba, dejando la orden sin repuestos o sin mano de obra pese a que
+      // ambas personas si hicieron su parte. Una orden nueva (todavia sin
+      // entrada en _lastSyncedOrders) se sigue escribiendo completa la
+      // primera vez, ya que ahi no hay nada con que hacer merge.
       for (var i = 0; i < orders.length; i++) {
         var o = orders[i];
         // Blindaje extra: los IDs reales de ordenes siempre son >= 300
@@ -1139,8 +1152,26 @@ function save() {
         if (o.id < 300) { continue; }
         seen[o.id] = true;
         var json = JSON.stringify(o);
-        if (_lastSyncedOrders[o.id] !== json) {
-          updates['taller/orders_by_id/' + o.id] = o;
+        var prevJson = _lastSyncedOrders[o.id];
+        if (prevJson !== json) {
+          if (!prevJson) {
+            updates['taller/orders_by_id/' + o.id] = o;
+          } else {
+            var prevObj;
+            try { prevObj = JSON.parse(prevJson); } catch(e) { prevObj = {}; }
+            var allKeys = {};
+            for (var pk in prevObj) { allKeys[pk] = true; }
+            for (var nk in o) { allKeys[nk] = true; }
+            for (var fk in allKeys) {
+              var oldHas = prevObj.hasOwnProperty(fk);
+              var newHas = o.hasOwnProperty(fk);
+              var oldVal = oldHas ? JSON.stringify(prevObj[fk]) : undefined;
+              var newVal = newHas ? JSON.stringify(o[fk]) : undefined;
+              if (oldVal !== newVal) {
+                updates['taller/orders_by_id/' + o.id + '/' + fk] = newHas ? o[fk] : null;
+              }
+            }
+          }
           _lastSyncedOrders[o.id] = json;
           changedCount++;
         }
