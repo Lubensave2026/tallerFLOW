@@ -4283,6 +4283,15 @@ var _tecRepShowClosed = false;
 // reinicia cada vez que se abre el reporte.
 var _jefeShowCerradosDetalle = false;
 
+// Copia en texto plano de la tabla del Reporte General, llenada durante el
+// MISMO render que dibuja la tabla en pantalla (ver buildRepContent) — es lo
+// que se exporta a Excel. Se hace asi, y no recalculando aparte, para que el
+// archivo siempre refleje exactamente lo que se ve (mismas columnas, que
+// cambian segun el rol y los toggles) sin una segunda copia de la logica que
+// se pueda desincronizar. Solo lectura: no toca datos ni sincronizacion.
+var _repExportHeader = [];
+var _repExportRows = [];
+
 function openRep() {
   _repProdMonthOffset = 0; // siempre abre mostrando el mes actual
   _jefeShowProdCols = false;
@@ -4637,6 +4646,7 @@ function buildRepContent() {
       ? '<button onclick="setTecRepClosed(false)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (!_tecRepShowClosed ? '#3D7EFF' : 'var(--bd)') + ';background:' + (!_tecRepShowClosed ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (!_tecRepShowClosed ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (!_tecRepShowClosed ? '700' : '400') + '">&#128295; Mis casos activos</button>' +
         '<button onclick="setTecRepClosed(true)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_tecRepShowClosed ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_tecRepShowClosed ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_tecRepShowClosed ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (_tecRepShowClosed ? '700' : '400') + '">&#9989; Mis casos cerrados</button>'
       : '') +
+    '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
     '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
   '</div>';
 
@@ -4690,6 +4700,27 @@ function buildRepContent() {
             : '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">T. fase</th>')) +
       ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Fact. potencial</th>' : '') +
     '</tr></thead><tbody>';
+
+  // Encabezado del export: mismas columnas que se acaban de dibujar arriba,
+  // en el mismo orden. Las de tiempo/dinero se nombran con su unidad porque
+  // en el archivo van como NUMERO (no como "1,6 h"), para que en Excel se
+  // puedan sumar y ordenar bien.
+  _repExportHeader = ['OR #','Ingreso','Estatus','Cliente','Vehiculo','No.','Placa','Tecnico'];
+  if (myName) {
+    _repExportHeader.push('Hrs. En Proceso','Hrs. Pagadas');
+    if (_tecRepShowClosed) _repExportHeader.push('% Productividad');
+  } else if (role === 'jefe' && _jefeShowProdCols) {
+    _repExportHeader.push('Hrs. Trabajando','Hrs. Comision','% Productividad');
+  } else {
+    _repExportHeader.push('T. fase (h)');
+  }
+  if (role === 'jefe' || role === 'asesor' || role === 'partes') {
+    // "Ya facturada" es columna aparte (en pantalla esa distincion se ve como
+    // el monto en rojo entre parentesis) — sin ella, sumar la columna de
+    // Fact. potencial en Excel contaria doble lo ya facturado.
+    _repExportHeader.push('Fact. potencial','Ya facturada');
+  }
+  _repExportRows = [];
 
   for (var i = 0; i < sorted.length; i++) {
     var o = sorted[i];
@@ -4787,6 +4818,36 @@ function buildRepContent() {
       (myName ? tecRowCells : ((role === 'jefe' && _jefeShowProdCols) ? jefeProdRowCells : '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>')) +
       factPotencialCell +
     '</tr>';
+
+    // Misma fila, en texto plano, para el export a Excel. Se guardan tambien
+    // tecnico y fase crudos (no se exportan) para poder aplicar despues los
+    // mismos filtros que la pantalla — ver _repExportVisibleRows().
+    var expRow = [
+      o.ot || '', fecha, pcLabel, o.client || '', o.model || '',
+      o.numFisico || '', o.plate || '',
+      (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '')
+    ];
+    if (myName) {
+      expRow.push(_csvNum(abHorasRow.toFixed(2)), _csvNum(hrsComRow.toFixed(2)));
+      if (_tecRepShowClosed) expRow.push(pctRowTec !== null ? pctRowTec + '%' : '');
+    } else if (role === 'jefe' && _jefeShowProdCols) {
+      expRow.push(_csvNum(hrsRealRow2.toFixed(2)), _csvNum(hrsComRow2.toFixed(2)));
+      expRow.push(sinComisionRow ? 'Sin comision' : (pctRow2 !== null ? pctRow2 + '%' : ''));
+    } else {
+      // Numero de horas (no el texto "8 min" / "1,6 h" de la pantalla), para
+      // que en Excel se pueda ordenar y promediar de verdad.
+      var tFaseNum = (o.timestamps && o.timestamps[o.phase])
+        ? businessMinutes(o.timestamps[o.phase], Date.now()) / 60
+        : null;
+      expRow.push(tFaseNum !== null ? _csvNum(tFaseNum.toFixed(2)) : '');
+    }
+    if (role === 'jefe' || role === 'asesor' || role === 'partes') {
+      expRow.push(o.montoTotal ? _csvNum(Number(o.montoTotal).toFixed(2)) : '');
+      expRow.push(o.montoFacturadoTotal ? 'Si' : '');
+    }
+    expRow._tec = o.tech || '';
+    expRow._phase = o.phase || '';
+    _repExportRows.push(expRow);
   }
   html += '</tbody></table></div></div>';
 
@@ -5837,6 +5898,32 @@ function exportOrderSummaryCSV() {
 
 /* EXPORTAR: selector entre Bitacora y Reprocesos, disparado desde el mismo
    boton "Exportar bitacora (CSV)". */
+// Export del Reporte General (el que se ve al tocar &#128202;) — usa la copia
+// que dejo el render (_repExportHeader/_repExportRows) y le aplica los MISMOS
+// filtros de tecnico/estatus que estan puestos en pantalla, para que el
+// archivo salga igual a lo que se esta viendo. Solo lectura: no modifica
+// ninguna orden ni escribe a Firebase.
+function _repExportVisibleRows() {
+  var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
+  var phaseFilter = (document.getElementById('rep-fil-phase') || {}).value || '';
+  return _repExportRows.filter(function(r) {
+    return (!tecFilter || r._tec === tecFilter) && (!phaseFilter || r._phase === phaseFilter);
+  });
+}
+function exportRepGeneralCSV() {
+  if (!role) { toast('Inicia sesion para exportar'); return; }
+  if (!_repExportHeader.length || !_repExportRows.length) {
+    toast('No hay ordenes para exportar en este reporte'); return;
+  }
+  var visibles = _repExportVisibleRows();
+  if (!visibles.length) { toast('Los filtros actuales no dejan ninguna orden para exportar'); return; }
+  var rows = [_repExportHeader];
+  for (var i = 0; i < visibles.length; i++) rows.push(visibles[i]);
+  var csv = rows.map(function(rr) { return rr.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
+  _downloadCSV(csv, 'tallerflow_reporte_general_' + _todayKey() + '.csv');
+  toast('Exportado: ' + visibles.length + ' orden(es)');
+}
+
 function openExportPicker() {
   if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar'); return; }
   var body = document.getElementById('export-pick-body');
