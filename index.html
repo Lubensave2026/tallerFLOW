@@ -4233,6 +4233,32 @@ function saveNO() {
 }
 
 /* NOTIFS */
+// Encabezado de cada aviso de la campana general: identifica de que orden es,
+// por No. OT y vehiculo. El id de la orden YA viaja en cada aviso (addNotif
+// lo guarda como oid, es lo que hace que al tocarlo se abra la ficha
+// correcta), asi que el encabezado se arma al DIBUJAR — no hay que tocar
+// ninguno de los lugares que crean avisos ni migrar los ya guardados.
+//
+// La placa a proposito NO va aqui: el texto del propio aviso ya la menciona
+// ("... firmo en P25-EF5"), y repetirla se veia redundante.
+function _notifHeader(oid) {
+  if (oid === undefined || oid === null) return '';
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid) { o = orders[i]; break; } }
+  if (!o) {
+    var arch = archived || [];
+    for (var j = 0; j < arch.length; j++) { if (arch[j].id === oid) { o = arch[j]; break; } }
+  }
+  // Orden ya eliminada, archivada sin cargar todavia, o aviso viejo sin oid:
+  // se deja el aviso tal como estaba, nunca un encabezado a medias.
+  if (!o) return '';
+  var partes = [];
+  if (o.ot) partes.push('&#35;' + esc(o.ot));
+  if (o.model) partes.push(esc(o.model));
+  if (!partes.length) return '';
+  return '<div style="font-size:10px;font-weight:700;color:var(--ac);font-family:var(--mo);margin-bottom:3px;letter-spacing:.3px">' +
+    partes.join(' &middot; ') + '</div>';
+}
 function addNotif(txt, oid) {
   notifs.unshift({txt:esc(txt), oid:oid, ts:Date.now(), read:false});
   if (notifs.length > 50) notifs = notifs.slice(0, 50);
@@ -4261,6 +4287,7 @@ function toggleNP() {
     var max = notifs.length < 20 ? notifs.length : 20;
     for (var i = 0; i < max; i++) {
       html += '<div class="np-i" data-oid="' + notifs[i].oid + '">' +
+        _notifHeader(notifs[i].oid) +
         '<div>' + notifs[i].txt + '</div>' +
         '<div class="np-t">' + ago(notifs[i].ts) + '</div>' +
       '</div>';
