@@ -547,7 +547,7 @@ button{cursor:pointer}
       </div>
     </div>
     <div class="mact">
-      <button class="btn-p" onclick="saveNO()">Crear orden</button>
+      <button class="btn-p" id="btn-save-no" onclick="saveNO()">Crear orden</button>
       <button class="btn-s" onclick="closeNO()">Cancelar</button>
     </div>
   </div>
@@ -2407,6 +2407,15 @@ function openDrw(id) {
       '</div>' +
       '<div style="font-size:10px;color:var(--tx3);margin-top:5px">Solo visible para el Jefe de taller. Las firmas se reinician al mover.</div>' +
     '</div>';
+
+    // Eliminar la orden completa — pensado para corregir errores de captura
+    // (ej. una orden duplicada por doble toque en "Crear orden"). Es la
+    // unica accion que borra una orden entera, asi que va aparte, al final,
+    // y con confirmacion que obliga a leer que orden se esta borrando.
+    html += '<div class="sec">' +
+      '<button id="btn-del-order" data-oid="' + id + '" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;font-weight:600;cursor:pointer">&#128465; Eliminar esta orden</button>' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:5px">Para corregir errores de captura, como una orden duplicada. Borra la orden y todo su historial para todo el equipo, y no se puede deshacer.</div>' +
+    '</div>';
   }
 
   // Seccion 02) FIRMAS Y CAMBIOS DE FASE lista.
@@ -3450,6 +3459,37 @@ function openDrw(id) {
       save(); toast('Monto y horas congelados en ' + facMesLabel); openDrw(id);
     });
   }
+  var delOrderBtn = document.getElementById('btn-del-order');
+  if (delOrderBtn) {
+    delOrderBtn.addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar una orden'); return; }
+      var ox = null, oxIdx = -1;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; oxIdx = i; break; } }
+      if (!ox) return;
+      var faseLbl = (PHASE_COLORS[ox.phase] || {label: ox.phase}).label;
+      // La confirmacion nombra la orden concreta (placa, No. OT y fase) para
+      // que no se borre otra por equivocacion al tener varias abiertas.
+      if (!confirm(
+        'ELIMINAR LA ORDEN\n\n' +
+        'Placa: ' + ox.plate + '\n' +
+        'No. OT: ' + ox.ot + '\n' +
+        'Cliente: ' + (ox.client || '—') + '\n' +
+        'Fase actual: ' + faseLbl + '\n\n' +
+        'Se borra para TODO el equipo, junto con sus firmas, repuestos, ' +
+        'trabajos y bitacora. Esta accion NO se puede deshacer.\n\n' +
+        '¿Continuar?'
+      )) return;
+      orders.splice(oxIdx, 1);
+      // save() detecta que esta orden ya no esta en el arreglo local y
+      // escribe null en su path de Firebase (ver el bloque de "ordenes que
+      // ya no estan" dentro de save), asi que no hace falta borrarla aqui.
+      save();
+      closeDrw();
+      renderBoard();
+      updateNDot();
+      toast('Orden ' + ox.plate + ' eliminada');
+    });
+  }
   var rutaSalidaBtn = document.getElementById('btn-ruta-salida');
   if (rutaSalidaBtn) {
     rutaSalidaBtn.addEventListener('click', function() {
@@ -4046,10 +4086,14 @@ var _noRepDraft = []; // repuestos capturados en el modal de Nueva Orden, antes 
 function openNO() {
   _noRepDraft = [];
   renderNoRepList();
+  // Boton siempre habilitado al abrir: si un intento anterior quedo a medias
+  // (se corto la conexion), no debe heredarse el estado "Creando..."
+  if (typeof _setSavingNO === 'function') _setSavingNO(false);
   document.getElementById('m-no').classList.add('on');
 }
 function closeNO() {
   _noRepDraft = [];
+  if (typeof _setSavingNO === 'function') _setSavingNO(false);
   document.getElementById('m-no').classList.remove('on');
 }
 function addNoRep() {
@@ -4094,7 +4138,26 @@ function addDescPreset(txt) {
   el.value = current + ', ' + txt;
 }
 
+// Candado contra doble creacion: el numero de orden se pide al servidor
+// (transaction atomica, ver abajo) y eso tarda un instante. En ese lapso el
+// formulario seguia abierto y el boton seguia respondiendo, asi que un
+// segundo toque —o un doble clic, muy facil en tablet— disparaba una
+// SEGUNDA transaction y creaba una orden duplicada (bug real reportado: la
+// P-384JQY quedo dos veces, ambas con el No. OT escrito a mano). El candado
+// se libera al terminar, falle o no.
+var _savingNO = false;
+function _setSavingNO(on) {
+  _savingNO = on;
+  var b = document.getElementById('btn-save-no');
+  if (!b) return;
+  b.disabled = on;
+  b.textContent = on ? 'Creando...' : 'Crear orden';
+  b.style.opacity = on ? '.6' : '';
+  b.style.cursor = on ? 'not-allowed' : '';
+}
+
 function saveNO() {
+  if (_savingNO) { return; } // ya hay una creacion en curso — ignorar el toque extra
   var plate = document.getElementById('f-pl').value.trim();
   var model = document.getElementById('f-mo').value.trim();
   var client = document.getElementById('f-cl').value.trim();
@@ -4121,12 +4184,29 @@ function saveNO() {
       });
       no.msgs.push({who:who, txt:'&#128230; ' + _noRepDraft.length + ' repuesto(s) solicitado(s) desde Recepcion', ts:Date.now(), type:'system'});
     }
+    // Ultima red de seguridad: si por cualquier via llegara a repetirse el
+    // mismo id, no se agrega dos veces la misma orden al tablero.
+    for (var dz = 0; dz < orders.length; dz++) {
+      if (orders[dz].id === assignedId) {
+        _setSavingNO(false);
+        closeNO();
+        toast('Esa orden ya se habia creado');
+        renderBoard();
+        return;
+      }
+    }
     orders.push(no);
     addNotif('Nueva orden: ' + plate + ' - ' + model, no.id);
     _noRepDraft = [];
     save(); closeNO(); toast('Orden creada'); renderBoard();
     ['f-pl','f-ot','f-mo','f-cl','f-dc','f-num','f-col','f-hrs','f-km'].forEach(function(fid) { var el = document.getElementById(fid); if (el) el.value = ''; });
+    _setSavingNO(false);
   }
+
+  _setSavingNO(true);
+  // Si la respuesta del servidor nunca llega (se cayo la conexion a media
+  // transaction), el candado se libera solo para no dejar el boton muerto.
+  setTimeout(function() { if (_savingNO) _setSavingNO(false); }, 15000);
 
   if (fbReady && db) {
     // Asignacion atomica del numero de orden: si dos personas crean una
