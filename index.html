@@ -1009,7 +1009,7 @@ function sendWaReminder(oid, sigId) {
 
 var LANES = [
   {id:'rec',label:'01 Recepcion',          cls:'l-rec'},
-  {id:'aa', label:'02a Asignado-espera',   cls:'l-aa'},
+  {id:'aa', label:'02a Espera-asignacion', cls:'l-aa'},
   {id:'ab', label:'02b Trabajando',        cls:'l-ab'},
   {id:'pa', label:'03a Presup. Partes',    cls:'l-pa'},
   {id:'pb', label:'03b Presup. M/O',       cls:'l-pb'},
@@ -1025,7 +1025,12 @@ var LANES = [
 ];
 
 var SIGS = {
-  rec:[{id:'asesor',lb:'Asesor firma',sb:false},{id:'cliente',lb:'Cliente firma',sb:false}],
+  // Recepcion: UNA sola firma, que puede hacer indistintamente el Asesor o
+  // el Jefe (canSign en openDrw ya deja firmar al Jefe cualquier firma). Al
+  // registrarla la orden avanza sola a 'aa' (ver autoNext en doSign). Antes
+  // habia tambien una firma de 'cliente' que bloqueaba el avance; se quito
+  // por decision del taller.
+  rec:[{id:'asesor',lb:'Asesor o Jefe firma',sb:false}],
   aa: [{id:'jefe',lb:'Jefe Vo.Bo. asignacion',sb:false}],
   det:[{id:'jefe',lb:'Jefe autoriza reanudar',sb:false}],
   ab: [{id:'tecnico',lb:'Tecnico Finaliza',sb:true}],
@@ -1054,7 +1059,7 @@ var PRIO_LABELS = {
 };
 
 var NL = {
-  aa:'Asignado-espera',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',reproceso:'REPROCESO (regresa a Trabajando)',
+  aa:'Espera-asignacion',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',reproceso:'REPROCESO (regresa a Trabajando)',
   pa:'Elaboracion de presupuesto',pb:'Presup. M/O',ea:'Esp. autorizacion',
   er:'Esp. repuestos',ext:'Trabajo externo',lst:'Listo p/entrega',
   ent:'Entregado',cer:'Cerrar orden'
@@ -1085,6 +1090,57 @@ function load() {
       archived = d.archived || [];
     } else { seed(); }
   } catch(e) { seed(); }
+}
+
+// Profundidad hasta la que se parte un cambio antes de escribir el valor
+// completo. Con 3, se alcanza el nivel "campo de un elemento de un arreglo"
+// (ej. repuestos/0/vobo, bodega/2/despachado), que es justo donde ocurrian
+// las colisiones reportadas.
+var _DIFF_DEPTH = 3;
+
+// Agrega a `updates` la ruta MAS PROFUNDA que realmente cambio, en vez de
+// reescribir el objeto/arreglo completo que la contiene.
+//
+// Sin esto, dos personas tocando elementos DISTINTOS del mismo arreglo se
+// pisan entre si: el Jefe da Vo.Bo. al repuesto #1 (su copia local dice
+// [#1 con vobo, #2]) mientras un tecnico agrega el #3 (su copia local
+// dice [#1 SIN vobo, #2, #3], porque el Vo.Bo. todavia no le llegaba).
+// Como antes se escribia el arreglo `repuestos` entero, el ultimo guardado
+// en llegar borraba el trabajo del otro — bug real reportado: los Vo.Bo.
+// ya otorgados se "regresaban" a pendiente en cuanto un tecnico pedia algo
+// mas. Escribiendo repuestos/0/vobo y repuestos/2 por separado, ambos
+// cambios sobreviven sin importar quien guarde primero.
+//
+// Los arreglos se comparan por POSICION, asi que un elemento borrado (que
+// localmente ya se reindexo con splice) se traduce en reescribir las
+// posiciones que se corrieron mas un null al final — nunca deja huecos en
+// medio, que es lo que haria que Firebase devolviera un objeto en vez de
+// un arreglo.
+function _diffInto(updates, path, oldVal, newVal, depth) {
+  if (JSON.stringify(oldVal) === JSON.stringify(newVal)) return;
+  var bothArrays = Array.isArray(oldVal) && Array.isArray(newVal);
+  var bothObjs = !bothArrays &&
+    oldVal && newVal && typeof oldVal === 'object' && typeof newVal === 'object' &&
+    !Array.isArray(oldVal) && !Array.isArray(newVal);
+  if (depth <= 0 || (!bothArrays && !bothObjs)) {
+    // Hoja: tipos distintos, valor simple, o ya se bajo demasiado.
+    // undefined no existe en Firebase — se manda null para borrar.
+    updates[path] = (newVal === undefined) ? null : newVal;
+    return;
+  }
+  if (bothArrays) {
+    var maxLen = oldVal.length > newVal.length ? oldVal.length : newVal.length;
+    for (var ai = 0; ai < maxLen; ai++) {
+      _diffInto(updates, path + '/' + ai, oldVal[ai], newVal[ai], depth - 1);
+    }
+    return;
+  }
+  var keys = {};
+  for (var ok in oldVal) keys[ok] = true;
+  for (var nk in newVal) keys[nk] = true;
+  for (var k in keys) {
+    _diffInto(updates, path + '/' + k, oldVal[k], newVal[k], depth - 1);
+  }
 }
 
 function save() {
@@ -1160,18 +1216,7 @@ function save() {
           } else {
             var prevObj;
             try { prevObj = JSON.parse(prevJson); } catch(e) { prevObj = {}; }
-            var allKeys = {};
-            for (var pk in prevObj) { allKeys[pk] = true; }
-            for (var nk in o) { allKeys[nk] = true; }
-            for (var fk in allKeys) {
-              var oldHas = prevObj.hasOwnProperty(fk);
-              var newHas = o.hasOwnProperty(fk);
-              var oldVal = oldHas ? JSON.stringify(prevObj[fk]) : undefined;
-              var newVal = newHas ? JSON.stringify(o[fk]) : undefined;
-              if (oldVal !== newVal) {
-                updates['taller/orders_by_id/' + o.id + '/' + fk] = newHas ? o[fk] : null;
-              }
-            }
+            _diffInto(updates, 'taller/orders_by_id/' + o.id, prevObj, o, _DIFF_DEPTH);
           }
           _lastSyncedOrders[o.id] = json;
           changedCount++;
@@ -3726,7 +3771,7 @@ function doSign(id, sigId) {
   var phaseSigsAuto = SIGS[o.phase] || [];
   var allSignedAuto = phaseSigsAuto.every(function(s) { return o.sigs[s.id]; });
   if (allSignedAuto) {
-    var autoNext = {pa:'pb', lav:'lst'};
+    var autoNext = {rec:'aa', pa:'pb', lav:'lst'};
     if (autoNext[o.phase]) {
       // Small delay so user sees confirmation toast before advance
       var autoPhase = autoNext[o.phase];
@@ -4627,7 +4672,7 @@ function buildRepContent() {
     '<select id="rep-fil-phase" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
       '<option value="">Todos los estatus</option>' +
       '<option value="rec">Recepcion</option>' +
-      '<option value="aa">Asignado-espera</option>' +
+      '<option value="aa">Espera-asignacion</option>' +
       '<option value="ab">En proceso</option>' +
       '<option value="pa">Presup. Partes</option>' +
       '<option value="pb">Presup. M/O</option>' +
@@ -6472,7 +6517,7 @@ function _productividadColor(pctRounded) {
 
 var PHASE_COLORS = {
   'rec': {bg:'#000000',color:'#FFFFFF',label:'RECEPCION'},
-  'aa': {bg:'#3A3A3A',color:'#FFFFFF',label:'ASIGNADO-ESPERA'},
+  'aa': {bg:'#3A3A3A',color:'#FFFFFF',label:'ESPERA-ASIGNACION'},
   'ab': {bg:'#1A4A1A',color:'#FFFFFF',label:'EN PROCESO'},
   'prb': {bg:'#6A0DAD',color:'#FFFFFF',label:'PRUEBA/INSP.FINAL'},
   'pa': {bg:'#E67E22',color:'#CC0000',label:'PRESUPUESTO PARTES'},
