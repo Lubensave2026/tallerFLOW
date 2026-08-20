@@ -5122,6 +5122,11 @@ function buildRepContent() {
 function closeRep() { document.getElementById('m-rep').classList.remove('on'); if(window._repInterval) clearInterval(window._repInterval); }
 
 var _repPartsFilter = null; // null = menu selector, 'local' | 'importacion' = tabla filtrada
+// Filtro de la columna Estado en Despacho Bodega: 'todos' | 'pend' | 'desp'.
+// Arranca en 'todos' para no cambiar lo que la gente ya esta acostumbrada a
+// ver al abrir; con un toque se deja solo lo pendiente de despachar.
+var _bodegaEstadoFilter = 'todos';
+function setBodegaEstadoFilter(v) { _bodegaEstadoFilter = v; buildRepPartsContent(); }
 
 function openRepParts() {
   // Nunca deja los 2 modales que comparten la excepcion de impresion
@@ -5321,13 +5326,37 @@ function buildBodegaPartsTable(rows) {
       '<button onclick="downloadBodegaCsv()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#8681; CSV</button>' +
     '</span>' : '') +
   '</div>';
+  // Los KPIs siempre cuentan TODO lo autorizado, sin importar el filtro —
+  // son el resumen global; el filtro solo recorta la tabla de abajo.
   html += '<div class="kpi-grid" style="margin-bottom:1rem">' +
     '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + pend + '</div><div class="kpi-l">Pendientes de despacho</div></div>' +
     '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total autorizado</div></div>' +
   '</div>';
 
+  // Filtro por Estado — sobre todo para dejar a la vista solo lo que falta
+  // despachar cuando la lista ya trae mucho historico tachado.
+  var _bodFiltBtn = function(val, label, count) {
+    var on = (_bodegaEstadoFilter === val);
+    return '<button onclick="setBodegaEstadoFilter(\'' + val + '\')" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;white-space:nowrap;font-weight:' + (on ? '700' : '400') +
+      ';border:1px solid ' + (on ? 'var(--ac)' : 'var(--bd)') + ';background:' + (on ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (on ? 'var(--ac)' : 'var(--tx3)') + '">' + label + ' (' + count + ')</button>';
+  };
+  html += '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;color:var(--tx3);margin-right:2px">Estado:</span>' +
+    _bodFiltBtn('todos', 'Todos', rows.length) +
+    _bodFiltBtn('pend', 'Pendientes', pend) +
+    _bodFiltBtn('desp', 'Despachados', rows.length - pend) +
+  '</div>';
+
+  var rowsAll = rows;
+  if (_bodegaEstadoFilter === 'pend')      rows = rows.filter(function(r){ return !r.item.despachado; });
+  else if (_bodegaEstadoFilter === 'desp') rows = rows.filter(function(r){ return !!r.item.despachado; });
+
   if (!rows.length) {
-    html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay solicitudes de bodega autorizadas</div>';
+    // Se distingue "no hay nada autorizado" de "el filtro no deja ver nada",
+    // para que no parezca que se perdieron los datos.
+    html += rowsAll.length
+      ? '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">Sin resultados con este filtro. <button onclick="setBodegaEstadoFilter(\'todos\')" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Ver todos</button></div>'
+      : '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay solicitudes de bodega autorizadas</div>';
   } else {
     html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:760px">' +
       '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
@@ -5411,6 +5440,12 @@ function buildBodegaPartsTable(rows) {
 
 function downloadBodegaCsv() {
   var rows = getBodegaRows().slice().sort(function(a,b){ return (a.item.voboTs||0) - (b.item.voboTs||0); });
+  // Respeta el filtro de Estado que se ve en pantalla: si se esta viendo
+  // solo lo pendiente, el archivo trae solo eso (seria confuso pedir el CSV
+  // de una lista filtrada y que bajara todo el historico).
+  if (_bodegaEstadoFilter === 'pend')      rows = rows.filter(function(r){ return !r.item.despachado; });
+  else if (_bodegaEstadoFilter === 'desp') rows = rows.filter(function(r){ return !!r.item.despachado; });
+  if (!rows.length) { toast('No hay filas que exportar con este filtro'); return; }
   var csv = ['OR#', 'Cliente', 'Vehiculo', 'Cantidad', 'Descripcion', 'Especificacion', 'Pedido por', 'Estado'].join(CSV_DELIM) + '\n';
   for (var i = 0; i < rows.length; i++) {
     var it = rows[i].item, o = rows[i].o;
