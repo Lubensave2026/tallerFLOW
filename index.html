@@ -658,6 +658,25 @@ function _updateHwm(n) {
     try { localStorage.setItem(HWM_KEY, String(_hwmNxtId)); } catch(e) {}
   }
 }
+// El contador que manda es SIEMPRE el del servidor: su unico escritor es la
+// transaction atomica de createOrder, asi que solo puede avanzar. Por eso
+// aqui se sincroniza el maximo conocido al valor del servidor tal cual —
+// hacia arriba Y hacia abajo — en vez de solo dejarlo crecer.
+//
+// Esto ademas DESTRABA solo a los dispositivos que quedaron bloqueados por
+// el bug anterior (save() reescribia nxtId con una copia local atrasada y
+// lo arrastraba hacia atras en el servidor; el maximo guardado en este
+// navegador quedaba por encima y bloqueaba todos los guardados de forma
+// permanente, sin que recargar la pagina lo resolviera).
+function _syncHwmFromServer(n) {
+  if (typeof n !== 'number' || !(n > 0)) return;
+  if (n === _hwmNxtId) return;
+  if (n < _hwmNxtId) {
+    console.log('HWM corregido hacia abajo: ' + _hwmNxtId + ' -> ' + n + ' (manda el servidor).');
+  }
+  _hwmNxtId = n;
+  try { localStorage.setItem(HWM_KEY, String(_hwmNxtId)); } catch(e) {}
+}
 
 // RESPALDO DIARIO AUTOMATICO: al primer dato real recibido de Firebase cada
 // dia, si todavia no existe un respaldo para la fecha de hoy, se guarda una
@@ -714,7 +733,7 @@ function maybeDailyBackup(currentData) {
 // propio path — Firebase aplica cada path de forma independiente, asi que
 // dos personas editando ordenes distintas al mismo tiempo NUNCA se pisan.
 var _lastSyncedOrders = {}; // id -> JSON string de la ultima version sincronizada
-var _lastSyncedMeta = '';   // JSON string de {notifs,nxtId,archived} sincronizado
+var _lastSyncedMeta = '';   // JSON string de {notifs} sincronizado (nxtId lo escribe SOLO la transaction de createOrder)
 var _renderDebounce = null;
 
 // AVISO DE GUARDADO FALLIDO: db.ref().update(updates) antes solo hacia
@@ -864,8 +883,8 @@ function initFirebase() {
         var data = snap.val();
         if (!data) return;
         if (data.notifs   !== undefined) notifs   = data.notifs   || [];
-        if (data.nxtId    !== undefined) { nxtId = data.nxtId; _updateHwm(nxtId); }
-        _lastSyncedMeta = JSON.stringify({notifs:notifs, nxtId:nxtId});
+        if (data.nxtId    !== undefined) { nxtId = data.nxtId; _syncHwmFromServer(nxtId); }
+        _lastSyncedMeta = JSON.stringify({notifs:notifs});
         try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
         maybeDailyBackup({orders:orders, notifs:notifs, nxtId:nxtId});
         _scheduleRender();
@@ -1230,9 +1249,26 @@ function save() {
           changedCount++;
         }
       }
-      var metaJson = JSON.stringify({notifs:notifs, nxtId:nxtId});
+      // nxtId NO se escribe desde aqui: su UNICO dueño es la transaction
+      // atomica de createOrder (db.ref('taller/meta/nxtId').transaction).
+      //
+      // Escribirlo tambien desde save() era el origen del aviso "Datos
+      // desactualizados": este dispositivo reescribia el nodo taller/meta
+      // COMPLETO con su copia local del contador, que podia venir atrasada,
+      // arrastrando nxtId HACIA ATRAS en el servidor. A partir de ahi,
+      // cualquier dispositivo cuyo maximo conocido fuera mayor quedaba
+      // bloqueado en TODOS sus guardados — y como el bloqueo ocurre despues
+      // de guardar en localStorage, en su pantalla los cambios se veian
+      // aplicados aunque nunca llegaran al equipo (bug real: dos ordenes
+      // firmadas para pasar a Espera-asignacion "se regresaron" solas a
+      // Recepcion en cuanto el servidor volvio a mandar su version).
+      //
+      // Se escribe campo por campo (no el nodo entero) por la misma razon
+      // que las ordenes — ver _diffInto.
+      var metaJson = JSON.stringify({notifs:notifs});
       if (metaJson !== _lastSyncedMeta) {
-        updates['taller/meta'] = {notifs:notifs, nxtId:nxtId, _v:Date.now()};
+        updates['taller/meta/notifs'] = notifs;
+        updates['taller/meta/_v'] = Date.now();
         _lastSyncedMeta = metaJson;
         changedCount++;
       }
