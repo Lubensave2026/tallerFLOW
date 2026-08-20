@@ -2069,8 +2069,21 @@ function openDrw(id) {
     // siempre para el Asesor mientras la orden este en 'ea', no solo
     // cuando falta: asi tambien puede ajustarla despues si ya la habia
     // puesto.
-    var eaMoInputHtml = (role === 'asesor')
-      ? '<div class="fg" style="margin-bottom:6px"><label class="fl">Mano de obra (Q)</label><div style="display:flex;gap:6px"><input class="fi" id="ea-mo-inp" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="flex:1"><button id="btn-save-ea-mo" data-oid="' + id + '" style="padding:0 14px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">Guardar</button></div></div>'
+    // Visible para Asesor Y Jefe: el Jefe tambien puede firmar esta fase
+    // (ver canSign), asi que si no tuviera la casilla quedaba atrapado — el
+    // guard de doSign le exigia la mano de obra pero no tenia con que
+    // cumplirlo. Bug real reportado en la orden 5297.
+    //
+    // Cuando lo que falta es RECONFIRMAR (ya hay monto, pero entraron
+    // repuestos nuevos despues), el boton dice "Confirmar" en vez de
+    // "Guardar" y se resalta: el monto correcto normalmente ya viene
+    // prellenado, asi que "Guardar" no se leia como la accion que
+    // destrababa la firma y la gente quedaba dando vueltas.
+    var eaMoBtnLabel = (eaMoStatus === 'reconfirmar') ? '&#10003; Confirmar' : 'Guardar';
+    var eaMoInputHtml = (role === 'asesor' || role === 'jefe')
+      ? '<div class="fg" style="margin-bottom:6px"><label class="fl">Mano de obra (Q)</label><div style="display:flex;gap:6px"><input class="fi" id="ea-mo-inp" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '" style="flex:1"><button id="btn-save-ea-mo" data-oid="' + id + '" style="padding:0 14px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap' + (eaMoStatus === 'reconfirmar' ? ';box-shadow:0 0 0 2px var(--or)' : '') + '">' + eaMoBtnLabel + '</button></div>' +
+        (eaMoStatus === 'reconfirmar' ? '<div style="font-size:10px;color:var(--or);margin-top:4px">El monto de abajo es el que ya estaba autorizado. Si sigue siendo correcto, solo presiona <strong>Confirmar</strong>; si cambio, corrigelo y presiona <strong>Confirmar</strong>.</div>' : '') +
+      '</div>'
       : '';
     if ((eaFaltaRep || eaFaltaMO) && !o.noAutorizado) {
       var eaAcciones = [];
@@ -3460,7 +3473,7 @@ function openDrw(id) {
       // Defensa en profundidad: solo el Asesor de servicio, y solo mientras
       // la orden sigue en Espera de autorizacion — igual que el gate que ya
       // decide si este boton se renderiza o no.
-      if (role !== 'asesor') { toast('Solo el Asesor de servicio puede fijar la mano de obra aqui'); return; }
+      if (role !== 'asesor' && role !== 'jefe') { toast('Solo el Asesor de servicio o el Jefe de taller pueden fijar la mano de obra aqui'); return; }
       if (ox.phase !== 'ea') { toast('La mano de obra solo se puede fijar mientras la orden esta en Espera de autorizacion'); return; }
       var inp = document.getElementById('ea-mo-inp');
       var newMO = inp ? (parseFloat(inp.value) || 0) : null;
@@ -3687,7 +3700,7 @@ function doSign(id, sigId) {
     // el valor nunca habia llegado a guardarse en o.montoMO — quedaba solo
     // en el input). Mismo guardado que btn-save-ea-mo, solo que disparado
     // aqui tambien para no exigir un paso intermedio aparte.
-    if (role === 'asesor') {
+    if (role === 'asesor' || role === 'jefe') {
       var eaMoInp = document.getElementById('ea-mo-inp');
       var pendingMO = eaMoInp ? (parseFloat(eaMoInp.value) || 0) : 0;
       // Solo cuenta como confirmacion si el valor REALMENTE cambio (escribio
@@ -3708,8 +3721,17 @@ function doSign(id, sigId) {
     // reconfirmar, ver _eaFaltaConfirmarMO) la mano de obra — es la unica
     // fase donde el Asesor de servicio puede fijarla (ver btn-save-edit),
     // asi que aqui se exige antes de dejarlo avanzar a la siguiente fase.
-    if (_eaFaltaConfirmarMO(o) && !o.noAutorizado) {
-      toast('Ingresa o confirma la mano de obra antes de firmar, o marca "Cliente NO autorizo nada"'); return;
+    var eaMoPend = _eaFaltaConfirmarMO(o);
+    if (eaMoPend && !o.noAutorizado) {
+      // Mensaje distinto segun el caso: si nunca se puso el monto hay que
+      // escribirlo, pero si ya estaba y solo falta reconfirmarlo (entraron
+      // repuestos nuevos), el monto ya viene prellenado y volver a apretar
+      // Firmar no destraba nada — hay que decir explicitamente que se
+      // presione el boton Confirmar, o la gente queda dando vueltas.
+      toast(eaMoPend === 'reconfirmar'
+        ? 'Se agregaron repuestos nuevos: presiona "Confirmar" junto a la mano de obra y luego firma'
+        : 'Ingresa la mano de obra y presiona "Guardar" antes de firmar, o marca "Cliente NO autorizo nada"');
+      return;
     }
   }
   // ab phase, firma del tecnico: antes de dejarlo firmar, verificar que
