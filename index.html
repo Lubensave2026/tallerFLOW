@@ -544,13 +544,22 @@ button{cursor:pointer}
     <div class="fg">
       <label class="fl">&#128230; Repuestos necesarios <span style="color:var(--tx3);font-weight:400">— opcional, quedan visibles para Partes desde ya</span></label>
       <div id="no-rep-list" style="margin-bottom:6px"></div>
-      <div style="display:flex;gap:6px">
-        <input class="fi" id="f-rep-cant" placeholder="Cant." title="Cantidad (opcional)" style="flex:0 0 62px;min-width:52px">
-        <input class="fi" id="f-rep-new" placeholder="Ej: Pastillas de freno" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addNoRep();}">
-        <button type="button" id="btn-rep-add" class="btn-s" style="padding:8px 14px;white-space:nowrap" onclick="addNoRep()">+ Agregar</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div style="flex:0 0 72px">
+          <label style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Cant.</label>
+          <input class="fi" id="f-rep-cant" placeholder="1" style="width:100%">
+        </div>
+        <div style="flex:1;min-width:130px">
+          <label style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Descripcion</label>
+          <input class="fi" id="f-rep-new" placeholder="Ej: Pastillas de freno" style="width:100%" onkeydown="if(event.key==='Enter'){event.preventDefault();addNoRep();}">
+        </div>
+        <div style="flex:1;min-width:130px">
+          <label style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Especificacion</label>
+          <input class="fi" id="f-rep-espec" placeholder="Ej: delanteras, izquierda" style="width:100%" onkeydown="if(event.key==='Enter'){event.preventDefault();addNoRep();}">
+        </div>
       </div>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <input class="fi" id="f-rep-espec" placeholder="Especificacion (opcional): delanteras, izquierda, medida..." style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addNoRep();}">
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button type="button" id="btn-rep-add" class="btn-s" style="flex:1;padding:8px 14px;white-space:nowrap" onclick="addNoRep()">+ Agregar</button>
       </div>
     </div>
     <div class="mact">
@@ -2540,22 +2549,40 @@ function openDrw(id) {
     '</div>';
   }
   if (canAddRep) {
-    // Cantidad y Especificacion son OPCIONALES a proposito: quien solo
-    // quiera pedir "pastillas de freno" lo escribe y le da Agregar, igual
-    // de rapido que antes. Sirven para pedir mas de una pieza y para
-    // aclarar cual es (izquierda/derecha, superior/inferior, etc.), que
-    // antes habia que meter a la fuerza dentro de la descripcion.
-    repuestosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
-      '<input id="rep-cant" class="cin" placeholder="Cant." title="Cantidad (opcional)" style="flex:0 0 62px;min-width:52px">' +
-      '<input id="rep-inp" class="cin" placeholder="Descripcion del repuesto..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
-      '<select id="rep-origen" class="cin" style="flex:0 0 auto">' +
-        '<option value="local">Local</option>' +
-        '<option value="importacion">Importacion</option>' +
-      '</select>' +
-      '<button id="btn-add-rep" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
-    '</div>' +
-    '<div style="display:flex;gap:6px;margin-top:6px">' +
-      '<input id="rep-espec" class="cin" placeholder="Especificacion (opcional): izquierda/derecha, superior/inferior, medida..." style="flex:1;min-width:140px">' +
+    // Mismo armado que el formulario de Despacho Bodega (etiquetas visibles
+    // arriba de cada campo y el boton hasta el final): la primera version
+    // dejaba "Especificacion" DEBAJO del boton "+ Agregar", asi que el boton
+    // quedaba en medio del formulario y parecia que ahi terminaba — bug real
+    // reportado ("solo aparece cantidad y descripcion").
+    //
+    // Cantidad y Especificacion son OPCIONALES: quien solo quiera pedir
+    // "pastillas de freno" lo escribe y le da Agregar, igual de rapido que
+    // antes. Sirven para pedir mas de una pieza y para aclarar cual es
+    // (izquierda/derecha, superior/inferior), que antes habia que meter a la
+    // fuerza dentro de la descripcion.
+    var repLbl = function(txt, opc) {
+      return '<label style="font-size:11px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px">' + txt +
+        (opc ? '<span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--tx3)"> (opcional)</span>' : '') + '</label>';
+    };
+    repuestosHtml += '<div style="background:var(--bg4);border:1px solid var(--bd);border-radius:var(--rs);padding:10px;margin-top:6px">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<div style="flex:0 0 80px">' + repLbl('Cant.', true) +
+          '<input id="rep-cant" class="cin" placeholder="1" style="width:100%">' +
+        '</div>' +
+        '<div style="flex:1;min-width:140px">' + repLbl('Descripcion') +
+          '<input id="rep-inp" class="cin" placeholder="ej. pastillas de freno, rotula..." style="width:100%;border:2px solid var(--ac);background:var(--bg2)">' +
+        '</div>' +
+        '<div style="flex:1;min-width:140px">' + repLbl('Especificacion', true) +
+          '<input id="rep-espec" class="cin" placeholder="ej. delanteras, izquierda, medida..." style="width:100%;border:2px solid var(--ac);background:var(--bg2)">' +
+        '</div>' +
+        '<div style="flex:0 0 130px">' + repLbl('Origen') +
+          '<select id="rep-origen" class="cin" style="width:100%">' +
+            '<option value="local">Local</option>' +
+            '<option value="importacion">Importacion</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<button id="btn-add-rep" style="margin-top:8px;width:100%;padding:7px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
     '</div>';
   } else if (repList.length) {
     var noAddMsg = (r.tec)
