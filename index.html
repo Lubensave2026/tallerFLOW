@@ -452,7 +452,10 @@ button{cursor:pointer}
     <button class="btn-map" id="btn-avisolav" onclick="openAvisoLav()" style="display:none;border-color:var(--gnbd);color:var(--gn)">&#129534; Preparar Facturacion<span id="avisolav-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-export" onclick="openExportPicker()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
 
-    <input class="srch" id="srch" placeholder="Buscar placa, vehiculo, No. OT o tecnico..." oninput="renderBoard()">
+    <span style="flex:1;min-width:100px;position:relative;display:flex;align-items:center">
+      <input class="srch" id="srch" placeholder="Buscar placa, vehiculo, No. OT o tecnico..." oninput="onSrchInput()" style="flex:1;padding-right:30px">
+      <button id="btn-srch-clear" onclick="clearSrch()" title="Limpiar busqueda" style="display:none;position:absolute;right:7px;background:none;border:none;color:var(--tx3);font-size:14px;line-height:1;cursor:pointer;padding:2px 3px">&#x2715;</button>
+    </span>
     <select class="srch" id="srch-tec" style="max-width:140px;flex:0 0 auto" onchange="renderBoard()">
       <option value="">Todos los tecnicos</option>
       <option>Gerson Rodas</option><option>Dany Acalon</option><option>Henry Barillas</option>
@@ -542,8 +545,12 @@ button{cursor:pointer}
       <label class="fl">&#128230; Repuestos necesarios <span style="color:var(--tx3);font-weight:400">— opcional, quedan visibles para Partes desde ya</span></label>
       <div id="no-rep-list" style="margin-bottom:6px"></div>
       <div style="display:flex;gap:6px">
-        <input class="fi" id="f-rep-new" placeholder="Ej: Pastillas de freno delanteras" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addNoRep();}">
+        <input class="fi" id="f-rep-cant" placeholder="Cant." title="Cantidad (opcional)" style="flex:0 0 62px;min-width:52px">
+        <input class="fi" id="f-rep-new" placeholder="Ej: Pastillas de freno" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addNoRep();}">
         <button type="button" id="btn-rep-add" class="btn-s" style="padding:8px 14px;white-space:nowrap" onclick="addNoRep()">+ Agregar</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input class="fi" id="f-rep-espec" placeholder="Especificacion (opcional): delanteras, izquierda, medida..." style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addNoRep();}">
       </div>
     </div>
     <div class="mact">
@@ -1436,6 +1443,9 @@ function doLogin(rk) {
   document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
   var srchTecEl = document.getElementById('srch-tec');
   if (srchTecEl) srchTecEl.style.display = (r && r.tec) ? 'none' : '';
+  // Deja la "x" de limpiar en el estado que corresponda al texto que haya
+  // en la casilla al entrar (normalmente vacia, o sea oculta).
+  _updateSrchClear();
   showSc('ap');
   // Ensure screen is visible then render
   setTimeout(function() { renderBoard(); updateNDot(); }, 100);
@@ -1459,6 +1469,31 @@ function logout() {
   closeDrw(); closeNO(); closeRep(); closeMap(); closeAutoriz();
   if (window._ri) clearInterval(window._ri);
   showSc('lg');
+}
+
+/* BUSQUEDA DEL TABLERO */
+// La "x" para limpiar vive DENTRO de la casilla y solo aparece cuando hay
+// algo escrito — asi no ocupa espacio en la barra de botones (que ya viene
+// apretada, sobre todo en celular) cuando no hace falta.
+function _updateSrchClear() {
+  var inp = document.getElementById('srch');
+  var btn = document.getElementById('btn-srch-clear');
+  if (!inp || !btn) return;
+  btn.style.display = inp.value ? 'block' : 'none';
+}
+function onSrchInput() {
+  _updateSrchClear();
+  renderBoard();
+}
+function clearSrch() {
+  var inp = document.getElementById('srch');
+  if (!inp) return;
+  inp.value = '';
+  _updateSrchClear();
+  renderBoard();
+  // Deja el cursor listo para escribir de nuevo, que es lo normal despues
+  // de limpiar una busqueda.
+  try { inp.focus(); } catch(e) {}
 }
 
 /* BOARD */
@@ -2479,7 +2514,7 @@ function openDrw(id) {
     }
     repuestosHtml += '<div style="background:var(--bg3);border:1px solid ' + (isDone ? 'var(--gnbd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (isDone ? 'opacity:.6' : '') + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
-        '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rep.desc + '</div>' +
+        '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + repLabel(rep) + repEspecHtml(rep) + '</div>' +
         '<div style="display:flex;align-items:center;gap:5px">' + origenBadge + (isDone ? '' : elapsedRepBadge(rep.ts, origen)) +
           (role === 'jefe' ? '<button class="btn-rep-del" data-ri="' + ri + '" title="Eliminar repuesto" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
         '</div>' +
@@ -2505,13 +2540,22 @@ function openDrw(id) {
     '</div>';
   }
   if (canAddRep) {
+    // Cantidad y Especificacion son OPCIONALES a proposito: quien solo
+    // quiera pedir "pastillas de freno" lo escribe y le da Agregar, igual
+    // de rapido que antes. Sirven para pedir mas de una pieza y para
+    // aclarar cual es (izquierda/derecha, superior/inferior, etc.), que
+    // antes habia que meter a la fuerza dentro de la descripcion.
     repuestosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
+      '<input id="rep-cant" class="cin" placeholder="Cant." title="Cantidad (opcional)" style="flex:0 0 62px;min-width:52px">' +
       '<input id="rep-inp" class="cin" placeholder="Descripcion del repuesto..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
       '<select id="rep-origen" class="cin" style="flex:0 0 auto">' +
         '<option value="local">Local</option>' +
         '<option value="importacion">Importacion</option>' +
       '</select>' +
       '<button id="btn-add-rep" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;margin-top:6px">' +
+      '<input id="rep-espec" class="cin" placeholder="Especificacion (opcional): izquierda/derecha, superior/inferior, medida..." style="flex:1;min-width:140px">' +
     '</div>';
   } else if (repList.length) {
     var noAddMsg = (r.tec)
@@ -2866,9 +2910,18 @@ function openDrw(id) {
       var origenSel = document.getElementById('rep-origen');
       var origen = origenSel ? origenSel.value : 'local';
       var addedByTec = !!(r && r.tec);
-      ox.repuestos.push({desc:esc(desc), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen, addedByTec:addedByTec});
+      // Cantidad y especificacion son opcionales: si vienen vacias no se
+      // guardan, para que un repuesto sin ellas quede igual que los de antes.
+      var cantEl = document.getElementById('rep-cant');
+      var especEl = document.getElementById('rep-espec');
+      var cantVal = cantEl ? cantEl.value.trim() : '';
+      var especVal = especEl ? especEl.value.trim() : '';
+      var nuevoRep = {desc:esc(desc), ck1:false, ck2:false, ck3:false, by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), origen:origen, addedByTec:addedByTec};
+      if (cantVal)  nuevoRep.cantidad = esc(cantVal);
+      if (especVal) nuevoRep.especificacion = esc(especVal);
+      ox.repuestos.push(nuevoRep);
       ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + esc(desc) + (addedByTec ? ' — requiere Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
+      ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Repuesto agregado (' + (origen==='importacion'?'Importacion':'Local') + '): ' + repLabelText(nuevoRep) + (addedByTec ? ' — requiere Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
       // Si la orden tenia marcado "cliente no autorizo nada" (bypasa los 2
       // requisitos de 'ea' — repuestos Y mano de obra), agregar un repuesto
       // ahora lo contradice directamente: se limpia solo. Bug real
@@ -2880,7 +2933,7 @@ function openDrw(id) {
         delete ox.noAutorizadoBy;
         ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'Se quito la marca de "cliente no autorizo nada" — se agrego un repuesto', ts:Date.now(), type:'system'});
       }
-      addNotif('Repuesto pendiente en ' + ox.plate + ': ' + desc + (addedByTec ? ' (requiere Vo.Bo. del Jefe)' : ''), id);
+      addNotif('Repuesto pendiente en ' + ox.plate + ': ' + repLabelText(nuevoRep) + (addedByTec ? ' (requiere Vo.Bo. del Jefe)' : ''), id);
       save(); toast('Repuesto agregado'); openDrw(id);
     });
     var repInp = document.getElementById('rep-inp');
@@ -4100,8 +4153,21 @@ function addNoRep() {
   var inp = document.getElementById('f-rep-new');
   var val = inp.value.trim();
   if (!val) return;
-  _noRepDraft.push(esc(val));
+  // El borrador pasa de ser una lista de textos a una de objetos, con la
+  // misma forma que un repuesto real (desc/cantidad/especificacion), para
+  // que al crear la orden solo haya que copiarlos. Cantidad y
+  // especificacion son opcionales y no se guardan si vienen vacias.
+  var cantEl = document.getElementById('f-rep-cant');
+  var especEl = document.getElementById('f-rep-espec');
+  var cantVal = cantEl ? cantEl.value.trim() : '';
+  var especVal = especEl ? especEl.value.trim() : '';
+  var draft = {desc: esc(val)};
+  if (cantVal)  draft.cantidad = esc(cantVal);
+  if (especVal) draft.especificacion = esc(especVal);
+  _noRepDraft.push(draft);
   inp.value = '';
+  if (cantEl)  cantEl.value = '';
+  if (especEl) especEl.value = '';
   renderNoRepList();
   inp.focus();
 }
@@ -4111,8 +4177,13 @@ function renderNoRepList() {
   if (!_noRepDraft.length) { el.innerHTML = ''; return; }
   var h = '';
   for (var i = 0; i < _noRepDraft.length; i++) {
+    // Tolera los dos formatos: el borrador de esta version guarda objetos,
+    // pero si quedara un texto suelto de una version anterior se muestra
+    // igual en vez de salir "[object Object]".
+    var dr = _noRepDraft[i];
+    var drTxt = (typeof dr === 'string') ? dr : repLabelText(dr);
     h += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;margin-bottom:5px;font-size:12px">' +
-      '<span>&#128230; ' + _noRepDraft[i] + '</span>' +
+      '<span>&#128230; ' + drTxt + '</span>' +
       '<button type="button" class="btn-no-rep-del" data-i="' + i + '" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px">&#x2715;</button>' +
     '</div>';
   }
@@ -4179,8 +4250,14 @@ function saveNO() {
     var ot = otInput || ('OT-' + assignedId);
     var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,km:km,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
     if (_noRepDraft.length) {
-      no.repuestos = _noRepDraft.map(function(desc0) {
-        return {desc:desc0, ck1:false, ck2:false, ck3:false, by:who, ts:Date.now()};
+      no.repuestos = _noRepDraft.map(function(d0) {
+        // El borrador guarda objetos {desc, cantidad?, especificacion?};
+        // se acepta tambien un texto suelto por compatibilidad.
+        var base = (typeof d0 === 'string') ? {desc: d0} : d0;
+        var rep0 = {desc:base.desc, ck1:false, ck2:false, ck3:false, by:who, ts:Date.now()};
+        if (base.cantidad)       rep0.cantidad = base.cantidad;
+        if (base.especificacion) rep0.especificacion = base.especificacion;
+        return rep0;
       });
       no.msgs.push({who:who, txt:'&#128230; ' + _noRepDraft.length + ' repuesto(s) solicitado(s) desde Recepcion', ts:Date.now(), type:'system'});
     }
@@ -5154,6 +5231,12 @@ var _repPartsFilter = null; // null = menu selector, 'local' | 'importacion' = t
 // ver al abrir; con un toque se deja solo lo pendiente de despachar.
 var _bodegaEstadoFilter = 'todos';
 function setBodegaEstadoFilter(v) { _bodegaEstadoFilter = v; buildRepPartsContent(); }
+// Filtro por No. de orden en Despacho Bodega ('' = todas). Se combina con el
+// de Estado: elegida una orden, los botones de Estado (y los KPIs) pasan a
+// contar solo lo de ESA orden, para poder ver por separado lo despachado, lo
+// pendiente y todo dentro de ella.
+var _bodegaOrdenFilter = '';
+function setBodegaOrdenFilter(v) { _bodegaOrdenFilter = v || ''; buildRepPartsContent(); }
 
 function openRepParts() {
   // Nunca deja los 2 modales que comparten la excepcion de impresion
@@ -5162,6 +5245,11 @@ function openRepParts() {
   // imprimir se mezclaban los dos listados (ver closeHistDetail abajo).
   closeHistDetail();
   _repPartsFilter = null;
+  // Filtros de Despacho Bodega arrancan limpios en cada apertura, para que
+  // el reporte siempre se abra mostrando todo y nadie crea que faltan datos
+  // por un filtro que quedo puesto la vez anterior.
+  _bodegaEstadoFilter = 'todos';
+  _bodegaOrdenFilter = '';
   buildRepPartsContent();
   document.getElementById('m-repparts').classList.add('on');
   window._repPartsInterval = setInterval(buildRepPartsContent, 15000);
@@ -5169,6 +5257,36 @@ function openRepParts() {
 function closeRepParts() { document.getElementById('m-repparts').classList.remove('on'); if(window._repPartsInterval) clearInterval(window._repPartsInterval); }
 function repPartsChoose(origen) { _repPartsFilter = origen; buildRepPartsContent(); }
 function repPartsBack() { _repPartsFilter = null; buildRepPartsContent(); }
+
+// Como se muestra un repuesto: cantidad (si la pusieron) + descripcion, con
+// la especificacion como detalle aparte. Centralizado aqui porque el MISMO
+// repuesto se dibuja en 8 lugares distintos (ficha, panel de repuestos,
+// tablas del reporte, panel de autorizaciones, historial, impresion, CSV) —
+// sin esto cada uno mostraria los campos nuevos a su manera, o se olvidaria
+// de mostrarlos.
+//
+// Cantidad y Especificacion son OPCIONALES: los repuestos creados antes de
+// que existieran, y los que se pidan solo con descripcion, se ven
+// exactamente igual que siempre. Por eso el cambio es aditivo y no rompe
+// nada de lo ya guardado.
+//
+// desc/cantidad/especificacion se guardan ya escapados (ver btn-add-rep),
+// igual que se venia haciendo con desc — por eso aqui se usan tal cual.
+function repLabel(rep) {
+  if (!rep) return '';
+  return (rep.cantidad ? '<strong style="font-family:var(--mo)">' + rep.cantidad + '</strong> &times; ' : '') + (rep.desc || '');
+}
+function repEspecHtml(rep) {
+  if (!rep || !rep.especificacion) return '';
+  return '<div style="font-size:10px;color:var(--tx2);margin-top:3px">&#8627; ' + rep.especificacion + '</div>';
+}
+// Version en una sola linea de texto — para CSV, avisos y el panel de
+// autorizaciones, donde no cabe el detalle en dos renglones.
+function repLabelText(rep) {
+  if (!rep) return '';
+  return (rep.cantidad ? rep.cantidad + ' &times; ' : '') + (rep.desc || '') +
+    (rep.especificacion ? ' (' + rep.especificacion + ')' : '');
+}
 
 function getPendingRepRows() {
   // Junta todos los repuestos pendientes (ck3 != true) de todas las
@@ -5269,7 +5387,11 @@ function buildRepPartsContent() {
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">OR #</th>' +
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cliente</th>' +
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Vehiculo</th>' +
+        // Mismas columnas que Despacho Bodega — sirven para pedir mas de una
+        // pieza y para aclarar cual es (izquierda/derecha, superior/inferior).
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cantidad</th>' +
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700">Repuesto</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700">Especificacion</th>' +
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Pedido por</th>' +
         '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Paso actual</th>' +
         '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">' + (esImp ? 'Dias pendiente' : 'Tiempo pendiente') + '</th>' +
@@ -5290,7 +5412,9 @@ function buildRepPartsContent() {
         '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(r.o.ot||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(r.o.client||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(r.o.model||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + r.rep.desc + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + (r.rep.cantidad || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (r.rep.desc || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--tx2)">' + (r.rep.especificacion || '—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (r.rep.by||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:' + r.pasoColor + ';font-weight:600;white-space:nowrap">' + r.paso + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;color:var(--or);white-space:nowrap">' + tiempo + '</td>' +
@@ -5317,7 +5441,7 @@ function downloadRepPartsCsv() {
   var esImp = _repPartsFilter === 'importacion';
   var rows = getPendingRepRows().filter(function(r){ return r.origen === _repPartsFilter; });
   rows.sort(function(a,b){ return (a.rep.ts||0) - (b.rep.ts||0); });
-  var csv = ['OR#', 'Cliente', 'Vehiculo', 'Repuesto', 'Pedido por', 'Paso actual', (esImp?'Dias pendiente':'Tiempo pendiente')].join(CSV_DELIM) + '\n';
+  var csv = ['OR#', 'Cliente', 'Vehiculo', 'Cantidad', 'Repuesto', 'Especificacion', 'Pedido por', 'Paso actual', (esImp?'Dias pendiente':'Tiempo pendiente')].join(CSV_DELIM) + '\n';
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     var tiempo = '—';
@@ -5325,7 +5449,7 @@ function downloadRepPartsCsv() {
       if (esImp) { var dias = Math.floor((Date.now() - r.rep.ts) / 86400000); tiempo = dias < 1 ? '< 1 dia' : dias + (dias===1?' dia':' dias'); }
       else { tiempo = businessHours(r.rep.ts, Date.now()); }
     }
-    csv += [_csvCell(r.o.ot||''), _csvCell(r.o.client||''), _csvCell(r.o.model||''), _csvCell(r.rep.desc||''), _csvCell(r.rep.by||''), _csvCell(r.paso||''), _csvCell(tiempo)].join(CSV_DELIM) + '\n';
+    csv += [_csvCell(r.o.ot||''), _csvCell(r.o.client||''), _csvCell(r.o.model||''), _csvCell(r.rep.cantidad||''), _csvCell(r.rep.desc||''), _csvCell(r.rep.especificacion||''), _csvCell(r.rep.by||''), _csvCell(r.paso||''), _csvCell(tiempo)].join(CSV_DELIM) + '\n';
   }
   _downloadCSV(csv, 'tallerflow_repuestos_' + _repPartsFilter + '_' + _todayKey() + '.csv');
 }
@@ -5344,6 +5468,29 @@ function buildBodegaPartsTable(rows) {
     if (isNaN(otA) || isNaN(otB) || otA !== otB) { return (a.o.ot||'').localeCompare(b.o.ot||'', undefined, {numeric:true}); }
     return (a.item.voboTs||0) - (b.item.voboTs||0);
   });
+  // Lista de ordenes presentes en el reporte, para el selector de abajo. Se
+  // arma del total (antes de filtrar) para que el desplegable no se vaya
+  // encogiendo conforme se filtra.
+  var _bodOrdenes = [], _bodVistas = {};
+  for (var oi = 0; oi < rows.length; oi++) {
+    var ot0 = rows[oi].o.ot || '';
+    if (ot0 && !_bodVistas[ot0]) {
+      _bodVistas[ot0] = true;
+      _bodOrdenes.push({ot: ot0, model: rows[oi].o.model || ''});
+    }
+  }
+  // Si la orden filtrada ya no aparece (se despacho todo y se cerro, se
+  // elimino, etc.), se cae de vuelta a "Todas" en vez de mostrar una tabla
+  // vacia sin explicacion.
+  if (_bodegaOrdenFilter && !_bodVistas[_bodegaOrdenFilter]) _bodegaOrdenFilter = '';
+
+  // El filtro de ORDEN se aplica primero: a partir de ahi, tanto los KPIs de
+  // arriba como los conteos de los botones de Estado hablan de esa orden. Sin
+  // esto, al elegir una orden los numeros de arriba seguirian siendo los
+  // globales y contradecirian lo que se ve en la tabla.
+  var rowsGlobal = rows;
+  if (_bodegaOrdenFilter) rows = rows.filter(function(r){ return (r.o.ot||'') === _bodegaOrdenFilter; });
+
   var pend = rows.filter(function(r){ return !r.item.despachado; }).length;
   var canManageBod = role === 'jefe' || role === 'partes';
   var html = '<div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
@@ -5353,11 +5500,26 @@ function buildBodegaPartsTable(rows) {
       '<button onclick="downloadBodegaCsv()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#8681; CSV</button>' +
     '</span>' : '') +
   '</div>';
-  // Los KPIs siempre cuentan TODO lo autorizado, sin importar el filtro —
-  // son el resumen global; el filtro solo recorta la tabla de abajo.
+  // Los KPIs cuentan lo de la ORDEN seleccionada (o todo, si esta en
+  // "Todas"). El filtro de Estado NO los mueve: ese solo recorta la tabla.
   html += '<div class="kpi-grid" style="margin-bottom:1rem">' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + pend + '</div><div class="kpi-l">Pendientes de despacho</div></div>' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total autorizado</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + pend + '</div><div class="kpi-l">Pendientes de despacho' + (_bodegaOrdenFilter ? ' &middot; OT ' + esc(_bodegaOrdenFilter) : '') + '</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total autorizado' + (_bodegaOrdenFilter ? ' &middot; OT ' + esc(_bodegaOrdenFilter) : '') + '</div></div>' +
+  '</div>';
+
+  // Selector de orden. Se lista "#OT · VEHICULO" para poder ubicarla sin
+  // tener que acordarse del numero de memoria.
+  var _bodOrdOpts = '<option value="">Todas las ordenes (' + rowsGlobal.length + ')</option>';
+  for (var oj = 0; oj < _bodOrdenes.length; oj++) {
+    var od = _bodOrdenes[oj];
+    var nOd = rowsGlobal.filter(function(r){ return (r.o.ot||'') === od.ot; }).length;
+    _bodOrdOpts += '<option value="' + esc(od.ot) + '"' + (_bodegaOrdenFilter === od.ot ? ' selected' : '') + '>&#35;' +
+      esc(od.ot) + (od.model ? ' &middot; ' + esc(od.model) : '') + ' (' + nOd + ')</option>';
+  }
+  html += '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;color:var(--tx3);margin-right:2px">Orden:</span>' +
+    '<select onchange="setBodegaOrdenFilter(this.value)" style="font-size:11px;padding:5px 10px;border-radius:20px;border:1px solid ' + (_bodegaOrdenFilter ? 'var(--ac)' : 'var(--bd)') + ';background:' + (_bodegaOrdenFilter ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_bodegaOrdenFilter ? 'var(--ac)' : 'var(--tx2)') + ';max-width:320px;cursor:pointer;font-weight:' + (_bodegaOrdenFilter ? '700' : '400') + '">' + _bodOrdOpts + '</select>' +
+    (_bodegaOrdenFilter ? '<button onclick="setBodegaOrdenFilter(\'\')" title="Ver todas las ordenes" style="background:none;border:none;color:var(--tx3);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1">&#x2715;</button>' : '') +
   '</div>';
 
   // Filtro por Estado — sobre todo para dejar a la vista solo lo que falta
@@ -5467,9 +5629,10 @@ function buildBodegaPartsTable(rows) {
 
 function downloadBodegaCsv() {
   var rows = getBodegaRows().slice().sort(function(a,b){ return (a.item.voboTs||0) - (b.item.voboTs||0); });
-  // Respeta el filtro de Estado que se ve en pantalla: si se esta viendo
-  // solo lo pendiente, el archivo trae solo eso (seria confuso pedir el CSV
-  // de una lista filtrada y que bajara todo el historico).
+  // Respeta AMBOS filtros que se ven en pantalla (orden y estado): seria
+  // confuso pedir el CSV de una lista filtrada y que bajara todo el
+  // historico de todas las ordenes.
+  if (_bodegaOrdenFilter) rows = rows.filter(function(r){ return (r.o.ot||'') === _bodegaOrdenFilter; });
   if (_bodegaEstadoFilter === 'pend')      rows = rows.filter(function(r){ return !r.item.despachado; });
   else if (_bodegaEstadoFilter === 'desp') rows = rows.filter(function(r){ return !!r.item.despachado; });
   if (!rows.length) { toast('No hay filas que exportar con este filtro'); return; }
@@ -5566,7 +5729,11 @@ function _getPendingVoboBodega() {
 // encendido hasta que realmente se autorice, no hasta que se lea.
 function _getPendingAutorizaciones() {
   var reps = _getPendingVoboReps().map(function(r) {
-    return {tipo: 'repuesto', o: r.o, ri: r.ri, desc: r.rep.desc, ts: r.rep.ts || 0, by: r.rep.by || ''};
+    // desc en una sola linea (cantidad + descripcion + especificacion), igual
+    // que se hace abajo con los pedidos de bodega — en este panel cada
+    // solicitud ocupa un renglon y el Jefe necesita ver de una vez QUE y
+    // CUANTAS piezas esta autorizando.
+    return {tipo: 'repuesto', o: r.o, ri: r.ri, rep: r.rep, desc: repLabelText(r.rep), ts: r.rep.ts || 0, by: r.rep.by || ''};
   });
   var bods = _getPendingVoboBodega().map(function(b) {
     var cant = b.item.cantidad ? b.item.cantidad + ' — ' : '';
@@ -5850,7 +6017,7 @@ function _buildFocusedResumenHtml(o) {
       if (rp.addedByTec) { pedidoPorLabel += (rp.vobo ? ' &middot; con Vo.Bo. del Jefe' : ' &middot; pendiente Vo.Bo. del Jefe'); }
       html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px' + (isDone ? ';opacity:.75' : '') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-          '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + rp.desc + '</div>' +
+          '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + repLabel(rp) + repEspecHtml(rp) + '</div>' +
           '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:' + estadoColor + ';border:1px solid var(--bd);white-space:nowrap">' + estadoLabel + '</span>' +
         '</div>' +
         '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + origenLabel + (rp.ts ? ' &middot; ' + msgTs(rp.ts) : '') + (pedidoPorLabel ? ' &middot; ' + pedidoPorLabel : '') + '</div>' +
@@ -6777,7 +6944,7 @@ function buildRepsContent() {
               '<span style="font-size:10px;color:var(--or);font-family:var(--mo);font-weight:700">&#35;' + esc(vItem.o.ot) + '</span>' +
               '<span style="font-size:10px;color:var(--tx2)">&#128295; ' + esc(vItem.o.tech || 'Sin tecnico') + '</span>' +
             '</div>' +
-            '<div style="font-size:12px;color:var(--tx)">' + vItem.rep.desc + '</div>' +
+            '<div style="font-size:12px;color:var(--tx)">' + repLabel(vItem.rep) + repEspecHtml(vItem.rep) + '</div>' +
           '</div>' +
           '<button class="btn-reps-vobo" data-oid="' + vItem.o.id + '" data-ri="' + vItem.ri + '" style="font-size:11px;padding:5px 12px;border-radius:10px;border:1px solid var(--orbd);background:var(--or);color:#000;font-weight:700;cursor:pointer;white-space:nowrap">&#9888; Dar Vo.Bo.</button>' +
         '</div>';
@@ -6832,7 +6999,7 @@ function buildRepsContent() {
 
       html += '<div style="background:var(--bg2);border:1px solid var(--orbd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px">' +
-          '<div style="font-size:12px;font-weight:500">' + rep.desc + '</div>' +
+          '<div style="font-size:12px;font-weight:500">' + repLabel(rep) + repEspecHtml(rep) + '</div>' +
           elapsedRepBadge(rep.ts, rep.origen || 'local') +
         '</div>' +
         voboRow2 +
@@ -6889,7 +7056,7 @@ function buildRepsContent() {
         var who = ROLES[role] ? ROLES[role].label : role;
         var ckLabel = ck === 'ck1' ? 'Mensajero confirma' : ck === 'ck2' ? 'Partes confirma' : 'Tecnico confirma instalacion';
         ox.msgs = ox.msgs || [];
-        ox.msgs.push({who:who, txt:'Repuesto "' + rep2.desc + '" — ' + ckLabel, ts:Date.now(), type:'system'});
+        ox.msgs.push({who:who, txt:'Repuesto "' + repLabelText(rep2) + '" — ' + ckLabel, ts:Date.now(), type:'system'});
         save();
         toast('Actualizado');
         buildRepsContent();
@@ -7584,7 +7751,7 @@ function openHistDetail(o) {
       if (rp7.addedByTec) { pedidoPorLabel7 += (rp7.vobo ? ' &middot; con Vo.Bo. del Jefe' : ' &middot; pendiente Vo.Bo. del Jefe'); }
       html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px' + (isDone7 ? ';opacity:.75' : '') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-          '<div style="font-size:12px;font-weight:500' + (isDone7 ? ';text-decoration:line-through' : '') + '">' + rp7.desc + '</div>' +
+          '<div style="font-size:12px;font-weight:500' + (isDone7 ? ';text-decoration:line-through' : '') + '">' + repLabel(rp7) + repEspecHtml(rp7) + '</div>' +
           '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--bg4);color:' + estadoColor7 + ';border:1px solid var(--bd);white-space:nowrap">' + estadoLabel7 + '</span>' +
         '</div>' +
         '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + origenLabel7 + (rp7.ts ? ' &middot; ' + msgTs(rp7.ts) : '') + (pedidoPorLabel7 ? ' &middot; ' + pedidoPorLabel7 : '') + '</div>' +
