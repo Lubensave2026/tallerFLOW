@@ -5236,7 +5236,20 @@ function setBodegaEstadoFilter(v) { _bodegaEstadoFilter = v; buildRepPartsConten
 // contar solo lo de ESA orden, para poder ver por separado lo despachado, lo
 // pendiente y todo dentro de ella.
 var _bodegaOrdenFilter = '';
-function setBodegaOrdenFilter(v) { _bodegaOrdenFilter = v || ''; buildRepPartsContent(); }
+function setBodegaOrdenFilter(v) {
+  // Se acepta tanto "5255" como "#5255" o con espacios, que es como la gente
+  // escribe el numero de orden de forma natural.
+  _bodegaOrdenFilter = (v || '').toString().trim().replace(/^#+/, '');
+  buildRepPartsContent();
+}
+// ¿Hay alguien escribiendo ahora mismo en el buscador de orden? Se usa para
+// no redibujar el panel encima de lo que esta tecleando (ver openRepParts).
+function _repPartsBusyTyping() {
+  try {
+    var el = document.getElementById('bod-ord-inp');
+    return !!(el && document.activeElement === el);
+  } catch(e) { return false; }
+}
 
 function openRepParts() {
   // Nunca deja los 2 modales que comparten la excepcion de impresion
@@ -5252,7 +5265,13 @@ function openRepParts() {
   _bodegaOrdenFilter = '';
   buildRepPartsContent();
   document.getElementById('m-repparts').classList.add('on');
-  window._repPartsInterval = setInterval(buildRepPartsContent, 15000);
+  // El refresco automatico se pospone mientras alguien esta escribiendo en
+  // el buscador de orden: redibujar le borraria lo tecleado y le quitaria el
+  // cursor a media palabra. Se retoma solo en cuanto sale de la casilla.
+  window._repPartsInterval = setInterval(function() {
+    if (_repPartsBusyTyping()) return;
+    buildRepPartsContent();
+  }, 15000);
 }
 function closeRepParts() { document.getElementById('m-repparts').classList.remove('on'); if(window._repPartsInterval) clearInterval(window._repPartsInterval); }
 function repPartsChoose(origen) { _repPartsFilter = origen; buildRepPartsContent(); }
@@ -5479,10 +5498,11 @@ function buildBodegaPartsTable(rows) {
       _bodOrdenes.push({ot: ot0, model: rows[oi].o.model || ''});
     }
   }
-  // Si la orden filtrada ya no aparece (se despacho todo y se cerro, se
-  // elimino, etc.), se cae de vuelta a "Todas" en vez de mostrar una tabla
-  // vacia sin explicacion.
-  if (_bodegaOrdenFilter && !_bodVistas[_bodegaOrdenFilter]) _bodegaOrdenFilter = '';
+  // Si el numero escrito no corresponde a ninguna orden del reporte, NO se
+  // limpia el filtro en silencio: se conserva lo que la persona escribio y
+  // mas abajo se le explica que esa orden no tiene solicitudes aqui. Antes
+  // se reseteaba solo, y quien se equivocaba de numero veia el listado
+  // completo sin entender por que.
 
   // El filtro de ORDEN se aplica primero: a partir de ahi, tanto los KPIs de
   // arriba como los conteos de los botones de Estado hablan de esa orden. Sin
@@ -5507,18 +5527,27 @@ function buildBodegaPartsTable(rows) {
     '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total autorizado' + (_bodegaOrdenFilter ? ' &middot; OT ' + esc(_bodegaOrdenFilter) : '') + '</div></div>' +
   '</div>';
 
-  // Selector de orden. Se lista "#OT · VEHICULO" para poder ubicarla sin
-  // tener que acordarse del numero de memoria.
-  var _bodOrdOpts = '<option value="">Todas las ordenes (' + rowsGlobal.length + ')</option>';
+  // Buscador de orden: casilla donde se ESCRIBE el numero, con la lista de
+  // sugerencias del navegador (mismo patron de <input list=...> que ya usa
+  // el catalogo de "Trabajos realizados"). Con decenas de ordenes en el
+  // reporte, bajar un desplegable buscando el numero a ojo era tedioso.
+  // Cada sugerencia trae el vehiculo y cuantas solicitudes tiene, para
+  // ubicarla aunque no se recuerde el numero exacto.
+  var _bodOrdOpts = '';
   for (var oj = 0; oj < _bodOrdenes.length; oj++) {
     var od = _bodOrdenes[oj];
     var nOd = rowsGlobal.filter(function(r){ return (r.o.ot||'') === od.ot; }).length;
-    _bodOrdOpts += '<option value="' + esc(od.ot) + '"' + (_bodegaOrdenFilter === od.ot ? ' selected' : '') + '>&#35;' +
-      esc(od.ot) + (od.model ? ' &middot; ' + esc(od.model) : '') + ' (' + nOd + ')</option>';
+    _bodOrdOpts += '<option value="' + esc(od.ot) + '">' +
+      (od.model ? esc(od.model) + ' — ' : '') + nOd + ' solicitud(es)</option>';
   }
   html += '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">' +
     '<span style="font-size:11px;color:var(--tx3);margin-right:2px">Orden:</span>' +
-    '<select onchange="setBodegaOrdenFilter(this.value)" style="font-size:11px;padding:5px 10px;border-radius:20px;border:1px solid ' + (_bodegaOrdenFilter ? 'var(--ac)' : 'var(--bd)') + ';background:' + (_bodegaOrdenFilter ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_bodegaOrdenFilter ? 'var(--ac)' : 'var(--tx2)') + ';max-width:320px;cursor:pointer;font-weight:' + (_bodegaOrdenFilter ? '700' : '400') + '">' + _bodOrdOpts + '</select>' +
+    '<input id="bod-ord-inp" list="bod-ord-list" autocomplete="off"' +
+      ' value="' + esc(_bodegaOrdenFilter) + '"' +
+      ' placeholder="Todas (' + rowsGlobal.length + ') — escribe el No. de orden"' +
+      ' onchange="setBodegaOrdenFilter(this.value)"' +
+      ' style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid ' + (_bodegaOrdenFilter ? 'var(--ac)' : 'var(--bd)') + ';background:' + (_bodegaOrdenFilter ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_bodegaOrdenFilter ? 'var(--ac)' : 'var(--tx)') + ';width:250px;max-width:100%;font-weight:' + (_bodegaOrdenFilter ? '700' : '400') + ';font-family:var(--mo)">' +
+    '<datalist id="bod-ord-list">' + _bodOrdOpts + '</datalist>' +
     (_bodegaOrdenFilter ? '<button onclick="setBodegaOrdenFilter(\'\')" title="Ver todas las ordenes" style="background:none;border:none;color:var(--tx3);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1">&#x2715;</button>' : '') +
   '</div>';
 
@@ -5541,11 +5570,20 @@ function buildBodegaPartsTable(rows) {
   else if (_bodegaEstadoFilter === 'desp') rows = rows.filter(function(r){ return !!r.item.despachado; });
 
   if (!rows.length) {
-    // Se distingue "no hay nada autorizado" de "el filtro no deja ver nada",
-    // para que no parezca que se perdieron los datos.
-    html += rowsAll.length
-      ? '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">Sin resultados con este filtro. <button onclick="setBodegaEstadoFilter(\'todos\')" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Ver todos</button></div>'
-      : '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay solicitudes de bodega autorizadas</div>';
+    // Se distinguen los tres casos, para que nunca parezca que se perdieron
+    // los datos: (1) el numero de orden escrito no existe en este reporte,
+    // (2) la orden si existe pero el filtro de Estado la deja fuera, y
+    // (3) de plano no hay nada autorizado todavia.
+    var _verTodo = '<button onclick="setBodegaOrdenFilter(\'\')" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Ver todas las ordenes</button>';
+    if (_bodegaOrdenFilter && !_bodVistas[_bodegaOrdenFilter]) {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">' +
+        'La orden <strong style="color:var(--tx2);font-family:var(--mo)">&#35;' + esc(_bodegaOrdenFilter) + '</strong> no tiene solicitudes de bodega en este reporte.<br>' +
+        'Revisa el numero, o ' + _verTodo + '.</div>';
+    } else if (rowsAll.length) {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">Sin resultados con este filtro. <button onclick="setBodegaEstadoFilter(\'todos\')" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Ver todos los estados</button></div>';
+    } else {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay solicitudes de bodega autorizadas</div>';
+    }
   } else {
     html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:760px">' +
       '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
