@@ -5288,7 +5288,7 @@ function setBodegaOrdenFilter(v) {
 // no redibujar el panel encima de lo que esta tecleando (ver openRepParts).
 function _repPartsBusyTyping() {
   try {
-    var ids = ['bod-ord-inp', 'rep-ord-inp'];
+    var ids = ['bod-ord-inp', 'rep-ord-inp', 'resumen-ot-inp'];
     for (var i = 0; i < ids.length; i++) {
       var el = document.getElementById(ids[i]);
       if (el && document.activeElement === el) return true;
@@ -5312,6 +5312,7 @@ function openRepParts() {
   _repEstadoFilter = 'todos';
   _repOrdenFilter = '';
   _repIncluirCerradas = false;
+  _resumenOtPanel = '';
   buildRepPartsContent();
   document.getElementById('m-repparts').classList.add('on');
   // El refresco automatico se pospone mientras alguien esta escribiendo en
@@ -5435,14 +5436,21 @@ function buildRepPartsContent() {
         '<span style="font-size:22px">&#9992;</span>' +
         '<div><div style="font-size:14px;font-weight:600">Repuestos de Importacion</div><div style="font-size:11px;color:var(--tx3)">' + nImp + ' pendiente(s)</div></div>' +
       '</div>' +
-      '<div onclick="repPartsChoose(\'bodega\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);cursor:pointer">' +
+      '<div onclick="repPartsChoose(\'bodega\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
         '<span style="font-size:22px">&#128167;</span>' +
         '<div><div style="font-size:14px;font-weight:600">Despacho Bodega</div><div style="font-size:11px;color:var(--tx3)">' + nBod + ' pendiente(s)</div></div>' +
+      '</div>' +
+      // Cuarta opcion: consulta por orden, juntando las dos listas anteriores.
+      '<div onclick="repPartsChoose(\'resumen\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd2);cursor:pointer">' +
+        '<span style="font-size:22px">&#128269;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">Resumen de una orden</div><div style="font-size:11px;color:var(--tx3)">Todo lo despachado de una orden, en una pantalla</div></div>' +
       '</div>' +
     '</div>';
     document.getElementById('repparts-body').innerHTML = html;
     return;
   }
+
+  if (_repPartsFilter === 'resumen') { buildResumenOrdenPanel(); return; }
 
   if (_repPartsFilter === 'bodega') { buildBodegaPartsTable(bodegaRows); return; }
 
@@ -5618,6 +5626,196 @@ function downloadRepPartsCsv() {
     csv += [_csvCell(r.o.ot||''), _csvCell(r.cerrada ? 'Si' : ''), _csvCell(r.o.client||''), _csvCell(r.o.model||''), _csvCell(r.rep.cantidad||''), _csvCell(r.rep.desc||''), _csvCell(r.rep.especificacion||''), _csvCell(r.rep.by||''), _csvCell(r.done ? 'Completado' : 'Pendiente'), _csvCell(r.paso||''), _csvCell(tiempo)].join(CSV_DELIM) + '\n';
   }
   _downloadCSV(csv, 'tallerflow_repuestos_' + _repPartsFilter + '_' + _todayKey() + '.csv');
+}
+
+/* ── RESUMEN DE UNA ORDEN ────────────────────────────────────────────────
+   Vista de CONSULTA para facturar: se escribe el No. de orden y se ve, en
+   una sola pantalla, que se le metio al vehiculo — repuestos/subcontratos y
+   despacho de bodega juntos, mas los trabajos que pidio el cliente.
+
+   Pedida por Mario: la ficha de la orden ya tiene todo esto, pero esta hecha
+   para TRABAJAR la orden (firmas, fases, bitacora, trabajos realizados) y
+   para revisar que facturar la mayor parte sobra. El clic en la linea de
+   Preparar Facturacion, que abre la ficha completa, se conserva tal cual.
+
+   Es SOLO LECTURA: marcar despachado o firmar pasos se sigue haciendo en los
+   reportes, para que no haya dos lugares donde se hace lo mismo. Y lee de
+   los mismos datos que ya usan esos reportes, no recalcula aparte, para que
+   las dos pantallas no puedan desincronizarse.                            */
+
+// Busca por No. de orden (lo que la gente teclea), no por id interno.
+// Acepta "5321", "#5321" o con espacios. Mira tambien el historial si ya se
+// cargo en esta sesion, para poder consultar una orden vieja.
+function _buscarOrdenPorOt(ot) {
+  var q = (ot === null || ot === undefined) ? '' : String(ot).trim().replace(/^#+/, '');
+  if (!q) return null;
+  for (var i = 0; i < orders.length; i++) { if (String(orders[i].ot || '') === q) return orders[i]; }
+  var arch = archived || [];
+  for (var j = 0; j < arch.length; j++) { if (String(arch[j].ot || '') === q) return arch[j]; }
+  return null;
+}
+
+// Arma el HTML del resumen. Devuelve solo la cadena para poder inyectarlo en
+// dos lugares distintos (dentro de Preparar Facturacion y como 4ta opcion
+// del menu de reportes) sin duplicar el armado.
+function _buildResumenOrdenHtml(ot) {
+  var q = (ot === null || ot === undefined) ? '' : String(ot).trim().replace(/^#+/, '');
+  if (!q) {
+    return '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:13px">' +
+      'Escribe un No. de orden para ver que se le ha despachado.</div>';
+  }
+  var o = _buscarOrdenPorOt(q);
+  if (!o) {
+    return '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:13px">' +
+      'No se encontro la orden <strong style="color:var(--tx2);font-family:var(--mo)">&#35;' + esc(q) + '</strong>.<br>' +
+      '<span style="font-size:11px">Revisa el numero. Si es una orden archivada, abre primero &#128193; Historial para cargarla.</span></div>';
+  }
+
+  var reps = o.repuestos || [];
+  var bods = o.bodega || [];
+  var repsPend = reps.filter(function(r){ return !r.ck3; }).length;
+  var bodsPend = bods.filter(function(b){ return !b.despachado; }).length;
+  var bodsSinVobo = bods.filter(function(b){ return !b.vobo; }).length;
+  var pc = PHASE_COLORS[o.phase] || {bg:'#333', color:'#fff', label:o.phase};
+
+  var h = '';
+
+  // Encabezado: lo minimo para confirmar que es el vehiculo correcto
+  h += '<div style="background:var(--bg3);border:1px solid var(--bd2);border-radius:var(--r);padding:12px 14px;margin-bottom:10px">' +
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
+      '<span style="font-size:17px;font-weight:800;font-family:var(--mo);color:var(--ac)">&#35;' + esc(o.ot || '—') + '</span>' +
+      '<span style="font-size:15px;font-weight:700;font-family:var(--mo)">' + esc(o.plate || '—') + '</span>' +
+      '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:2px 9px;border-radius:10px;font-size:10px;font-weight:600;margin-left:auto">' + pc.label + '</span>' +
+    '</div>' +
+    '<div style="font-size:13px;color:var(--tx);font-weight:600">' + esc(o.model || '—') + '</div>' +
+    '<div style="font-size:11px;color:var(--tx2);margin-top:2px">' + esc(o.client || '—') +
+      ' &middot; &#128295; ' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2.split(' ')[0]) : '') + '</div>' +
+  '</div>';
+
+  // Aviso de pendientes: es el dato que decide si la orden ya se puede
+  // facturar o no, asi que va arriba de todo y no escondido en la lista.
+  if (repsPend || bodsPend) {
+    var partes = [];
+    if (repsPend) partes.push(repsPend + (repsPend === 1 ? ' repuesto sin instalar' : ' repuestos sin instalar'));
+    if (bodsPend) partes.push(bodsPend + (bodsPend === 1 ? ' material sin despachar' : ' materiales sin despachar'));
+    h += '<div style="background:var(--orbg);border:1px solid var(--orbd);border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--or);font-weight:600">' +
+      '&#9888; Esta orden todavia tiene ' + partes.join(' y ') + '.' +
+      (bodsSinVobo ? '<div style="font-size:11px;font-weight:400;margin-top:3px">' + bodsSinVobo + ' de bodega espera(n) el Vo.Bo. del Jefe.</div>' : '') +
+    '</div>';
+  } else if (reps.length || bods.length) {
+    h += '<div style="background:var(--gnbg);border:1px solid var(--gnbd);border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--gn);font-weight:600">' +
+      '&#10003; Todo despachado e instalado.</div>';
+  }
+
+  // Trabajos que pidio el cliente
+  h += '<div style="margin-bottom:10px">' +
+    '<div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">&#128221; Trabajos solicitados por el cliente</div>' +
+    '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:9px 12px;font-size:12px;color:' + (o.desc ? 'var(--tx)' : 'var(--tx3)') + ';white-space:pre-wrap">' +
+      (o.desc ? esc(o.desc) : 'Sin descripcion registrada') + '</div>' +
+  '</div>';
+
+  // Bloque reutilizable para las dos listas
+  var bloque = function(titulo, icono, total, pendientes, filasHtml, vacio) {
+    return '<div style="margin-bottom:10px">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">' +
+        '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.4px">' + icono + ' ' + titulo + '</span>' +
+        '<span style="font-size:11px;font-weight:700;color:var(--tx);margin-left:auto">' + total +
+          (pendientes ? ' <span style="color:var(--or)">(' + pendientes + ' pend.)</span>' : '') + '</span>' +
+      '</div>' +
+      (filasHtml || '<div style="font-size:11px;color:var(--tx3);padding:6px 2px">' + vacio + '</div>') +
+    '</div>';
+  };
+  // Una linea por item: check verde si ya quedo, reloj naranja si falta
+  var linea = function(done, texto, estado, extra) {
+    return '<div style="display:flex;align-items:flex-start;gap:8px;background:var(--bg2);border:1px solid ' + (done ? 'var(--bd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:7px 10px;margin-bottom:4px">' +
+      '<span style="font-size:12px;flex-shrink:0;line-height:1.4">' + (done ? '<span style="color:var(--gn)">&#10003;</span>' : '<span style="color:var(--or)">&#9675;</span>') + '</span>' +
+      '<div style="min-width:0;flex:1">' +
+        '<div style="font-size:12px;color:' + (done ? 'var(--tx3)' : 'var(--tx)') + (done ? ';text-decoration:line-through' : '') + '">' + texto + '</div>' +
+        (extra ? '<div style="font-size:10px;color:var(--tx3);margin-top:2px">' + extra + '</div>' : '') +
+      '</div>' +
+      '<span style="font-size:10px;font-weight:600;white-space:nowrap;color:' + (done ? 'var(--gn)' : 'var(--or)') + ';flex-shrink:0">' + estado + '</span>' +
+    '</div>';
+  };
+
+  var repsHtml = '';
+  for (var ri = 0; ri < reps.length; ri++) {
+    var rp = reps[ri];
+    var rDone = !!rp.ck3;
+    var rPaso = rDone ? 'Instalado'
+      : (!rp.ck1 ? 'Esperando Mensajero' : (!rp.ck2 ? 'Esperando Partes' : 'Falta instalar'));
+    // La especificacion va primero en el detalle: para facturar importa
+    // saber CUAL pieza era (delanteras/izquierda/medida), mas que el origen.
+    var rExtra = (rp.especificacion ? rp.especificacion + ' &middot; ' : '') +
+      (rp.origen === 'importacion' ? '&#9992; Importacion' : 'Local') +
+      (rp.by ? ' &middot; ' + esc(rp.by) : '') +
+      (rp.addedByTec && !rp.vobo ? ' &middot; <span style="color:var(--or)">pendiente Vo.Bo. del Jefe</span>' : '');
+    repsHtml += linea(rDone, repLabel(rp), rPaso, rExtra);
+  }
+  h += bloque('Repuestos y subcontratos', '&#128230;', reps.length, repsPend, repsHtml, 'No se pidieron repuestos en esta orden');
+
+  var bodsHtml = '';
+  for (var bi = 0; bi < bods.length; bi++) {
+    var bt = bods[bi];
+    var bDone = !!bt.despachado;
+    var bTexto = (bt.cantidad ? '<strong style="font-family:var(--mo)">' + bt.cantidad + '</strong> &times; ' : '') + (bt.desc || '');
+    var bEstado = bDone ? 'Despachado' : (bt.vobo ? 'Falta despachar' : 'Falta Vo.Bo.');
+    var bExtra = (bt.especificacion ? bt.especificacion : '') + (bt.by ? (bt.especificacion ? ' &middot; ' : '') + esc(bt.by) : '');
+    bodsHtml += linea(bDone, bTexto, bEstado, bExtra);
+  }
+  h += bloque('Despacho bodega', '&#127981;', bods.length, bodsPend, bodsHtml, 'No se pidio material de bodega en esta orden');
+
+  // Atajo a la ficha completa, por si necesita ver firmas, bitacora, etc.
+  h += '<div style="text-align:center;padding-top:4px">' +
+    '<button onclick="abrirFichaDesdeResumen(' + o.id + ')" style="font-size:11px;padding:6px 14px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Ver la ficha completa de la orden &#8599;</button>' +
+  '</div>';
+
+  return h;
+}
+
+// Desde el resumen se puede saltar a la ficha completa. Cierra los paneles
+// que puedan estar abiertos para que la ficha no quede debajo de ellos.
+function abrirFichaDesdeResumen(id) {
+  closeRepParts();
+  closeAvisoLav();
+  openDrw(id);
+}
+
+// No. de orden que se esta consultando en cada una de las dos entradas al
+// resumen. Se guardan aparte porque son pantallas distintas: lo que Mario
+// busque desde Preparar Facturacion no debe pisarle lo que tenga abierto en
+// el menu de reportes, ni al reves.
+var _resumenOtPanel = '';
+var _resumenOtAvisoLav = '';
+
+function setResumenOt(v) {
+  _resumenOtPanel = (v || '').toString().trim().replace(/^#+/, '');
+  buildResumenOrdenPanel();
+}
+function setResumenOtAvisoLav(v) {
+  _resumenOtAvisoLav = (v || '').toString().trim().replace(/^#+/, '');
+  buildAvisoLavContent();
+}
+
+// Casilla de busqueda compartida por las dos entradas — cambia el id y la
+// funcion que dispara, pero se ve y se comporta igual en ambas.
+function _resumenBuscadorHtml(inpId, valor, fn) {
+  return '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;color:var(--tx3);margin-right:2px">&#128269; No. de orden:</span>' +
+    '<input id="' + inpId + '" autocomplete="off" value="' + esc(valor) + '" placeholder="ej. 5321"' +
+      ' onchange="' + fn + '(this.value)"' +
+      ' style="font-size:13px;padding:6px 14px;border-radius:20px;border:1px solid ' + (valor ? 'var(--ac)' : 'var(--bd)') + ';background:' + (valor ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:var(--tx);width:150px;font-weight:700;font-family:var(--mo)">' +
+    (valor ? '<button onclick="' + fn + '(\'\')" title="Limpiar" style="background:none;border:none;color:var(--tx3);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1">&#x2715;</button>' : '') +
+  '</div>';
+}
+
+function buildResumenOrdenPanel() {
+  var html = '<div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
+    '<button onclick="repPartsBack()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0">&#8592; Volver</button>' +
+    '<span class="no-print"><button onclick="window.print()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button></span>' +
+  '</div>';
+  html += _resumenBuscadorHtml('resumen-ot-inp', _resumenOtPanel, 'setResumenOt');
+  html += _buildResumenOrdenHtml(_resumenOtPanel);
+  document.getElementById('repparts-body').innerHTML = html;
 }
 
 // Tabla agregada de Despacho Bodega (3ra opcion del menu de "Despacho,
@@ -6033,6 +6231,9 @@ function buildAutorizContent() {
 }
 
 function openAvisoLav() {
+  // Cada vez que se abre, el buscador de orden arranca vacio: si no, quedaria
+  // pegada la consulta de la ultima orden que se reviso.
+  _resumenOtAvisoLav = '';
   buildAvisoLavContent();
   document.getElementById('m-avisolav').classList.add('on');
 }
@@ -6047,6 +6248,18 @@ function buildAvisoLavContent() {
     '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + pendCount + '</div><div class="kpi-l">Por preparar</div></div>' +
     '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total en la lista</div></div>' +
   '</div>';
+
+  // Consulta rapida por No. de orden, aqui mismo: es donde Mario esta cuando
+  // va a facturar, asi no tiene que salirse a otro reporte. Muestra el mismo
+  // resumen que la 4ta opcion del menu de reportes (mismo armado, ver
+  // _buildResumenOrdenHtml). El clic en la fila para abrir la ficha completa
+  // se conserva sin cambios mas abajo.
+  html += _resumenBuscadorHtml('avisolav-ot-inp', _resumenOtAvisoLav, 'setResumenOtAvisoLav');
+  if (_resumenOtAvisoLav) {
+    html += '<div style="border:1px solid var(--bd2);border-radius:var(--r);padding:12px;margin-bottom:1rem;background:var(--bg2)">' +
+      _buildResumenOrdenHtml(_resumenOtAvisoLav) +
+    '</div>';
+  }
 
   if (!rows.length) {
     html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay ordenes pendientes de preparar</div>';
