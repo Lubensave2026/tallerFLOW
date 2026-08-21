@@ -5707,12 +5707,11 @@ function _buildResumenOrdenHtml(ot) {
       '&#10003; Todo despachado e instalado.</div>';
   }
 
-  // Trabajos que pidio el cliente
-  h += '<div style="margin-bottom:10px">' +
-    '<div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">&#128221; Trabajos solicitados por el cliente</div>' +
-    '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:9px 12px;font-size:12px;color:' + (o.desc ? 'var(--tx)' : 'var(--tx3)') + ';white-space:pre-wrap">' +
-      (o.desc ? esc(o.desc) : 'Sin descripcion registrada') + '</div>' +
-  '</div>';
+  // Los "Trabajos solicitados por el cliente" se quitaron a peticion de
+  // Mario: esta pantalla es para revisar QUE SE CONSUMIO antes de facturar,
+  // y lo que el cliente pidio al ingresar no aporta a esa decision — solo
+  // alargaba el resumen. Siguen viendose en la ficha completa, a un clic de
+  // aqui (ver el boton del final).
 
   // Bloque reutilizable para las dos listas
   var bloque = function(titulo, icono, total, pendientes, filasHtml, vacio) {
