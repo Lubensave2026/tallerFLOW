@@ -5262,6 +5262,21 @@ function setBodegaEstadoFilter(v) { _bodegaEstadoFilter = v; buildRepPartsConten
 // de Estado: elegida una orden, los botones de Estado (y los KPIs) pasan a
 // contar solo lo de ESA orden, para poder ver por separado lo despachado, lo
 // pendiente y todo dentro de ella.
+// Filtros de los reportes de REPUESTOS (Locales/Subcontratos e Importacion),
+// equivalentes a los de Despacho Bodega:
+//   _repEstadoFilter    'todos' | 'pend' | 'comp'
+//   _repOrdenFilter     '' = todas
+//   _repIncluirCerradas false = solo ordenes activas (el dia a dia)
+var _repEstadoFilter = 'todos';
+var _repOrdenFilter = '';
+var _repIncluirCerradas = false;
+function setRepEstadoFilter(v) { _repEstadoFilter = v; buildRepPartsContent(); }
+function setRepOrdenFilter(v) {
+  _repOrdenFilter = (v || '').toString().trim().replace(/^#+/, '');
+  buildRepPartsContent();
+}
+function toggleRepCerradas() { _repIncluirCerradas = !_repIncluirCerradas; buildRepPartsContent(); }
+
 var _bodegaOrdenFilter = '';
 function setBodegaOrdenFilter(v) {
   // Se acepta tanto "5255" como "#5255" o con espacios, que es como la gente
@@ -5273,8 +5288,12 @@ function setBodegaOrdenFilter(v) {
 // no redibujar el panel encima de lo que esta tecleando (ver openRepParts).
 function _repPartsBusyTyping() {
   try {
-    var el = document.getElementById('bod-ord-inp');
-    return !!(el && document.activeElement === el);
+    var ids = ['bod-ord-inp', 'rep-ord-inp'];
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el && document.activeElement === el) return true;
+    }
+    return false;
   } catch(e) { return false; }
 }
 
@@ -5290,6 +5309,9 @@ function openRepParts() {
   // por un filtro que quedo puesto la vez anterior.
   _bodegaEstadoFilter = 'todos';
   _bodegaOrdenFilter = '';
+  _repEstadoFilter = 'todos';
+  _repOrdenFilter = '';
+  _repIncluirCerradas = false;
   buildRepPartsContent();
   document.getElementById('m-repparts').classList.add('on');
   // El refresco automatico se pospone mientras alguien esta escribiendo en
@@ -5334,25 +5356,40 @@ function repLabelText(rep) {
     (rep.especificacion ? ' (' + rep.especificacion + ')' : '');
 }
 
-function getPendingRepRows() {
-  // Junta todos los repuestos pendientes (ck3 != true) de todas las
-  // ordenes activas. Reutiliza el mismo campo o.repuestos que ya se
-  // captura desde Recepcion / la ficha de la orden — no requiere ningun
-  // dato nuevo.
+// TODOS los repuestos (pendientes Y ya instalados), para que el reporte
+// pueda seguir mostrando lo completado en vez de hacerlo desaparecer al
+// firmar el ultimo paso — que era lo que rompia la trazabilidad: una vez
+// marcado "Instalado", el repuesto no volvia a verse en ningun listado.
+//
+// incluirCerradas: por defecto solo ordenes activas. Con true agrega
+// tambien las que ya estan en fase 'cer' (cerradas pero todavia en el
+// tablero). Las ya ARCHIVADAS (7+ dias, movidas a taller/historial) no
+// entran aqui — esas se consultan desde Historial.
+function getAllRepRows(incluirCerradas) {
   var rows = [];
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
-    if (o.phase === 'cer') continue;
+    if (o.phase === 'cer' && !incluirCerradas) continue;
     var reps = o.repuestos || [];
     for (var j = 0; j < reps.length; j++) {
       var rep = reps[j];
-      if (rep.ck3) continue; // ya instalado, no es pendiente
-      var paso = !rep.ck1 ? 'Esperando Mensajero' : (!rep.ck2 ? 'Esperando confirmar Partes' : 'Listo — falta instalar');
-      var pasoColor = !rep.ck1 ? 'var(--or)' : (!rep.ck2 ? 'var(--ac)' : 'var(--gn)');
-      rows.push({o:o, rep:rep, paso:paso, pasoColor:pasoColor, origen: rep.origen || 'local'});
+      var done = !!rep.ck3;
+      var paso = done ? 'Instalado'
+        : (!rep.ck1 ? 'Esperando Mensajero' : (!rep.ck2 ? 'Esperando confirmar Partes' : 'Listo — falta instalar'));
+      var pasoColor = done ? 'var(--gn)'
+        : (!rep.ck1 ? 'var(--or)' : (!rep.ck2 ? 'var(--ac)' : 'var(--gn)'));
+      rows.push({o:o, rep:rep, paso:paso, pasoColor:pasoColor, origen: rep.origen || 'local', done: done, cerrada: o.phase === 'cer'});
     }
   }
   return rows;
+}
+
+function getPendingRepRows() {
+  // Solo los PENDIENTES de ordenes activas — es lo que significa esta
+  // funcion para todo lo que ya la usaba (el KPI "Repuestos pendientes",
+  // los conteos del menu de reportes, etc.), asi que su resultado no
+  // cambia. Se deriva de getAllRepRows para que ambas no se desincronicen.
+  return getAllRepRows(false).filter(function(r){ return !r.done; });
 }
 
 // Junta los pedidos de bodega ya autorizados (Vo.Bo. del Jefe) de todas las
@@ -5409,7 +5446,10 @@ function buildRepPartsContent() {
 
   if (_repPartsFilter === 'bodega') { buildBodegaPartsTable(bodegaRows); return; }
 
-  var rows = allRows.filter(function(r){ return r.origen === _repPartsFilter; });
+  // A diferencia del menu de arriba (que cuenta solo pendientes), la tabla
+  // parte de TODOS los repuestos: los ya instalados dejan de desaparecer y
+  // quedan consultables, tachados, igual que en Despacho Bodega.
+  var rows = getAllRepRows(_repIncluirCerradas).filter(function(r){ return r.origen === _repPartsFilter; });
   rows.sort(function(a,b){ return (a.rep.ts||0) - (b.rep.ts||0); }); // mas antiguo primero
 
   var esImp = _repPartsFilter === 'importacion';
@@ -5421,12 +5461,77 @@ function buildRepPartsContent() {
       '<button onclick="downloadRepPartsCsv()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#8681; CSV</button>' +
     '</span>' : '') +
   '</div>';
+  // Lista de ordenes presentes, para el buscador. Se arma del total (antes
+  // de filtrar) para que no se encoja conforme se filtra.
+  var _repOrdenes = [], _repVistas = {};
+  for (var roi = 0; roi < rows.length; roi++) {
+    var rot = rows[roi].o.ot || '';
+    if (rot && !_repVistas[rot]) { _repVistas[rot] = true; _repOrdenes.push({ot: rot, model: rows[roi].o.model || ''}); }
+  }
+  var rowsGlobalRep = rows;
+  if (_repOrdenFilter) rows = rows.filter(function(r){ return (r.o.ot||'') === _repOrdenFilter; });
+
+  var repPend = rows.filter(function(r){ return !r.done; }).length;
+  var repComp = rows.length - repPend;
+
   html += '<div class="kpi-grid" style="margin-bottom:1rem">' +
-    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + rows.length + '</div><div class="kpi-l">' + (esImp ? 'Importacion pendientes' : 'Locales pendientes') + '</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + repPend + '</div><div class="kpi-l">' + (esImp ? 'Importacion pendientes' : 'Locales pendientes') + (_repOrdenFilter ? ' &middot; OT ' + esc(_repOrdenFilter) : '') + '</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total solicitados' + (_repOrdenFilter ? ' &middot; OT ' + esc(_repOrdenFilter) : '') + '</div></div>' +
   '</div>';
 
+  // Buscador de orden (se escribe el numero, con sugerencias del navegador)
+  var _repOrdOpts = '';
+  for (var roj = 0; roj < _repOrdenes.length; roj++) {
+    var rod = _repOrdenes[roj];
+    var nRod = rowsGlobalRep.filter(function(r){ return (r.o.ot||'') === rod.ot; }).length;
+    _repOrdOpts += '<option value="' + esc(rod.ot) + '">' + (rod.model ? esc(rod.model) + ' — ' : '') + nRod + ' repuesto(s)</option>';
+  }
+  html += '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;color:var(--tx3);margin-right:2px">Orden:</span>' +
+    '<input id="rep-ord-inp" list="rep-ord-list" autocomplete="off" value="' + esc(_repOrdenFilter) + '"' +
+      ' placeholder="Todas (' + rowsGlobalRep.length + ') — escribe el No. de orden"' +
+      ' onchange="setRepOrdenFilter(this.value)"' +
+      ' style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid ' + (_repOrdenFilter ? 'var(--ac)' : 'var(--bd)') + ';background:' + (_repOrdenFilter ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_repOrdenFilter ? 'var(--ac)' : 'var(--tx)') + ';width:250px;max-width:100%;font-weight:' + (_repOrdenFilter ? '700' : '400') + ';font-family:var(--mo)">' +
+    '<datalist id="rep-ord-list">' + _repOrdOpts + '</datalist>' +
+    (_repOrdenFilter ? '<button onclick="setRepOrdenFilter(\'\')" title="Ver todas las ordenes" style="background:none;border:none;color:var(--tx3);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1">&#x2715;</button>' : '') +
+  '</div>';
+
+  // Filtro de Estado + interruptor de ordenes cerradas
+  var _repFiltBtn = function(val, label, count) {
+    var on = (_repEstadoFilter === val);
+    return '<button onclick="setRepEstadoFilter(\'' + val + '\')" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;white-space:nowrap;font-weight:' + (on ? '700' : '400') +
+      ';border:1px solid ' + (on ? 'var(--ac)' : 'var(--bd)') + ';background:' + (on ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (on ? 'var(--ac)' : 'var(--tx3)') + '">' + label + ' (' + count + ')</button>';
+  };
+  html += '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;color:var(--tx3);margin-right:2px">Estado:</span>' +
+    _repFiltBtn('todos', 'Todos', rows.length) +
+    _repFiltBtn('pend', 'Pendientes', repPend) +
+    _repFiltBtn('comp', 'Completados', repComp) +
+    // Apagado por defecto: el dia a dia son las ordenes activas. Se enciende
+    // cuando hace falta rastrear algo de una orden ya cerrada.
+    '<button onclick="toggleRepCerradas()" title="Incluye tambien los repuestos de ordenes ya cerradas (no las archivadas, esas van en Historial)" style="margin-left:6px;padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;white-space:nowrap;font-weight:' + (_repIncluirCerradas ? '700' : '400') +
+      ';border:1px solid ' + (_repIncluirCerradas ? '#8B5CF6' : 'var(--bd)') + ';background:' + (_repIncluirCerradas ? 'rgba(139,92,246,.15)' : 'var(--bg3)') + ';color:' + (_repIncluirCerradas ? '#B794F6' : 'var(--tx3)') + '">' +
+      (_repIncluirCerradas ? '&#10003;' : '&#9675;') + ' Incluir ordenes cerradas</button>' +
+  '</div>';
+
+  var rowsAllRep = rows;
+  if (_repEstadoFilter === 'pend')      rows = rows.filter(function(r){ return !r.done; });
+  else if (_repEstadoFilter === 'comp') rows = rows.filter(function(r){ return !!r.done; });
+
   if (!rows.length) {
-    html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay repuestos pendientes en esta categoria</div>';
+    var _verTodoRep = '<button onclick="setRepOrdenFilter(\'\')" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Ver todas las ordenes</button>';
+    if (_repOrdenFilter && !_repVistas[_repOrdenFilter]) {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">' +
+        'La orden <strong style="color:var(--tx2);font-family:var(--mo)">&#35;' + esc(_repOrdenFilter) + '</strong> no tiene repuestos en esta categoria.<br>' +
+        'Revisa el numero, o ' + _verTodoRep + '.' +
+        (!_repIncluirCerradas ? '<br><span style="font-size:11px">Si la orden ya se cerro, enciende <strong>Incluir ordenes cerradas</strong>.</span>' : '') +
+      '</div>';
+    } else if (rowsAllRep.length) {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">Sin resultados con este filtro. <button onclick="setRepEstadoFilter(\'todos\')" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Ver todos los estados</button></div>';
+    } else {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay repuestos en esta categoria' +
+        (!_repIncluirCerradas ? ' <button onclick="toggleRepCerradas()" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Incluir ordenes cerradas</button>' : '') + '</div>';
+    }
   } else {
     html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">' +
       '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
@@ -5445,25 +5550,32 @@ function buildRepPartsContent() {
     for (var k = 0; k < rows.length; k++) {
       var r = rows[k];
       var rowBg = k % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
+      // Los ya instalados se ven tachados y atenuados, igual que en Despacho
+      // Bodega: siguen ahi para la trazabilidad, pero no compiten
+      // visualmente con lo que todavia falta.
+      var strikeRep = r.done ? ';text-decoration:line-through;color:var(--tx3)' : '';
       var tiempo = '—';
       if (r.rep.ts) {
-        if (esImp) {
+        if (r.done) {
+          // Ya no es "tiempo pendiente" sino cuanto tardo en completarse
+          tiempo = r.rep.ck3ts ? businessHours(r.rep.ts, r.rep.ck3ts) : '—';
+        } else if (esImp) {
           var dias = Math.floor((Date.now() - r.rep.ts) / 86400000);
           tiempo = dias < 1 ? '< 1 dia' : dias + (dias===1?' dia':' dias');
         } else {
           tiempo = businessHours(r.rep.ts, Date.now());
         }
       }
-      html += '<tr style="background:' + rowBg + ';cursor:pointer" class="repparts-row" data-oid="' + r.o.id + '">' +
-        '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(r.o.ot||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(r.o.client||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(r.o.model||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + (r.rep.cantidad || '—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (r.rep.desc || '—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--tx2)">' + (r.rep.especificacion || '—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + (r.rep.by||'—') + '</td>' +
+      html += '<tr style="background:' + rowBg + (r.done ? ';opacity:.6' : '') + ';cursor:pointer" class="repparts-row" data-oid="' + r.o.id + '">' +
+        '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)' + strikeRep + '">' + esc(r.o.ot||'—') + (r.cerrada ? ' <span style="font-size:9px;color:var(--tx3);font-family:var(--fn)">(cerrada)</span>' : '') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strikeRep + '">' + esc(r.o.client||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strikeRep + '">' + esc(r.o.model||'—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)' + strikeRep + '">' + (r.rep.cantidad || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strikeRep + '">' + (r.rep.desc || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--tx2)' + strikeRep + '">' + (r.rep.especificacion || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strikeRep + '">' + (r.rep.by||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:' + r.pasoColor + ';font-weight:600;white-space:nowrap">' + r.paso + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;color:var(--or);white-space:nowrap">' + tiempo + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;color:' + (r.done ? 'var(--tx3)' : 'var(--or)') + ';white-space:nowrap">' + tiempo + '</td>' +
       '</tr>';
     }
     html += '</tbody></table></div>';
@@ -5485,17 +5597,25 @@ function buildRepPartsContent() {
 
 function downloadRepPartsCsv() {
   var esImp = _repPartsFilter === 'importacion';
-  var rows = getPendingRepRows().filter(function(r){ return r.origen === _repPartsFilter; });
+  // Respeta los mismos filtros que se ven en pantalla (orden, estado y si se
+  // incluyen ordenes cerradas): seria confuso pedir el CSV de una lista
+  // filtrada y que bajara otra cosa.
+  var rows = getAllRepRows(_repIncluirCerradas).filter(function(r){ return r.origen === _repPartsFilter; });
+  if (_repOrdenFilter) rows = rows.filter(function(r){ return (r.o.ot||'') === _repOrdenFilter; });
+  if (_repEstadoFilter === 'pend')      rows = rows.filter(function(r){ return !r.done; });
+  else if (_repEstadoFilter === 'comp') rows = rows.filter(function(r){ return !!r.done; });
+  if (!rows.length) { toast('No hay filas que exportar con estos filtros'); return; }
   rows.sort(function(a,b){ return (a.rep.ts||0) - (b.rep.ts||0); });
-  var csv = ['OR#', 'Cliente', 'Vehiculo', 'Cantidad', 'Repuesto', 'Especificacion', 'Pedido por', 'Paso actual', (esImp?'Dias pendiente':'Tiempo pendiente')].join(CSV_DELIM) + '\n';
+  var csv = ['OR#', 'Orden cerrada', 'Cliente', 'Vehiculo', 'Cantidad', 'Repuesto', 'Especificacion', 'Pedido por', 'Estado', 'Paso actual', (esImp?'Dias pendiente':'Tiempo pendiente')].join(CSV_DELIM) + '\n';
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     var tiempo = '—';
     if (r.rep.ts) {
-      if (esImp) { var dias = Math.floor((Date.now() - r.rep.ts) / 86400000); tiempo = dias < 1 ? '< 1 dia' : dias + (dias===1?' dia':' dias'); }
+      if (r.done) { tiempo = r.rep.ck3ts ? businessHours(r.rep.ts, r.rep.ck3ts) : ''; }
+      else if (esImp) { var dias = Math.floor((Date.now() - r.rep.ts) / 86400000); tiempo = dias < 1 ? '< 1 dia' : dias + (dias===1?' dia':' dias'); }
       else { tiempo = businessHours(r.rep.ts, Date.now()); }
     }
-    csv += [_csvCell(r.o.ot||''), _csvCell(r.o.client||''), _csvCell(r.o.model||''), _csvCell(r.rep.cantidad||''), _csvCell(r.rep.desc||''), _csvCell(r.rep.especificacion||''), _csvCell(r.rep.by||''), _csvCell(r.paso||''), _csvCell(tiempo)].join(CSV_DELIM) + '\n';
+    csv += [_csvCell(r.o.ot||''), _csvCell(r.cerrada ? 'Si' : ''), _csvCell(r.o.client||''), _csvCell(r.o.model||''), _csvCell(r.rep.cantidad||''), _csvCell(r.rep.desc||''), _csvCell(r.rep.especificacion||''), _csvCell(r.rep.by||''), _csvCell(r.done ? 'Completado' : 'Pendiente'), _csvCell(r.paso||''), _csvCell(tiempo)].join(CSV_DELIM) + '\n';
   }
   _downloadCSV(csv, 'tallerflow_repuestos_' + _repPartsFilter + '_' + _todayKey() + '.csv');
 }
