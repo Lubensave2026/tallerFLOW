@@ -463,8 +463,6 @@ button{cursor:pointer}
     </span>
     <select class="srch" id="srch-tec" style="max-width:140px;flex:0 0 auto" onchange="renderBoard()">
       <option value="">Todos los tecnicos</option>
-      <option>Gerson Rodas</option><option>Dany Acalon</option><option>Henry Barillas</option>
-      <option>Gabriel Rodas</option><option>Pablo Jolon</option><option>Luis Caceres</option>
     </select>
   </div>
   <div class="board" id="board"></div>
@@ -499,8 +497,6 @@ button{cursor:pointer}
       <div class="fg"><label class="fl">Tecnico (opcional, se asigna despues)</label>
         <select class="fi" id="f-tc">
           <option value="">Sin asignar</option>
-          <option>Gerson Rodas</option><option>Dany Acalon</option><option>Henry Barillas</option>
-          <option>Gabriel Rodas</option><option>Pablo Jolon</option><option>Luis Caceres</option>
         </select></div>
       <div class="fg"><label class="fl">Prioridad</label>
         <select class="fi" id="f-pr"><option value="normal">Normal</option><option value="urgente">Urgente</option><option value="vip">VIP</option><option value="garantia">Garantia</option><option value="interna">Interna</option><option value="endpint">End. y Pint.</option></select></div>
@@ -1063,6 +1059,36 @@ var LANES = [
   {id:'ent',label:'06 Entregado',          cls:'l-ent'},
   {id:'cer',label:'07 Orden cerrada',      cls:'l-cer'}
 ];
+
+// Tecnicos del taller. Unica fuente: antes esta lista estaba copiada en 5
+// lugares (asignacion en la ficha, panel Editar, Nueva Orden, filtro del
+// tablero y filtro del reporte), asi que agregar o quitar a alguien obligaba
+// a acordarse de los 5.
+var TEC_NAMES = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Luis Caceres'];
+
+// A quien se le puede ASIGNAR una orden. Ademas de los tecnicos incluye
+// "T. Externo", para las ordenes que no trabaja nadie de la casa sino un
+// proveedor de fuera.
+//
+// Va aparte de TEC_NAMES a proposito: "T. Externo" NO es una persona, asi
+// que no debe aparecer donde se mide desempeno ni donde se cobran firmas
+// (productividad por tecnico, firmas pendientes por colaborador). Esos
+// siguen usando TEC_NAMES.
+var TEC_EXTERNO = 'T. Externo';
+var TEC_ASIGNABLES = TEC_NAMES.concat([TEC_EXTERNO]);
+
+// Rellena un <select> del documento con los tecnicos asignables, conservando
+// su primera opcion (el "Sin asignar" / "Todos los tecnicos" que ya trae).
+function _llenarSelectTecnicos(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var primera = el.options.length ? el.options[0].outerHTML : '';
+  var html = primera;
+  for (var i = 0; i < TEC_ASIGNABLES.length; i++) {
+    html += '<option>' + TEC_ASIGNABLES[i] + '</option>';
+  }
+  el.innerHTML = html;
+}
 
 var SIGS = {
   // Recepcion: UNA sola firma, que puede hacer indistintamente el Asesor o
@@ -1989,7 +2015,7 @@ function openDrw(id) {
         : '') +
         (role === 'jefe' ?
           (function() {
-            var tecNamesE = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Luis Caceres'];
+            var tecNamesE = TEC_ASIGNABLES;
             var t1o = '<option value="">Sin asignar</option>';
             var t2o = '<option value="">Ninguno</option>';
             for (var ti = 0; ti < tecNamesE.length; ti++) {
@@ -2084,7 +2110,7 @@ function openDrw(id) {
   /* technician assignment — only jefe, only on aa phase */
   if (role === 'jefe' && o.phase === 'aa') {
     var techOptions = '<option value="">Sin asignar</option>';
-    var tecNames = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Luis Caceres'];
+    var tecNames = TEC_ASIGNABLES;
     for (var i = 0; i < tecNames.length; i++) {
       techOptions += '<option value="' + tecNames[i] + '"' + (o.tech === tecNames[i] ? ' selected' : '') + '>' + tecNames[i] + '</option>';
     }
@@ -4940,8 +4966,7 @@ function buildRepContent() {
     (myName ? '' :
     '<select id="rep-fil-tec" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
       '<option value="">Todos los tecnicos</option>' +
-      '<option>Gerson Rodas</option><option>Dany Acalon</option><option>Henry Barillas</option>' +
-      '<option>Gabriel Rodas</option><option>Pablo Jolon</option><option>Luis Caceres</option>' +
+      TEC_ASIGNABLES.map(function(t){ return '<option>' + t + '</option>'; }).join('') +
     '</select>') +
     '<select id="rep-fil-phase" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
       '<option value="">Todos los estatus</option>' +
@@ -8567,7 +8592,10 @@ function setTecRepClosed(val) {
   buildRepContent();
 }
 
-var _TEC_NAMES_PROD = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Luis Caceres'];
+// Productividad y firmas usan TEC_NAMES (los 6 tecnicos de verdad), NO
+// TEC_ASIGNABLES: "T. Externo" no es una persona y no se le mide desempeno
+// ni se le cobran firmas.
+var _TEC_NAMES_PROD = TEC_NAMES;
 
 // Suma horas Trabajando + horas de comision de UN tecnico, en ordenes
 // CERRADAS cuyo evento de cierre (o de congelamiento "Ya facturada") cayo en
@@ -8675,6 +8703,11 @@ function _buildTecProdTable(source, headerBg, headerText, title) {
 // si ya esta en el HTML/CSS y se pinta de inmediato sin esperar esto — este
 // cambio solo evita una condicion de carrera con initFirebase().
 window.addEventListener('load', function() {
+  // Los dos <select> de tecnicos que viven fijos en el HTML (filtro del
+  // tablero y Nueva Orden) se rellenan desde TEC_ASIGNABLES, para que la
+  // lista de tecnicos exista en un solo lugar del codigo.
+  _llenarSelectTecnicos('srch-tec');
+  _llenarSelectTecnicos('f-tc');
   load();
   loadArch();
   initFirebase();
