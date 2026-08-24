@@ -1112,7 +1112,12 @@ var SIGS = {
   // por decision del taller.
   rec:[{id:'asesor',lb:'Asesor o Jefe firma',sb:false}],
   aa: [{id:'jefe',lb:'Jefe Vo.Bo. asignacion',sb:false}],
-  det:[{id:'jefe',lb:'Jefe autoriza reanudar',sb:false}],
+  // 'det' se declaraba 3 veces en este mismo objeto (aqui, y otras dos al
+  // final). En JavaScript gana la ULTIMA, asi que las dos primeras eran
+  // codigo muerto: la firma que de verdad se usaba era "Jefe confirma
+  // reactivacion". Se dejo una sola declaracion, con ese mismo texto, para
+  // que lo que se lee sea lo que pasa.
+  det:[{id:'jefe',lb:'Jefe confirma reactivacion',sb:false}],
   ab: [{id:'tecnico',lb:'Tecnico Finaliza',sb:true}],
   prb:[{id:'jefe',lb:'Jefe prueba de ruta',sb:false,seq:1},{id:'tecnico',lb:'Tecnico inspeccion final',sb:false,required:false,seq:2}],
   pa: [{id:'partes',lb:'Partes cotiza repuestos',sb:true}],
@@ -1123,12 +1128,15 @@ var SIGS = {
   lav:[{id:'lavador',lb:'Lavador termina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. lavado',sb:false}],
   lst:[{id:'asesor',lb:'Asesor confirma entrega',sb:false}],
   ent:[{id:'jefe',lb:'Jefe verifica facturacion',sb:false}],
-  cer:[],
-  det:[],
-  det:[{id:'jefe',lb:'Jefe confirma reactivacion',sb:false}]
+  cer:[]
 };
 
 var NEXT = {
+  // 'det' se queda en ['aa'] como camino base. Las salidas adicionales son
+  // por ROL y viven en openDrw: el Jefe ve tambien 'ab' (ver mas abajo), y
+  // el tecnico asignado tiene su propio atajo directo a 'ab'. Abrirlo aqui
+  // se lo daria tambien al asesor y a tecnicos no asignados, que no es lo
+  // que se pidio.
   rec:['aa'],aa:['ab'],det:['aa'],ab:['prb','lav','pa','er','ext','det','lst'],
   prb:['lav','lst','ab','reproceso'],pa:['pb','ab'],pb:['ea','pa'],ea:['aa','lav','lst','prb','ext'],er:['aa'],
   ext:['ab','prb'],lav:['lst'],lst:['ent'],ent:['cer'],cer:[]
@@ -1936,6 +1944,14 @@ function openDrw(id) {
   if (o.phase === 'det' && r.tec && (o.tech === r.tn || o.tech2 === r.tn)) {
     nexts = ['ab'];
     gateOverride = true;
+  }
+  // El JEFE, ademas de mandarla a Espera-asignacion, puede devolverla
+  // directo a Trabajando: es lo normal cuando la detuvo el mismo tecnico que
+  // la va a seguir trabajando y no hay nada que reasignar. Sigue gateado por
+  // su propia firma "Jefe confirma reactivacion", igual que antes — lo unico
+  // que cambia es que al desbloquearse ahora hay dos destinos, no uno.
+  if (o.phase === 'det' && role === 'jefe') {
+    nexts = ['aa', 'ab'];
   }
 
   /* header */
