@@ -446,6 +446,7 @@ button{cursor:pointer}
       <button class="btn-out" onclick="logout()">Salir</button>
     </div>
   </div>
+  <div id="paro-banner"></div>
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
     <button class="btn-map" id="btn-map" onclick="openMap()" style="display:none">🗺 Mapa</button>
@@ -904,6 +905,19 @@ function initFirebase() {
         _lastSyncedMeta = JSON.stringify({notifs:notifs});
         try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
         maybeDailyBackup({orders:orders, notifs:notifs, nxtId:nxtId});
+        _scheduleRender();
+      });
+
+      // Paro general del taller: nodo propio, para que el aviso y el
+      // descuento de horas lleguen a TODOS los dispositivos al instante
+      // (si solo viviera en el equipo del Jefe, los tecnicos seguirian
+      // viendo su reloj corriendo).
+      db.ref('taller/pausas').on('value', function(snap) {
+        pausas = snap.val() || [];
+        if (!Array.isArray(pausas)) {
+          // Firebase devuelve objeto cuando el arreglo quedo con huecos
+          var arr = []; for (var k in pausas) arr.push(pausas[k]); pausas = arr;
+        }
         _scheduleRender();
       });
 
@@ -1598,6 +1612,8 @@ function renderBoard() {
   if (!boardEl) return;
   var apEl = document.getElementById('ap');
   if (!apEl || !apEl.classList.contains('on')) return;
+  var paroEl = document.getElementById('paro-banner');
+  if (paroEl) paroEl.innerHTML = _bannerPausaHtml();
   var srchEl = document.getElementById('srch');
   var q = srchEl ? (srchEl.value || '').toLowerCase() : '';
   var tecFilter = '';
@@ -1647,7 +1663,18 @@ function renderBoard() {
     laneEl.className = 'lane ' + lane.cls;
     var hdr = document.createElement('div');
     hdr.className = 'lane-hdr';
-    hdr.innerHTML = '<span class="lt">' + lane.label + '</span><span class="lc">' + items.length + '</span>';
+    // Boton de paro general, solo en la columna Trabajando y solo para el
+    // Jefe: detiene el reloj de TODAS esas ordenes de un golpe (ej. para
+    // reunir a los tecnicos) sin moverlas de fase ni borrarles firmas.
+    var paroBtn = '';
+    if (lane.id === 'ab' && role === 'jefe') {
+      paroBtn = _pausaActiva()
+        ? '<button onclick="event.stopPropagation();terminarPausaTaller()" title="Reanudar los tiempos" style="background:#fff;border:none;color:#5C2400;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;margin-left:6px">&#9654; Reanudar</button>'
+        : '<button onclick="event.stopPropagation();iniciarPausaTaller()" title="Detener el tiempo de todas las ordenes en Trabajando" style="background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:6px">&#9208; Detener</button>';
+    }
+    hdr.innerHTML = '<span class="lt">' + lane.label + '</span>' +
+      '<span style="display:flex;align-items:center">' + paroBtn +
+      '<span class="lc" style="margin-left:6px">' + items.length + '</span></span>';
     // Aviso visual (no una orden falsa) en la columna PRESUPUESTO/PARTES o
     // PRESUP. M/O cuando hay ordenes YA CERRADAS con un presupuesto
     // pendiente (ver buildRepsContent()) — sigue la misma ruta visual que un
@@ -1729,7 +1756,7 @@ function renderBoard() {
         var STAG_LIMITS = {rec:2, aa:4, ab:null, pa:8, pb:8, ea:48, er:48, det:4, ext:null, prb:4, lav:2, lst:24, ent:24};
         var stagHtml = '';
         if (o.phase !== 'cer' && o.timestamps && o.timestamps[o.phase]) {
-          var stagMins = businessMinutes(o.timestamps[o.phase], Date.now());
+          var stagMins = _minutosFase(o.phase, o.timestamps[o.phase], Date.now());
           var baseLimit = STAG_LIMITS[o.phase];
           // For ab and ext: use hrsEstimado if set, else skip alert
           var stagLimit;
@@ -1772,7 +1799,7 @@ function renderBoard() {
         var prodBadgeHtml = '';
         if (o.phase === 'ab') {
           var hrsRealCard = _sumPhaseHours(o, 'ab');
-          if (o.timestamps && o.timestamps.ab) hrsRealCard += businessMinutes(o.timestamps.ab, Date.now()) / 60;
+          if (o.timestamps && o.timestamps.ab) hrsRealCard += _minutosFase('ab', o.timestamps.ab, Date.now()) / 60;
           var hrsComCard = 0;
           (o.trabajos || []).forEach(function(tw) { hrsComCard += parseFloat(tw.horas) || 0; });
           if (hrsRealCard > 0) {
@@ -1802,7 +1829,7 @@ function renderBoard() {
           '<div class="card-mo">' + esc(o.model) + '</div>' +
           '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">' +
             '<div class="card-mt">' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2.split(' ')[0]) : '') + '</div>' +
-            (o.timestamps && o.timestamps[o.phase] ? '<div class="card-tm">&#9201; ' + businessHours(o.timestamps[o.phase], Date.now()) + '</div>' : '') +
+            (o.timestamps && o.timestamps[o.phase] ? '<div class="card-tm">&#9201; ' + _horasFaseTxt(o.phase, o.timestamps[o.phase], Date.now()) + '</div>' : '') +
           '</div>' +
           spHtml + numHtml +
           '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + misTrabHtml + '</div>' +
@@ -1961,7 +1988,7 @@ function openDrw(id) {
   // Calculate time in current phase
   var timeInPhase = '';
   if (o.timestamps && o.timestamps[o.phase]) {
-    timeInPhase = businessHours(o.timestamps[o.phase], Date.now()) + ' (horas habiles)';
+    timeInPhase = _horasFaseTxt(o.phase, o.timestamps[o.phase], Date.now()) + ' (horas habiles)';
   }
   var canEdit = (role === 'jefe');
   if (canEdit) {
@@ -2042,7 +2069,7 @@ function openDrw(id) {
   // la tarjeta del board solo se ve mientras esta en Trabajando, pero este
   // dato se conserva visible despues tambien).
   var hrsRealOrdenInfo = _sumPhaseHours(o, 'ab');
-  if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) hrsRealOrdenInfo += businessMinutes(o.timestamps.ab, Date.now()) / 60;
+  if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) hrsRealOrdenInfo += _minutosFase('ab', o.timestamps.ab, Date.now()) / 60;
   var hrsComOrdenInfo = 0;
   (o.trabajos || []).forEach(function(tw) { hrsComOrdenInfo += parseFloat(tw.horas) || 0; });
   var productividadOrdenHtml = '';
@@ -4111,7 +4138,8 @@ function advance(id, newPhase) {
     });
   } else {
     var phaseEntry = { phase: o.phase, label: oldLbl, from: phaseFrom, to: phaseTo };
-    phaseEntry.minutes = businessMinutes(phaseEntry.from, phaseEntry.to);
+    // Al salir de Trabajando se congela YA descontado el paro general.
+    phaseEntry.minutes = _minutosFase(phaseEntry.phase, phaseEntry.from, phaseEntry.to);
     if (phaseEntry.phase === 'det') phaseEntry.motivo = outgoingDetMotivo || null;
     o.phaseLog.push(phaseEntry);
   }
@@ -5089,7 +5117,7 @@ function buildRepContent() {
     var modelo = modelParts.slice(1).join(' ') || '—';
     // Time in phase
     var tFase = o.timestamps && o.timestamps[o.phase]
-      ? businessHours(o.timestamps[o.phase], Date.now())
+      ? _horasFaseTxt(o.phase, o.timestamps[o.phase], Date.now())
       : '—';
     // Para tecnicos: mismo calculo que "Mi productividad" pero por orden —
     // horas acumuladas en "En proceso" (ab) y horas de comision pagadas en
@@ -5121,7 +5149,7 @@ function buildRepContent() {
     if (role === 'jefe' && _jefeShowProdCols) {
       var hrsRealRow2 = _sumPhaseHours(o, 'ab');
       if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) {
-        hrsRealRow2 += businessMinutes(o.timestamps.ab, Date.now()) / 60;
+        hrsRealRow2 += _minutosFase('ab', o.timestamps.ab, Date.now()) / 60;
       }
       var hrsComRow2 = 0;
       (o.trabajos || []).forEach(function(tw) { hrsComRow2 += (parseFloat(tw.horas) || 0); });
@@ -5184,7 +5212,7 @@ function buildRepContent() {
       // Numero de horas (no el texto "8 min" / "1,6 h" de la pantalla), para
       // que en Excel se pueda ordenar y promediar de verdad.
       var tFaseNum = (o.timestamps && o.timestamps[o.phase])
-        ? businessMinutes(o.timestamps[o.phase], Date.now()) / 60
+        ? _minutosFase(o.phase, o.timestamps[o.phase], Date.now()) / 60
         : null;
       expRow.push(tFaseNum !== null ? _csvNum(tFaseNum.toFixed(2)) : '');
     }
@@ -7208,6 +7236,115 @@ function businessMinutes(fromTs, toTs) {
   return Math.round(total);
 }
 
+/* ── PARO GENERAL DEL TALLER ──────────────────────────────────────────────
+   Detiene el reloj de TODAS las ordenes en Trabajando a la vez (ej. una
+   reunion con los tecnicos), sin tener que pasarlas una por una a Detenido.
+
+   Por que no se mueven de fase: advance() borra las firmas de la orden
+   (o.sigs = {}), asi que mover a Detenido y regresar le borraria la firma
+   de "Tecnico Finaliza" a quien ya la hubiera dado. Ademas pediria el
+   motivo orden por orden, que es justo lo que se quiere evitar.
+
+   En su lugar el paro se guarda como un INTERVALO y se descuenta del
+   reloj. Ventajas: no toca ninguna orden, es reversible, y queda constancia
+   de que el taller estuvo parado de tal hora a tal hora — util si un
+   tecnico pregunta por sus horas.
+
+   Solo afecta la fase 'ab' (Trabajando): el tiempo de una orden esperando
+   repuestos lo causa el proveedor, no la reunion.                        */
+var pausas = []; // [{desde, hasta|null, motivo, por}] — la activa tiene hasta:null
+
+function _pausaActiva() {
+  for (var i = 0; i < pausas.length; i++) { if (pausas[i] && !pausas[i].hasta) return pausas[i]; }
+  return null;
+}
+
+// Minutos habiles que el taller estuvo parado dentro del tramo [from, to].
+// Se apoya en businessMinutes para que un paro que cruce el almuerzo o el
+// cierre del dia no descuente tiempo que de todas formas no contaba.
+function _minutosPausados(fromTs, toTs) {
+  if (!fromTs || !toTs || toTs <= fromTs || !pausas.length) return 0;
+  var total = 0;
+  for (var i = 0; i < pausas.length; i++) {
+    var p = pausas[i];
+    if (!p || !p.desde) continue;
+    var pHasta = p.hasta || Date.now(); // la pausa activa cuenta hasta ahora
+    var ini = Math.max(fromTs, p.desde);
+    var fin = Math.min(toTs, pHasta);
+    if (fin > ini) total += businessMinutes(ini, fin);
+  }
+  return total;
+}
+
+// Minutos habiles de un tramo, ya descontado el paro general si el tramo
+// corresponde a Trabajando. Todo calculo de tiempo de la fase 'ab' debe
+// pasar por aqui para que las pantallas no se contradigan entre si.
+// Cuantas ordenes quedarian afectadas ahora mismo
+function _ordenesEnTrabajando() {
+  return orders.filter(function(o){ return o.phase === 'ab'; }).length;
+}
+
+function _guardarPausas() {
+  try { localStorage.setItem('taller_pausas', JSON.stringify(pausas)); } catch(e) {}
+  if (fbReady && db && _hasReceivedFirebaseData) {
+    db.ref('taller/pausas').set(pausas).catch(function(e){ console.log('Error al guardar el paro:', e); });
+  }
+}
+
+function iniciarPausaTaller() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede detener los tiempos'); return; }
+  if (_pausaActiva()) { toast('Los tiempos ya estan detenidos'); return; }
+  var n = _ordenesEnTrabajando();
+  if (!n) { toast('No hay ordenes en Trabajando ahora mismo'); return; }
+  var motivo = prompt('Motivo del paro (se registra para todos):', 'Reunion de tecnicos');
+  if (motivo === null) return;              // cancelo
+  motivo = (motivo || '').trim() || 'Paro general';
+  pausas.push({desde: Date.now(), hasta: null, motivo: esc(motivo), por: (ROLES[role] ? ROLES[role].label : role)});
+  _guardarPausas();
+  renderBoard();
+  toast('Tiempos detenidos en ' + n + ' orden(es)');
+}
+
+function terminarPausaTaller() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede reanudar los tiempos'); return; }
+  var p = _pausaActiva();
+  if (!p) { toast('Los tiempos no estan detenidos'); return; }
+  p.hasta = Date.now();
+  var mins = businessMinutes(p.desde, p.hasta);
+  _guardarPausas();
+  renderBoard();
+  toast('Tiempos reanudados — no se contaron ' + Math.round(mins) + ' min');
+}
+
+// Aviso permanente mientras el taller esta parado. Va arriba de todo y lo
+// ven TODOS los roles: si a alguien se le olvida reanudar, las horas dejan
+// de acumularse en silencio y eso golpea las comisiones de los tecnicos.
+function _bannerPausaHtml() {
+  var p = _pausaActiva();
+  if (!p) return '';
+  var mins = businessMinutes(p.desde, Date.now());
+  var desdeTxt = new Date(p.desde).toLocaleTimeString('es-GT', {hour:'2-digit', minute:'2-digit'});
+  return '<div style="background:#5C2400;border-bottom:2px solid #FF5722;color:#fff;padding:8px 14px;font-size:12px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;text-align:center">' +
+    '<span><strong>&#9208; TIEMPOS DETENIDOS</strong> desde las ' + desdeTxt +
+      ' (' + Math.round(mins) + ' min) &middot; ' + p.motivo + '</span>' +
+    (role === 'jefe'
+      ? '<button onclick="terminarPausaTaller()" style="padding:4px 12px;border-radius:20px;border:none;background:#fff;color:#5C2400;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">&#9654; Reanudar</button>'
+      : '') +
+  '</div>';
+}
+
+function _minutosFase(fase, fromTs, toTs) {
+  var m = businessMinutes(fromTs, toTs);
+  if (fase === 'ab') m = m - _minutosPausados(fromTs, toTs);
+  return m > 0 ? m : 0;
+}
+function _horasFaseTxt(fase, fromTs, toTs) {
+  var total = _minutosFase(fase, fromTs, toTs);
+  var hrs = total / 60;
+  if (hrs < 1) return Math.round(total) + ' min';
+  return hrs.toFixed(1) + ' h';
+}
+
 // Calcula, para un tecnico especifico en una orden, las horas REALES
 // trabajadas (fase 'ab' — Trabajando) y las horas de COMISION pagadas
 // (trabajos[].horas para ese tecnico), sumando TODAS las veces que la orden
@@ -7231,7 +7368,7 @@ function calcTecHoras(o, tecName) {
   (o.phaseLog || []).forEach(function(pl) { if (pl.phase === 'ab') { abMin += (pl.minutes || 0); abVeces++; } });
   var abHoras = abMin / 60;
   if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) {
-    abHoras += businessMinutes(o.timestamps.ab, Date.now()) / 60;
+    abHoras += _minutosFase('ab', o.timestamps.ab, Date.now()) / 60;
   }
   var flat = 0;
   (o.trabajos || []).forEach(function(tw) { if (tw.tecnico === tecName) flat += (parseFloat(tw.horas) || 0); });
@@ -8434,7 +8571,28 @@ function buildSemContent() {
   var colMO    = semColor(pctMO);
   var colRep   = semColor(pctRep);
 
+  // El porcentaje que se MUESTRA no va topado en 100: las barras si se topan
+  // (no pueden pasarse del ancho), pero si el mes supera la meta hay que
+  // poder verlo — mostrar "100%" cuando en realidad se logro 118% escondería
+  // justo el mes bueno.
+  var pctTotalReal = META_TOTAL ? (totalFact/META_TOTAL)*100 : 0;
+  var pctMOReal    = META_MO    ? (totalMO/META_MO)*100      : 0;
+  var pctRepReal   = META_REP   ? (totalRep/META_REP)*100    : 0;
+
   function fmt(n) { return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+  // Ticket promedio = lo facturado entre el numero de ordenes cerradas CON
+  // MONTO (data.countCerradas ya excluye las que cerraron en cero, ver
+  // semComputeFromOrders). Solo aplica a Total general y Mano de obra.
+  var nOrd = data.countCerradas || 0;
+  function ticket(monto) { return nOrd ? fmt(monto / nOrd) : '—'; }
+  // Insignia de porcentaje, del mismo color que su barra
+  function pctBadge(p, col) {
+    return '<span style="font-size:10px;font-weight:700;color:' + col + ';background:var(--bg4);border:1px solid ' + col + ';border-radius:8px;padding:1px 6px;margin-left:6px">' + p.toFixed(1) + '%</span>';
+  }
+  function ticketTxt(monto) {
+    return '<span style="font-size:10px;color:var(--tx3);margin-left:6px">Ticket prom. <strong style="color:var(--tx2)">' + ticket(monto) + '</strong></span>';
+  }
   function bar(pct, col) {
     return '<div style="background:var(--bg3);border-radius:6px;height:14px;margin:4px 0 10px">' +
       '<div style="background:'+col+';width:'+pct+'%;height:100%;border-radius:6px;transition:width .4s"></div></div>';
@@ -8468,11 +8626,21 @@ function buildSemContent() {
     // KPI bars — meta del mes vs cerrado
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
       '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128200; Meta del mes (ya cerrado / facturado)</div>' +
-      '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Total general</span><span style="color:var(--gn);font-weight:700">'+fmt(totalFact)+' / '+fmt(META_TOTAL)+'</span></div>' +
+      // Cada rubro lleva, en su misma linea: el % alcanzado de su meta y —
+      // para Total general y Mano de obra — el ticket promedio. Se envuelve
+      // en flex-wrap para que en celular baje a dos renglones en vez de
+      // apretarse.
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--tx3);margin-bottom:2px">' +
+        '<span>Total general' + pctBadge(pctTotalReal, colTotal) + ticketTxt(totalFact) + '</span>' +
+        '<span style="color:var(--gn);font-weight:700">'+fmt(totalFact)+' / '+fmt(META_TOTAL)+'</span></div>' +
       bar(pctTotal, colTotal) +
-      '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Mano de obra</span><span style="color:var(--ac);font-weight:700">'+fmt(totalMO)+' / '+fmt(META_MO)+'</span></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--tx3);margin-bottom:2px">' +
+        '<span>Mano de obra' + pctBadge(pctMOReal, colMO) + ticketTxt(totalMO) + '</span>' +
+        '<span style="color:var(--ac);font-weight:700">'+fmt(totalMO)+' / '+fmt(META_MO)+'</span></div>' +
       bar(pctMO, colMO) +
-      '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-bottom:2px"><span>Rep./Lub/Mat/Tr. Ext.</span><span style="color:#F39C12;font-weight:700">'+fmt(totalRep)+' / '+fmt(META_REP)+'</span></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--tx3);margin-bottom:2px">' +
+        '<span>Rep./Lub/Mat/Tr. Ext.' + pctBadge(pctRepReal, colRep) + '</span>' +
+        '<span style="color:#F39C12;font-weight:700">'+fmt(totalRep)+' / '+fmt(META_REP)+'</span></div>' +
       bar(pctRep, colRep) +
       '<div style="display:flex;gap:16px;font-size:10px;color:var(--tx3);margin-top:6px">' +
         '<span>Ordenes cerradas: <strong style="color:var(--tx)">'+data.countCerradas+'</strong></span>' +
@@ -8497,8 +8665,10 @@ function buildSemContent() {
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
       '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#9989; Con que se cerro ' + data.monthLabel + ' (' + data.countCerradas + ' orden(es))</div>' +
       '<div style="display:flex;gap:20px;flex-wrap:wrap">' +
-        '<div><div style="font-size:19px;font-weight:700;color:var(--gn)">'+fmt(totalFact)+'</div><div style="font-size:10px;color:var(--tx3)">Total</div></div>' +
-        '<div><div style="font-size:19px;font-weight:700;color:var(--ac)">'+fmt(totalMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+        '<div><div style="font-size:19px;font-weight:700;color:var(--gn)">'+fmt(totalFact)+'</div><div style="font-size:10px;color:var(--tx3)">Total</div>' +
+          '<div style="font-size:10px;color:var(--tx3);margin-top:2px">Ticket prom. <strong style="color:var(--tx2)">'+ticket(totalFact)+'</strong></div></div>' +
+        '<div><div style="font-size:19px;font-weight:700;color:var(--ac)">'+fmt(totalMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div>' +
+          '<div style="font-size:10px;color:var(--tx3);margin-top:2px">Ticket prom. <strong style="color:var(--tx2)">'+ticket(totalMO)+'</strong></div></div>' +
         '<div><div style="font-size:19px;font-weight:700;color:#F39C12">'+fmt(totalRep)+'</div><div style="font-size:10px;color:var(--tx3)">Rep./Lub/Mat/Tr. Ext.</div></div>' +
       '</div>' +
     '</div>';
@@ -8706,6 +8876,7 @@ window.addEventListener('load', function() {
   // Los dos <select> de tecnicos que viven fijos en el HTML (filtro del
   // tablero y Nueva Orden) se rellenan desde TEC_ASIGNABLES, para que la
   // lista de tecnicos exista en un solo lugar del codigo.
+  try { pausas = JSON.parse(localStorage.getItem('taller_pausas') || '[]') || []; } catch(e) { pausas = []; }
   _llenarSelectTecnicos('srch-tec');
   _llenarSelectTecnicos('f-tc');
   load();
