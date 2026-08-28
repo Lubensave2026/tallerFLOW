@@ -7405,13 +7405,34 @@ function toggleAsistenciaTecnico(nombre) {
      como advertencia, en vez de inflar o desinflar el numero de disponible.
    - Orden con 2 tecnicos: la hora estimada se reparte 50/50 entre ambos.
    - Un tecnico ausente hoy no aporta capacidad, aunque tenga ordenes
-     asignadas (esas ordenes igual se muestran, para que se reasignen).   */
-var HORAS_JORNADA = 8; // horas por jornada tecnica, igual para los 6
+     asignadas (esas ordenes igual se muestran, para que se reasignen).
+   - La jornada de HOY no es un numero fijo: se calcula de las mismas
+     ventanas de horario habil que ya usa businessMinutes() en toda la app
+     (entre semana 7.75h reales — 8:00-10:00, 10:15-12:00, 13:00-17:00 — y
+     sabado 3.75h — 8:00-10:00, 10:15-12:00, ambos ya descontando el break
+     de las 10 —, domingo cerrado). Se reutiliza esa MISMA fuente en vez de
+     un numero aparte, para que si algun dia cambia el horario del sabado el
+     reporte se ajuste solo, sin nada que sincronizar a mano.             */
+
+// Horas de una jornada completa en la fecha dada (por defecto, hoy). Recibe
+// la fecha como parametro — igual que semComputeFromOrders(monthOffset) —
+// para poder probar sabado/domingo sin depender de en que dia corra la
+// prueba de verdad.
+function _jornadaHrs(fecha) {
+  var d = fecha || new Date();
+  var dow = d.getDay();
+  var windows = (dow >= 1 && dow <= 5) ? _BUSINESS_WINDOWS_WEEKDAY : (dow === 6 ? _BUSINESS_WINDOWS_SATURDAY : []);
+  var mins = 0;
+  for (var i = 0; i < windows.length; i++) mins += (windows[i][1] - windows[i][0]);
+  return mins / 60;
+}
 
 // Calcula todo el modelo de datos, sin tocar el DOM — asi se puede probar
 // en aislamiento (ver test_capacidad_taller.js).
 function _capacidadCalc() {
   var hoy = new Date();
+  var jornadaHoy = _jornadaHrs(hoy);
+  var tallerCerradoHoy = jornadaHoy === 0;
   var y = hoy.getFullYear(), m = hoy.getMonth();
   var tecs = [];
   var capacidadTotal = 0;
@@ -7426,7 +7447,7 @@ function _capacidadCalc() {
     // trabajar nada, que es peor que asumir de mas.
     var sinHistorial = prod.real <= 0;
     var pct = sinHistorial ? 100 : Math.min(100, Math.round((prod.flat / prod.real) * 100));
-    var capacidadReal = ausente ? 0 : (HORAS_JORNADA * pct / 100);
+    var capacidadReal = ausente ? 0 : (jornadaHoy * pct / 100);
     var tec = {
       nombre: nombre, ausente: ausente, pct: pct, sinHistorial: sinHistorial,
       capacidadReal: capacidadReal, carga: 0, ordenes: []
@@ -7467,6 +7488,7 @@ function _capacidadCalc() {
   return {
     tecs: tecs, capacidadTotal: capacidadTotal, cargaTotal: cargaTotal,
     pctUso: pctUso, semaforo: semaforo, sinHora: sinHora,
+    jornadaHoy: jornadaHoy, tallerCerradoHoy: tallerCerradoHoy,
     activos: tecs.filter(function(t){ return !t.ausente; }).length
   };
 }
@@ -7494,6 +7516,8 @@ function buildCapacidadContent() {
   html += '</div></div>';
 
   html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--tx3)">' +
+    '<span>Jornada de hoy: <strong style="color:var(--tx)">' + d.jornadaHoy.toFixed(2).replace(/\.?0+$/, '') + ' hrs</strong>' +
+      (new Date().getDay() === 6 ? ' (sabado)' : '') + '</span>' +
     '<span>Tecnicos activos: <strong style="color:var(--tx)">' + d.activos + ' de ' + d.tecs.length + '</strong></span>' +
     (d.capacidadTotal > 0 ? '<span>Capacidad real hoy: <strong style="color:var(--tx)">' + d.capacidadTotal.toFixed(1) + ' hrs</strong></span>' : '') +
   '</div>';
@@ -7504,8 +7528,11 @@ function buildCapacidadContent() {
     rojo:      {bg:'var(--rdbg)', bd:'var(--rdbd)', tx:'var(--rd)', label:'&#128308; TALLER LLENO — reprogramar para manana'}
   };
   var sc = semInfo[d.semaforo];
+  var semMsg = d.tallerCerradoHoy
+    ? '&#128308; TALLER CERRADO HOY'
+    : (d.capacidadTotal > 0 ? sc.label + ' (' + d.pctUso.toFixed(0) + '% usado)' : '&#128308; NINGUN TECNICO DISPONIBLE HOY');
   html += '<div style="background:' + sc.bg + ';border:1px solid ' + sc.bd + ';border-radius:var(--r);padding:10px 14px;margin-bottom:12px;font-size:12px;font-weight:700;color:' + sc.tx + ';text-align:center">' +
-    (d.capacidadTotal > 0 ? sc.label + ' (' + d.pctUso.toFixed(0) + '% usado)' : '&#128308; NINGUN TECNICO DISPONIBLE HOY') +
+    semMsg +
   '</div>';
 
   html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">' +
