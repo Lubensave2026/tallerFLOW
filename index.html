@@ -308,6 +308,11 @@ button{cursor:pointer}
   100% { transform:scale(1);   opacity:1; }
 }
 .sig-urgent { animation:pulse-badge 1.2s ease-in-out infinite; background:var(--rd) !important; }
+/* Insignia de conteo que TITILA, para que al dar un vistazo general a la
+   barra de botones salte a la vista que hay trabajo pendiente. Se usa en
+   REPUESTOS Y SUBCONTRATOS y en Despacho — a diferencia de las insignias
+   quietas de Presupuestos pendientes y Preparar Facturacion. */
+.badge-alerta { animation:pulse-badge 1.4s ease-in-out infinite }
 
 /* Impresion del reporte de una orden (Historial -> Ver detalle -> Imprimir).
    Redefine las variables de color a una paleta clara/legible en papel —
@@ -450,11 +455,11 @@ button{cursor:pointer}
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
     <button class="btn-map" id="btn-map" onclick="openMap()" style="display:none">🗺 Mapa</button>
-    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS<span id="reps-vobo-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
+    <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS<span id="reps-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-presq-pend" onclick="openPresqPend()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#128221; Presupuestos pendientes (OT cerradas)<span id="presq-pend-count" style="display:none;background:#8B5CF6;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
-    <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Despacho, Repuestos y Subcontratos</button>
+    <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Despacho, Repuestos y Subcontratos<span id="repparts-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-avisolav" onclick="openAvisoLav()" style="display:none;border-color:var(--gnbd);color:var(--gn)">&#129534; Preparar Facturacion<span id="avisolav-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-export" onclick="openExportPicker()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
 
@@ -1522,6 +1527,8 @@ function logout() {
   try { localStorage.removeItem('taller_session'); } catch(e) {}
   document.getElementById('btn-arch').style.display = 'none';
   document.getElementById('btn-reps').style.display = 'none';
+  var _bR = document.getElementById('reps-count'); if (_bR) _bR.style.display = 'none';
+  var _bP = document.getElementById('repparts-count'); if (_bP) _bP.style.display = 'none';
   document.getElementById('btn-presq-pend').style.display = 'none';
   document.getElementById('btn-sigs').style.display = 'none';
   document.getElementById('btn-autoriz').style.display = 'none';
@@ -4448,6 +4455,7 @@ function updateNDot() {
   if (role) updateAvisoLavBadge();
   if (role) updatePresqPendBadge();
   if (role) updateRepsVoboBadge();
+  if (role) updateRepPartsBadge();
   if (role) updateAutorizBadge();
   var unread = 0;
   for (var i = 0; i < notifs.length; i++) { if (!notifs[i].read) unread++; }
@@ -6058,12 +6066,51 @@ function _getPendingVoboReps() {
   }
   return out;
 }
+// Insignia del boton REPUESTOS Y SUBCONTRATOS: cuantos repuestos siguen
+// pendientes (aun no instalados). TITILA a proposito — la idea es que al dar
+// un vistazo general a la barra de botones salte a la vista que hay trabajo
+// esperando, sin tener que abrir nada.
+//
+// Antes esta insignia contaba solo los que esperaban Vo.Bo. del Jefe; ese
+// aviso ahora vive en su propio boton del encabezado (&#128275;, solo Jefe) y
+// en la seccion destacada de arriba del panel, asi que no se pierde nada.
 function updateRepsVoboBadge() {
-  var badge = document.getElementById('reps-vobo-count');
+  var badge = document.getElementById('reps-count');
   if (!badge) return;
-  var pending = _getPendingVoboReps().length;
-  if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; }
-  else { badge.style.display = 'none'; }
+  var rows = getPendingRepRows();
+  // Un tecnico solo ve sus propias ordenes dentro del panel (ver
+  // buildRepsContent), asi que su insignia tiene que contar lo mismo — si no,
+  // el numero de afuera no cuadraria con lo que encuentra adentro.
+  var rMe = role ? ROLES[role] : null;
+  if (rMe && rMe.tec) {
+    rows = rows.filter(function(r){ return r.o.tech === rMe.tn || r.o.tech2 === rMe.tn; });
+  }
+  var pending = rows.length;
+  if (pending > 0) {
+    badge.textContent = String(pending);
+    badge.className = 'badge-alerta';
+    badge.style.display = 'inline-block';
+  } else {
+    badge.className = '';
+    badge.style.display = 'none';
+  }
+}
+
+// Insignia del boton "Despacho, Repuestos y Subcontratos": items de bodega
+// ya autorizados que siguen SIN despachar — es lo que Mario y William tienen
+// que sacar del estante. Tambien titila.
+function updateRepPartsBadge() {
+  var badge = document.getElementById('repparts-count');
+  if (!badge) return;
+  var pending = getBodegaRows().filter(function(r){ return !r.item.despachado; }).length;
+  if (pending > 0) {
+    badge.textContent = String(pending);
+    badge.className = 'badge-alerta';
+    badge.style.display = 'inline-block';
+  } else {
+    badge.className = '';
+    badge.style.display = 'none';
+  }
 }
 
 // Pedidos de material de bodega que un tecnico solicito y que todavia no
