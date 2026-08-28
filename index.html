@@ -459,6 +459,7 @@ button{cursor:pointer}
     <button class="btn-map" id="btn-presq-pend" onclick="openPresqPend()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#128221; Presupuestos pendientes (OT cerradas)<span id="presq-pend-count" style="display:none;background:#8B5CF6;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
     <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
+    <button class="btn-map" id="btn-cap" onclick="openCapacidad()" style="display:none;border-color:#3D7EFF;color:#3D7EFF">&#128677; Capacidad</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Despacho, Repuestos y Subcontratos<span id="repparts-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-avisolav" onclick="openAvisoLav()" style="display:none;border-color:var(--gnbd);color:var(--gn)">&#129534; Preparar Facturacion<span id="avisolav-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-export" onclick="openExportPicker()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#11015; Exportar bitacora (CSV)</button>
@@ -923,6 +924,15 @@ function initFirebase() {
           // Firebase devuelve objeto cuando el arreglo quedo con huecos
           var arr = []; for (var k in pausas) arr.push(pausas[k]); pausas = arr;
         }
+        _scheduleRender();
+      });
+
+      // Asistencia de tecnicos, guardada POR FECHA (taller/asistencia/{hoy})
+      // — asi no hace falta "resetear" nada cada manana: si nadie toco el
+      // interruptor, todos cuentan como presentes por default. El dia
+      // anterior queda como historial, no estorba.
+      db.ref('taller/asistencia').on('value', function(snap) {
+        asistencia = snap.val() || {};
         _scheduleRender();
       });
 
@@ -1506,6 +1516,10 @@ function doLogin(rk) {
   document.getElementById('btn-map').style.display = (rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
+  // Capacidad del taller: herramienta de planeacion del dia, solo para
+  // quienes deciden a quien asignar que — no aporta nada a partes, mensajero
+  // ni a los tecnicos verla.
+  document.getElementById('btn-cap').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-export').style.display = (rk === 'jefe') ? 'inline-flex' : 'none';
   document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
   var srchTecEl = document.getElementById('srch-tec');
@@ -1533,6 +1547,7 @@ function logout() {
   document.getElementById('btn-sigs').style.display = 'none';
   document.getElementById('btn-autoriz').style.display = 'none';
   document.getElementById('btn-sem').style.display = 'none';
+  document.getElementById('btn-cap').style.display = 'none';
   document.getElementById('btn-export').style.display = 'none';
   document.getElementById('btn-map').style.display = 'none';
   closeDrw(); closeNO(); closeRep(); closeMap(); closeAutoriz();
@@ -4113,6 +4128,28 @@ function advance(id, newPhase) {
     }
   }
   if (!o) return;
+  // Toda orden que entra a Trabajando debe traer hora estimada — es lo que
+  // alimenta el reporte de Capacidad del taller (ver buildCapacidadContent).
+  // Sin este dato, esa orden no se puede sumar a la carga del dia de nadie,
+  // y el numero de disponibilidad saldria mas alto de lo real. Aplica hacia
+  // ADELANTE unicamente: las ordenes que ya estaban en 'ab' antes de este
+  // cambio no se tocan — el reporte simplemente las marca con una
+  // advertencia en vez de bloquear nada con retroactividad.
+  //
+  // No aplica al reproceso (advanceReproceso pone o.phase='ab' directo, sin
+  // pasar por aqui) porque una orden en reproceso ya paso por 'ab' antes, asi
+  // que ya deberia traer el dato — y de no traerlo, interrumpir con otro
+  // prompt justo cuando se esta corrigiendo un reproceso seria mas estorbo
+  // que ayuda.
+  if (newPhase === 'ab' && !o.hrsEstimado) {
+    var hrsInput = prompt('Horas estimadas para reparar ' + o.plate + ' (usado para calcular la capacidad del taller):');
+    if (hrsInput === null) return; // cancelo
+    var hrsVal = parseFloat(hrsInput);
+    if (!hrsVal || hrsVal <= 0) { toast('Ingresa un numero de horas mayor a 0'); return; }
+    o.hrsEstimado = hrsVal;
+    o.msgs = o.msgs || [];
+    o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'Tiempo estimado registrado: ' + hrsVal + 'h', ts:Date.now(), type:'system'});
+  }
   // Guardar el motivo de la detencion que se esta dejando (si aplica) ANTES
   // de tocar o.detMotivo, para que quede registrado en la bitacora de
   // tiempos por fase (phaseLog) aunque se limpie de la carpeta abajo.
@@ -7317,6 +7354,196 @@ function businessMinutes(fromTs, toTs) {
    repuestos lo causa el proveedor, no la reunion.                        */
 var pausas = []; // [{desde, hasta|null, motivo, por}] — la activa tiene hasta:null
 
+/* ── ASISTENCIA DE TECNICOS ───────────────────────────────────────────────
+   Interruptor presente/ausente por tecnico, guardado por fecha. Alimenta el
+   reporte de Capacidad del taller: un tecnico ausente no cuenta en la
+   capacidad bruta del dia. Jefe y Asesor pueden tocarlo — son los que
+   manejan la operacion del dia a dia.
+   Forma: asistencia[fecha][nombreTecnico] = true (ausente). Solo se guarda
+   entrada para quien esta AUSENTE — no aparecer significa presente, que es
+   el default sin que nadie tenga que "resetear" nada cada manana.        */
+var asistencia = {};
+
+function _tecnicoAusenteHoy(nombre) {
+  var hoy = asistencia[_todayKey()];
+  return !!(hoy && hoy[nombre]);
+}
+function _tecnicosPresentesHoy() {
+  return TEC_NAMES.filter(function(n){ return !_tecnicoAusenteHoy(n); });
+}
+function toggleAsistenciaTecnico(nombre) {
+  if (role !== 'jefe' && role !== 'asesor') { toast('Solo el Jefe o el Asesor pueden marcar asistencia'); return; }
+  if (TEC_NAMES.indexOf(nombre) === -1) return;
+  var hoy = _todayKey();
+  asistencia[hoy] = asistencia[hoy] || {};
+  if (asistencia[hoy][nombre]) delete asistencia[hoy][nombre]; // vuelve a presente
+  else asistencia[hoy][nombre] = true; // se marca ausente
+  try { localStorage.setItem('taller_asistencia', JSON.stringify(asistencia)); } catch(e) {}
+  if (fbReady && db && _hasReceivedFirebaseData) {
+    db.ref('taller/asistencia/' + hoy).set(asistencia[hoy]).catch(function(e){ console.log('Error al guardar asistencia:', e); });
+  }
+  buildCapacidadContent();
+}
+
+/* ── CAPACIDAD DEL TALLER ────────────────────────────────────────────────
+   Reporte de planeacion: cuanta capacidad real queda hoy, por tecnico y en
+   total, para decidir si se puede meter un expreso mas o hay que
+   reprogramar. Pedido por Byron el 25 ago 2026.
+
+   Reglas acordadas con Byron:
+   - Capacidad real por tecnico = jornada (8h) x su % de productividad REAL
+     de este mes (mismo numero ya usado en "Productividad por tecnico"), no
+     un factor fijo inventado.
+   - Cuenta como "carga del dia": ordenes en Trabajando (ab) Y en
+     Espera-asignacion (aa) — si ya se le asigno algo a un tecnico aunque no
+     haya arrancado, ese tiempo ya esta comprometido. NO cuenta Presupuesto,
+     Espera de autorizacion, Espera de repuestos, Detenido ni Trabajo
+     externo: ahi el vehiculo esta en el taller pero nadie le esta poniendo
+     mano todavia.
+   - Requiere o.hrsEstimado (ver el guard en advance() al entrar a 'ab').
+     Una orden sin ese dato no se suma a la carga de nadie y se lista aparte
+     como advertencia, en vez de inflar o desinflar el numero de disponible.
+   - Orden con 2 tecnicos: la hora estimada se reparte 50/50 entre ambos.
+   - Un tecnico ausente hoy no aporta capacidad, aunque tenga ordenes
+     asignadas (esas ordenes igual se muestran, para que se reasignen).   */
+var HORAS_JORNADA = 8; // horas por jornada tecnica, igual para los 6
+
+// Calcula todo el modelo de datos, sin tocar el DOM — asi se puede probar
+// en aislamiento (ver test_capacidad_taller.js).
+function _capacidadCalc() {
+  var hoy = new Date();
+  var y = hoy.getFullYear(), m = hoy.getMonth();
+  var tecs = [];
+  var capacidadTotal = 0;
+
+  for (var i = 0; i < TEC_NAMES.length; i++) {
+    var nombre = TEC_NAMES[i];
+    var ausente = _tecnicoAusenteHoy(nombre);
+    var prod = _calcTecHorasCerradasEnMes(nombre, y, m);
+    // Sin ninguna orden cerrada este mes (tecnico nuevo, o apenas arranca el
+    // mes): se asume 100% en vez de 0%, para no castigarlo sin datos con
+    // que juzgarlo — 0% dejaria su capacidad en cero, como si no pudiera
+    // trabajar nada, que es peor que asumir de mas.
+    var sinHistorial = prod.real <= 0;
+    var pct = sinHistorial ? 100 : Math.min(100, Math.round((prod.flat / prod.real) * 100));
+    var capacidadReal = ausente ? 0 : (HORAS_JORNADA * pct / 100);
+    var tec = {
+      nombre: nombre, ausente: ausente, pct: pct, sinHistorial: sinHistorial,
+      capacidadReal: capacidadReal, carga: 0, ordenes: []
+    };
+    tecs.push(tec);
+    if (!ausente) capacidadTotal += capacidadReal;
+  }
+  var porNombre = {};
+  for (var i = 0; i < tecs.length; i++) porNombre[tecs[i].nombre] = tecs[i];
+
+  var cargaTotal = 0;
+  var sinHora = [];
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.phase !== 'ab' && o.phase !== 'aa') continue;
+    // "T. Externo" y nombres vacios no reparten capacidad de nadie de la casa.
+    var asignados = [o.tech, o.tech2].filter(function(n){ return n && porNombre[n]; });
+    if (!asignados.length) continue;
+    if (!o.hrsEstimado) { sinHora.push(o.plate || o.ot || ('#' + o.id)); continue; }
+    var pendiente = (o.repuestos || []).some(function(r){ return !r.ck3; });
+    var horasPorTec = o.hrsEstimado / asignados.length;
+    for (var j = 0; j < asignados.length; j++) {
+      var tec = porNombre[asignados[j]];
+      tec.carga += horasPorTec;
+      tec.ordenes.push({plate: o.plate, ot: o.ot, horas: horasPorTec, pendiente: pendiente, fase: o.phase});
+      cargaTotal += horasPorTec;
+    }
+  }
+
+  var pctUso = null, semaforo;
+  if (capacidadTotal > 0) {
+    pctUso = (cargaTotal / capacidadTotal) * 100;
+    semaforo = pctUso >= 100 ? 'rojo' : (pctUso >= 70 ? 'amarillo' : 'verde');
+  } else {
+    semaforo = 'rojo'; // nadie disponible -> no se puede recibir nada, sin importar la carga
+  }
+
+  return {
+    tecs: tecs, capacidadTotal: capacidadTotal, cargaTotal: cargaTotal,
+    pctUso: pctUso, semaforo: semaforo, sinHora: sinHora,
+    activos: tecs.filter(function(t){ return !t.ausente; }).length
+  };
+}
+
+function openCapacidad() {
+  buildCapacidadContent();
+  document.getElementById('m-cap').classList.add('on');
+}
+function closeCapacidad() {
+  document.getElementById('m-cap').classList.remove('on');
+}
+
+function buildCapacidadContent() {
+  var d = _capacidadCalc();
+  var html = '';
+
+  html += '<div style="margin-bottom:12px">' +
+    '<div style="font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Asistencia de hoy</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  for (var i = 0; i < d.tecs.length; i++) {
+    var t = d.tecs[i];
+    html += '<button onclick="toggleAsistenciaTecnico(\'' + t.nombre + '\')" style="font-size:11px;padding:5px 10px;border-radius:20px;cursor:pointer;white-space:nowrap;border:1px solid ' + (t.ausente ? 'var(--rd)' : 'var(--gnbd)') + ';background:' + (t.ausente ? 'var(--rdbg)' : 'var(--gnbg)') + ';color:' + (t.ausente ? 'var(--rd)' : 'var(--gn)') + '">' +
+      (t.ausente ? '&#10005; ' : '&#10003; ') + esc(t.nombre.split(' ')[0]) + '</button>';
+  }
+  html += '</div></div>';
+
+  html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--tx3)">' +
+    '<span>Tecnicos activos: <strong style="color:var(--tx)">' + d.activos + ' de ' + d.tecs.length + '</strong></span>' +
+    (d.capacidadTotal > 0 ? '<span>Capacidad real hoy: <strong style="color:var(--tx)">' + d.capacidadTotal.toFixed(1) + ' hrs</strong></span>' : '') +
+  '</div>';
+
+  var semInfo = {
+    verde:     {bg:'var(--gnbg)', bd:'var(--gnbd)', tx:'var(--gn)', label:'&#128994; DISPONIBILIDAD ALTA — margen para expresos'},
+    amarillo:  {bg:'var(--orbg)', bd:'var(--orbd)', tx:'var(--or)', label:'&#128993; CAPACIDAD LIMITE — solo diagnosticos rapidos'},
+    rojo:      {bg:'var(--rdbg)', bd:'var(--rdbd)', tx:'var(--rd)', label:'&#128308; TALLER LLENO — reprogramar para manana'}
+  };
+  var sc = semInfo[d.semaforo];
+  html += '<div style="background:' + sc.bg + ';border:1px solid ' + sc.bd + ';border-radius:var(--r);padding:10px 14px;margin-bottom:12px;font-size:12px;font-weight:700;color:' + sc.tx + ';text-align:center">' +
+    (d.capacidadTotal > 0 ? sc.label + ' (' + d.pctUso.toFixed(0) + '% usado)' : '&#128308; NINGUN TECNICO DISPONIBLE HOY') +
+  '</div>';
+
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">' +
+    '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
+      '<th style="padding:6px 8px;text-align:left">Tecnico</th>' +
+      '<th style="padding:6px 8px;text-align:right">Carga asignada</th>' +
+      '<th style="padding:6px 8px;text-align:right">Disponibilidad</th>' +
+    '</tr></thead><tbody>';
+  for (var i = 0; i < d.tecs.length; i++) {
+    var t = d.tecs[i];
+    if (t.ausente) {
+      html += '<tr style="border-bottom:1px solid var(--bd);opacity:.5"><td style="padding:6px 8px">' + esc(t.nombre) + '</td><td colspan="2" style="padding:6px 8px;text-align:center;color:var(--tx3)">Ausente hoy</td></tr>';
+      continue;
+    }
+    var disp = t.capacidadReal - t.carga;
+    var dispTxt = disp >= 0 ? disp.toFixed(1) + ' hrs libres' : 'SOBRECARGADO +' + Math.abs(disp).toFixed(1) + ' hrs';
+    var dispColor = disp >= 0 ? 'var(--gn)' : 'var(--rd)';
+    var badgePend = t.ordenes.some(function(o2){ return o2.pendiente; })
+      ? ' <span title="Alguna orden asignada tiene un repuesto pendiente" style="color:var(--or)">&#9888;</span>' : '';
+    html += '<tr style="border-bottom:1px solid var(--bd)">' +
+      '<td style="padding:6px 8px">' + esc(t.nombre) + badgePend +
+        (t.sinHistorial ? '<div style="font-size:9px;color:var(--tx3)">Sin cierres este mes — se asume 100%</div>' : '') + '</td>' +
+      '<td style="padding:6px 8px;text-align:right;font-family:var(--mo)">' + t.carga.toFixed(1) + ' hrs</td>' +
+      '<td style="padding:6px 8px;text-align:right;font-family:var(--mo);font-weight:700;color:' + dispColor + '">' + dispTxt + '</td>' +
+    '</tr>';
+  }
+  html += '</tbody></table>';
+
+  if (d.sinHora.length) {
+    html += '<div style="font-size:11px;color:var(--or);padding:8px 10px;background:var(--orbg);border:1px solid var(--orbd);border-radius:var(--rs)">' +
+      '&#9888; ' + d.sinHora.length + ' orden(es) en Trabajando/Espera-asignacion sin hora estimada (no se contaron en la carga de nadie): ' +
+      d.sinHora.map(function(p){ return esc(p); }).join(', ') +
+    '</div>';
+  }
+
+  document.getElementById('cap-body').innerHTML = html;
+}
+
 function _pausaActiva() {
   for (var i = 0; i < pausas.length; i++) { if (pausas[i] && !pausas[i].hasta) return pausas[i]; }
   return null;
@@ -8940,6 +9167,7 @@ window.addEventListener('load', function() {
   // tablero y Nueva Orden) se rellenan desde TEC_ASIGNABLES, para que la
   // lista de tecnicos exista en un solo lugar del codigo.
   try { pausas = JSON.parse(localStorage.getItem('taller_pausas') || '[]') || []; } catch(e) { pausas = []; }
+  try { asistencia = JSON.parse(localStorage.getItem('taller_asistencia') || '{}') || {}; } catch(e) { asistencia = {}; }
   _llenarSelectTecnicos('srch-tec');
   _llenarSelectTecnicos('f-tc');
   load();
@@ -9034,6 +9262,16 @@ window.addEventListener('load', function() {
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeSem()">&#x2715;</button>
     </div>
     <div id="sem-body" style="padding-bottom:1rem"></div>
+  </div>
+</div>
+
+<!-- CAPACIDAD DEL TALLER -->
+<div class="mwrap" id="m-cap">
+  <div class="rep-modal" style="max-width:520px">
+    <div class="modal-t">&#128677; Capacidad del taller
+      <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeCapacidad()">&#x2715;</button>
+    </div>
+    <div id="cap-body" style="padding-bottom:1rem"></div>
   </div>
 </div>
 </body>
