@@ -7449,7 +7449,19 @@ function toggleAsistenciaTecnico(nombre) {
      sabado 3.75h — 8:00-10:00, 10:15-12:00, ambos ya descontando el break
      de las 10 —, domingo cerrado). Se reutiliza esa MISMA fuente en vez de
      un numero aparte, para que si algun dia cambia el horario del sabado el
-     reporte se ajuste solo, sin nada que sincronizar a mano.             */
+     reporte se ajuste solo, sin nada que sincronizar a mano.
+   - La "Disponibilidad" de un tecnico SIN sobrecarga no puede superar las
+     horas de reloj que de verdad quedan hoy (pedido de Byron 29 ago 2026,
+     detectado el mismo dia viendo el reporte a media jornada del sabado):
+     antes se comparaba contra la jornada COMPLETA del dia sin importar la
+     hora en que se consultara, asi que a las 10am de un sabado que cierra a
+     las 12 (quedan 1.75h reales) el reporte podia mostrar ~2.9h "libres" —
+     mas tiempo del que fisicamente queda. Un tecnico SOBRECARGADO (carga >
+     capacidad) si se sigue comparando contra el dia completo: eso responde
+     "ya tiene comprometido mas de lo que le cabe en todo el dia", pregunta
+     que no cambia con la hora. El letrero de arriba (verde/amarillo/rojo)
+     se deja igual — sigue siendo una foto de que tan lleno viene el dia
+     completo, no de lo que queda por asignar ahora mismo.                */
 
 // Horas de una jornada completa en la fecha dada (por defecto, hoy). Recibe
 // la fecha como parametro — igual que semComputeFromOrders(monthOffset) —
@@ -7465,11 +7477,20 @@ function _jornadaHrs(fecha) {
 }
 
 // Calcula todo el modelo de datos, sin tocar el DOM — asi se puede probar
-// en aislamiento (ver test_capacidad_taller.js).
-function _capacidadCalc() {
-  var hoy = new Date();
+// en aislamiento (ver test_capacidad_taller.js). Recibe opcionalmente el
+// timestamp de "ahora" — igual que _jornadaHrs(fecha) recibe la fecha —
+// para poder probar "son las 10am de un sabado" sin depender de la hora
+// real en que corra la prueba.
+function _capacidadCalc(nowTs) {
+  var hoy = nowTs ? new Date(nowTs) : new Date();
   var jornadaHoy = _jornadaHrs(hoy);
   var tallerCerradoHoy = jornadaHoy === 0;
+  // Horas de reloj que ya pasaron hoy dentro del horario habil (desde la
+  // medianoche hasta ahora — businessMinutes() ya sabe recortar solo a las
+  // ventanas de negocio, asi que no cuenta nada antes de abrir).
+  var inicioDia = new Date(hoy); inicioDia.setHours(0, 0, 0, 0);
+  var horasTranscurridasHoy = businessMinutes(inicioDia.getTime(), hoy.getTime()) / 60;
+  var horasRestantesHoy = Math.max(0, jornadaHoy - horasTranscurridasHoy);
   var y = hoy.getFullYear(), m = hoy.getMonth();
   var tecs = [];
   var capacidadTotal = 0;
@@ -7522,10 +7543,24 @@ function _capacidadCalc() {
     semaforo = 'rojo'; // nadie disponible -> no se puede recibir nada, sin importar la carga
   }
 
+  // Disponibilidad por tecnico, ya topada a las horas de reloj que quedan
+  // hoy (ver nota arriba). Sobrecargado (negativo) NO se topa: esa
+  // comparacion es contra el dia completo, no contra lo que resta.
+  for (var i = 0; i < tecs.length; i++) {
+    var t = tecs[i];
+    var dispBruta = t.capacidadReal - t.carga;
+    if (dispBruta >= 0) {
+      var topeRestante = horasRestantesHoy * t.pct / 100;
+      t.disponible = Math.min(dispBruta, topeRestante);
+    } else {
+      t.disponible = dispBruta;
+    }
+  }
+
   return {
     tecs: tecs, capacidadTotal: capacidadTotal, cargaTotal: cargaTotal,
     pctUso: pctUso, semaforo: semaforo, sinHora: sinHora,
-    jornadaHoy: jornadaHoy, tallerCerradoHoy: tallerCerradoHoy,
+    jornadaHoy: jornadaHoy, horasRestantesHoy: horasRestantesHoy, tallerCerradoHoy: tallerCerradoHoy,
     activos: tecs.filter(function(t){ return !t.ausente; }).length
   };
 }
@@ -7538,8 +7573,8 @@ function closeCapacidad() {
   document.getElementById('m-cap').classList.remove('on');
 }
 
-function buildCapacidadContent() {
-  var d = _capacidadCalc();
+function buildCapacidadContent(nowTs) {
+  var d = _capacidadCalc(nowTs);
   var html = '';
 
   html += '<div style="margin-bottom:12px">' +
@@ -7554,9 +7589,10 @@ function buildCapacidadContent() {
 
   html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--tx3)">' +
     '<span>Jornada de hoy: <strong style="color:var(--tx)">' + d.jornadaHoy.toFixed(2).replace(/\.?0+$/, '') + ' hrs</strong>' +
-      (new Date().getDay() === 6 ? ' (sabado)' : '') + '</span>' +
+      ((nowTs ? new Date(nowTs) : new Date()).getDay() === 6 ? ' (sabado)' : '') + '</span>' +
     '<span>Tecnicos activos: <strong style="color:var(--tx)">' + d.activos + ' de ' + d.tecs.length + '</strong></span>' +
     (d.capacidadTotal > 0 ? '<span>Capacidad real hoy: <strong style="color:var(--tx)">' + d.capacidadTotal.toFixed(1) + ' hrs</strong></span>' : '') +
+    (!d.tallerCerradoHoy ? '<span>Quedan hoy: <strong style="color:var(--tx)">' + d.horasRestantesHoy.toFixed(2).replace(/\.?0+$/, '') + ' hrs</strong></span>' : '') +
   '</div>';
 
   var semInfo = {
@@ -7576,7 +7612,7 @@ function buildCapacidadContent() {
     '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
       '<th style="padding:6px 8px;text-align:left">Tecnico</th>' +
       '<th style="padding:6px 8px;text-align:right">Carga asignada</th>' +
-      '<th style="padding:6px 8px;text-align:right">Disponibilidad</th>' +
+      '<th style="padding:6px 8px;text-align:right">Disponibilidad (hasta el cierre)</th>' +
     '</tr></thead><tbody>';
   for (var i = 0; i < d.tecs.length; i++) {
     var t = d.tecs[i];
@@ -7584,7 +7620,7 @@ function buildCapacidadContent() {
       html += '<tr style="border-bottom:1px solid var(--bd);opacity:.5"><td style="padding:6px 8px">' + esc(t.nombre) + '</td><td colspan="2" style="padding:6px 8px;text-align:center;color:var(--tx3)">Ausente hoy</td></tr>';
       continue;
     }
-    var disp = t.capacidadReal - t.carga;
+    var disp = t.disponible;
     var dispTxt = disp >= 0 ? disp.toFixed(1) + ' hrs libres' : 'SOBRECARGADO +' + Math.abs(disp).toFixed(1) + ' hrs';
     var dispColor = disp >= 0 ? 'var(--gn)' : 'var(--rd)';
     var badgePend = t.ordenes.some(function(o2){ return o2.pendiente; })
