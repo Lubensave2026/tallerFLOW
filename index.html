@@ -28,7 +28,7 @@
 :root{
   --bg:#0F1117;--bg2:#181B24;--bg3:#1E2230;--bg4:#252A3A;
   --bd:#2E3447;--bd2:#3A4060;
-  --tx:#E8EAF0;--tx2:#9CA3B8;--tx3:#5A6280;
+  --tx:#E8EAF0;--tx2:#CDD3E6;--tx3:#A6ADC7;
   --ac:#3D7EFF;--ac2:#1A4FCC;
   --gn:#2ECC71;--gnbg:#0D2E1A;--gnbd:#1A5C35;
   --or:#F39C12;--orbg:#2E1F0A;--orbd:#6B4510;
@@ -620,6 +620,43 @@ button{cursor:pointer}
 <div class="toast" id="toast"></div>
 
 <script>
+// ═══════════════════════════════════════════════════════════════════════
+// ÍNDICE DEL CÓDIGO — busca el texto entre «» con Ctrl+F para saltar ahí.
+// Son nombres de función/variable, no números de línea: los números se
+// corren con cada edición, el texto entre «» no. Si agregas un bloque
+// grande y nuevo, agrega su línea aquí también (y su letrero ── si aplica).
+// ═══════════════════════════════════════════════════════════════════════
+// Arranque, backup, migración de datos .. «function initFirebase(»
+// Roles, técnicos, firmas requeridas .... «var ROLES =» «var TEC_NAMES» «var SIGS =» «var NEXT =»
+// Cargar / guardar (Firebase + local) .... «function load(» «function save(»
+// Login por PIN ........................ «function doLogin(»
+// Tablero (kanban) ...................... «function renderBoard(»
+// Ficha de una orden (el panel lateral) . «function openDrw(»
+// Regla central de cambio de fase ....... «function advance(»
+// Firmar (Vo.Bo., Jefe, técnico, etc.) .. «function doSign(»
+// Reproceso .............................. «function advanceReproceso(»
+// Nueva orden ............................ «function saveNO(»
+// Notificaciones y contadores (badges) ... «function updateNDot(»
+// Mapa del taller (espacios físicos) ..... «function openMap(»
+// Repuestos Locales/Importación (reporte) «function buildRepContent(»
+// Filtros Estado/Orden de Repuestos y Bodega «function setRepEstadoFilter(» «function setBodegaEstadoFilter(»
+// Menú Despacho, Repuestos y Subcontratos «function buildRepPartsContent(»
+// Resumen de una orden (consulta rápida) . «RESUMEN DE UNA ORDEN» «function _buildFocusedResumenHtml(»
+// Despacho Bodega (tabla y CSV) .......... «function buildBodegaPartsTable(»
+// Preparar Facturación (aviso lavado) .... «function buildAvisoLavContent(»
+// Autorizaciones pendientes (Vo.Bo. Jefe) «function buildAutorizContent(»
+// Exportaciones CSV ....................... «function _buildOrderSummaryCSV(»
+// Histórico / archivo de órdenes cerradas «function openHist(»
+// Horas de negocio (bitácora, 8-5 L-V, 8-12 sáb) «function businessMinutes(»
+// Paro general del taller ................ «PARO GENERAL DEL TALLER»
+// Asistencia de técnicos .................. «ASISTENCIA DE TECNICOS»
+// Capacidad del taller ..................... «CAPACIDAD DEL TALLER»
+// Comisiones / % de productividad técnica «function calcTecHoras(» «function _calcTecHorasCerradasEnMes(»
+// Semáforo Financiero ...................... «function buildSemContent(»
+// Firmas pendientes (panel/campana) ........ «function buildSigsContent(»
+// Presupuestos pendientes (órdenes cerradas) «function buildPresqPendContent(»
+// ═══════════════════════════════════════════════════════════════════════
+
 var SK = 'taller_v13';
 
 // Escapa texto de usuario antes de insertarlo en HTML (placas, nombres,
@@ -8905,7 +8942,10 @@ function buildSemContent() {
   function ticket(monto) { return nOrd ? fmt(monto / nOrd) : '—'; }
   // Insignia de porcentaje, del mismo color que su barra
   function pctBadge(p, col) {
-    return '<span style="font-size:10px;font-weight:700;color:' + col + ';background:var(--bg4);border:1px solid ' + col + ';border-radius:8px;padding:1px 6px;margin-left:6px">' + p.toFixed(1) + '%</span>';
+    // El contorno y el fondo llevan el color del semaforo (rojo/naranja/
+    // verde) pero el numero va en blanco — el numero coloreado sobre fondo
+    // oscuro costaba de leer, sobre todo en celular (pedido de Byron).
+    return '<span style="font-size:10px;font-weight:700;color:#fff;background:var(--bg4);border:1px solid ' + col + ';border-radius:8px;padding:1px 6px;margin-left:6px">' + p.toFixed(1) + '%</span>';
   }
   function ticketTxt(monto) {
     return '<span style="font-size:10px;color:var(--tx3);margin-left:6px">Ticket prom. <strong style="color:var(--tx2)">' + ticket(monto) + '</strong></span>';
