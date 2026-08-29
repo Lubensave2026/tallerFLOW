@@ -4938,6 +4938,28 @@ function buildRepContent() {
       }
     }
 
+    // Horas promedio en Presupuesto (03A Presup. Partes + 03B Presup. M/O)
+    // — pedido por Byron 29 ago 2026. Reutiliza reprocesosOrders (mismo
+    // set deduplicado orders+archived) y el mismo criterio de "cerrada este
+    // mes" que ya usan Cerradas/Reprocesos. Sale en HORAS, no en dias —
+    // confirmado con Byron: el 5.06 que el saco a mano de su bitacora
+    // exportada ya era horas (esa columna del export es horas, ver
+    // _sumPhaseHours/_buildOrderSummaryCSV), asi que mostrarlo en dias
+    // hubiera sido un numero nuevo y mas chico, no el que el ya conoce.
+    // Solo promedia entre las que SI pasaron por presupuesto (suma > 0) —
+    // si se contaran tambien las que nunca necesitaron cotizacion, el
+    // promedio se diluye y deja de reflejar que tan lento es ESE paso
+    // cuando de verdad ocurre (confirmado con Byron: eso es lo que quiere
+    // ver, no el promedio contra todas las cerradas del mes).
+    var presupSumHoras = 0, presupCount = 0;
+    for (var psi = 0; psi < reprocesosOrders.length; psi++) {
+      var po = reprocesosOrders[psi];
+      if (po.phase !== 'cer' || !_eventInCurrentMonth(po.timestamps && po.timestamps.cer)) continue;
+      var presupHoras = _sumPhaseHours(po, 'pa') + _sumPhaseHours(po, 'pb');
+      if (presupHoras > 0) { presupSumHoras += presupHoras; presupCount++; }
+    }
+    var presupPromedioHoras = presupCount ? (presupSumHoras / presupCount) : null;
+
     html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + active + '</div><div class="kpi-l">Activas</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + semData.countCerradas + '</div><div class="kpi-l">Cerradas (mes)</div></div>' +
@@ -4945,6 +4967,7 @@ function buildRepContent() {
       '<div class="kpi"><div class="kpi-n" style="color:#888888">' + (prodActPct !== null ? prodActPct + '%' : '—') + '</div><div class="kpi-l">Productividad en proceso</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repuestosPendientesCount + '</div><div class="kpi-l">Repuestos pendientes</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + reprocesosCount + '</div><div class="kpi-l">Reprocesos</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:#E67E22">' + (presupPromedioHoras !== null ? presupPromedioHoras.toFixed(1) + 'h' : '—') + '</div><div class="kpi-l">Prom. en Presupuesto (mes)</div></div>' +
     '</div>';
   } else {
     html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
