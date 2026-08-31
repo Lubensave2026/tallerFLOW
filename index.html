@@ -7566,7 +7566,7 @@ function _capacidadCalc(nowTs) {
     for (var j = 0; j < asignados.length; j++) {
       var tec = porNombre[asignados[j]];
       tec.carga += horasPorTec;
-      tec.ordenes.push({plate: o.plate, ot: o.ot, horas: horasPorTec, pendiente: pendiente, fase: o.phase});
+      tec.ordenes.push({plate: o.plate, ot: o.ot, model: o.model, horas: horasPorTec, pendiente: pendiente, fase: o.phase});
       cargaTotal += horasPorTec;
     }
   }
@@ -7669,7 +7669,7 @@ function buildCapacidadContent(nowTs) {
     // aa/ab, pero antes no habia forma de verlo desde aqui mismo).
     var cargaDetalle = t.ordenes.length
       ? '<div style="font-size:9px;color:var(--tx3);margin-top:2px">' +
-          t.ordenes.map(function(o2){ return esc(o2.plate || o2.ot || '?') + ' (' + o2.horas.toFixed(1) + 'h)'; }).join(', ') +
+          t.ordenes.map(function(o2){ return '#' + esc(o2.ot || '?') + (o2.model ? ' ' + esc(o2.model) : '') + ' (' + o2.horas.toFixed(1) + 'h)'; }).join(', ') +
         '</div>'
       : '';
     html += '<tr style="border-bottom:1px solid var(--bd)">' +
