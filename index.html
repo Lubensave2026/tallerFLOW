@@ -7662,10 +7662,20 @@ function buildCapacidadContent(nowTs) {
     var dispColor = disp >= 0 ? 'var(--gn)' : 'var(--rd)';
     var badgePend = t.ordenes.some(function(o2){ return o2.pendiente; })
       ? ' <span title="Alguna orden asignada tiene un repuesto pendiente" style="color:var(--or)">&#9888;</span>' : '';
+    // Lista de que ordenes componen la carga — sin esto, un numero > 0 no
+    // se podia verificar a simple vista contra el tablero (pregunta real de
+    // Byron: "por que a Gerson le sigue apareciendo carga si no tiene nada
+    // asignado" — la respuesta esta en o.tech/o.tech2 de alguna orden en
+    // aa/ab, pero antes no habia forma de verlo desde aqui mismo).
+    var cargaDetalle = t.ordenes.length
+      ? '<div style="font-size:9px;color:var(--tx3);margin-top:2px">' +
+          t.ordenes.map(function(o2){ return esc(o2.plate || o2.ot || '?') + ' (' + o2.horas.toFixed(1) + 'h)'; }).join(', ') +
+        '</div>'
+      : '';
     html += '<tr style="border-bottom:1px solid var(--bd)">' +
       '<td style="padding:6px 8px">' + esc(t.nombre) + badgePend +
         '<div style="font-size:9px;color:var(--tx3)">' + (t.sinHistorial ? 'Sin cierres este mes — se asume 100%' : t.pct + '% productividad real este mes') + '</div></td>' +
-      '<td style="padding:6px 8px;text-align:right;font-family:var(--mo)">' + t.carga.toFixed(1) + ' hrs</td>' +
+      '<td style="padding:6px 8px;text-align:right;font-family:var(--mo)">' + t.carga.toFixed(1) + ' hrs' + cargaDetalle + '</td>' +
       '<td style="padding:6px 8px;text-align:right;font-family:var(--mo);font-weight:700;color:' + dispColor + '">' + dispTxt + '</td>' +
     '</tr>';
   }
