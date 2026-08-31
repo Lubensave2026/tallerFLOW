@@ -7479,12 +7479,25 @@ function toggleAsistenciaTecnico(nombre) {
      antes se comparaba contra la jornada COMPLETA del dia sin importar la
      hora en que se consultara, asi que a las 10am de un sabado que cierra a
      las 12 (quedan 1.75h reales) el reporte podia mostrar ~2.9h "libres" —
-     mas tiempo del que fisicamente queda. Un tecnico SOBRECARGADO (carga >
-     capacidad) si se sigue comparando contra el dia completo: eso responde
-     "ya tiene comprometido mas de lo que le cabe en todo el dia", pregunta
-     que no cambia con la hora. El letrero de arriba (verde/amarillo/rojo)
-     se deja igual — sigue siendo una foto de que tan lleno viene el dia
-     completo, no de lo que queda por asignar ahora mismo.                */
+     mas tiempo del que fisicamente queda.
+   - SEGUNDA CORRECCION (30 ago 2026, mismo tema): la primera version topaba
+     "capacidadReal - carga" con un limite calculado APARTE
+     ("horasRestantesHoy x pct"), tomando el MENOR de los dos con Math.min.
+     Eso seguia siendo incorrecto: ese limite aparte no restaba la carga, asi
+     que un tecnico con carga ya asignada podia mostrar mas "libre" de lo que
+     cabe en el tiempo que de verdad queda (caso real: Gabriel con 3.5h ya
+     asignadas mostraba 2.5h libres a media jornada, cuando lo que rinde en
+     las horas que quedan, menos esa misma carga, daba bastante menos).
+     Ahora la cuenta es una sola: lo que rinde en las horas que YA quedan
+     (horasRestantesHoy x pct), menos la carga ya asignada (esa carga, si no
+     se ha terminado, tiene que caber en lo que resta, no en el dia
+     completo) — nunca baja de 0. Un tecnico SOBRECARGADO (carga > capacidad
+     de un dia completo) sigue siendo su propio caso aparte, sin tope de
+     hora: esa pregunta ("ya tiene comprometido mas de lo que le cabe en
+     todo el dia") no cambia segun la hora en que se consulte. El letrero de
+     arriba (verde/amarillo/rojo) se deja igual — sigue siendo una foto de
+     que tan lleno viene el dia completo, no de lo que queda por asignar
+     ahora mismo.                                                         */
 
 // Horas de una jornada completa en la fecha dada (por defecto, hoy). Recibe
 // la fecha como parametro — igual que semComputeFromOrders(monthOffset) —
@@ -7566,17 +7579,18 @@ function _capacidadCalc(nowTs) {
     semaforo = 'rojo'; // nadie disponible -> no se puede recibir nada, sin importar la carga
   }
 
-  // Disponibilidad por tecnico, ya topada a las horas de reloj que quedan
-  // hoy (ver nota arriba). Sobrecargado (negativo) NO se topa: esa
-  // comparacion es contra el dia completo, no contra lo que resta.
+  // Disponibilidad por tecnico (ver nota arriba, "SEGUNDA CORRECCION").
+  // Sobrecargado (negativo) es su propio caso, contra el dia completo, sin
+  // tope de hora. Si NO esta sobrecargado, lo disponible para asignar AHORA
+  // es lo que rinde en las horas que quedan hoy, menos lo que ya tiene
+  // asignado — nunca baja de 0.
   for (var i = 0; i < tecs.length; i++) {
     var t = tecs[i];
-    var dispBruta = t.capacidadReal - t.carga;
-    if (dispBruta >= 0) {
-      var topeRestante = horasRestantesHoy * t.pct / 100;
-      t.disponible = Math.min(dispBruta, topeRestante);
+    var dispDiaCompleto = t.capacidadReal - t.carga;
+    if (dispDiaCompleto < 0) {
+      t.disponible = dispDiaCompleto;
     } else {
-      t.disponible = dispBruta;
+      t.disponible = Math.max(0, (horasRestantesHoy * t.pct / 100) - t.carga);
     }
   }
 
@@ -7650,7 +7664,7 @@ function buildCapacidadContent(nowTs) {
       ? ' <span title="Alguna orden asignada tiene un repuesto pendiente" style="color:var(--or)">&#9888;</span>' : '';
     html += '<tr style="border-bottom:1px solid var(--bd)">' +
       '<td style="padding:6px 8px">' + esc(t.nombre) + badgePend +
-        (t.sinHistorial ? '<div style="font-size:9px;color:var(--tx3)">Sin cierres este mes — se asume 100%</div>' : '') + '</td>' +
+        '<div style="font-size:9px;color:var(--tx3)">' + (t.sinHistorial ? 'Sin cierres este mes — se asume 100%' : t.pct + '% productividad real este mes') + '</div></td>' +
       '<td style="padding:6px 8px;text-align:right;font-family:var(--mo)">' + t.carga.toFixed(1) + ' hrs</td>' +
       '<td style="padding:6px 8px;text-align:right;font-family:var(--mo);font-weight:700;color:' + dispColor + '">' + dispTxt + '</td>' +
     '</tr>';
