@@ -5133,6 +5133,9 @@ function buildRepContent() {
       '<option value="lst">Listo p/entrega</option>' +
       '<option value="ent">Entregado</option>' +
     '</select>' +
+    ((role === 'jefe' || role === 'asesor' || role === 'partes')
+      ? '<button id="rep-fil-monto" data-active="0" onclick="toggleRepFilterMonto()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128181; Solo con monto</button>'
+      : '') +
     '<button onclick="repClearFilters()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#x2715; Limpiar filtros</button>' +
     (role === 'jefe'
       ? '<button onclick="toggleJefeProdCols()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_jefeShowProdCols ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowProdCols ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_jefeShowProdCols ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer">&#128202; ' + (_jefeShowProdCols ? 'Ocultar' : 'Ver') + ' productividad Trabajando</button>' +
@@ -5298,7 +5301,7 @@ function buildRepContent() {
       }
     }
     var rowBg = i % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
-    html += '<tr style="background:' + rowBg + ';cursor:pointer" data-tec="' + esc(o.tech||'') + '" data-phase="' + esc(o.phase||'') + '" data-oid="' + o.id + '" class="rep-row-clickable">' +
+    html += '<tr style="background:' + rowBg + ';cursor:pointer" data-tec="' + esc(o.tech||'') + '" data-phase="' + esc(o.phase||'') + '" data-monto="' + (o.montoTotal ? '1' : '0') + '" data-oid="' + o.id + '" class="rep-row-clickable">' +
       '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(o.ot||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap">' + fecha + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' +
@@ -5343,6 +5346,7 @@ function buildRepContent() {
     }
     expRow._tec = o.tech || '';
     expRow._phase = o.phase || '';
+    expRow._monto = !!o.montoTotal;
     _repExportRows.push(expRow);
   }
   html += '</tbody></table></div></div>';
@@ -7026,8 +7030,9 @@ function exportOrderSummaryCSV() {
 function _repExportVisibleRows() {
   var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
   var phaseFilter = (document.getElementById('rep-fil-phase') || {}).value || '';
+  var soloMonto = _repFilterMontoActivo();
   return _repExportRows.filter(function(r) {
-    return (!tecFilter || r._tec === tecFilter) && (!phaseFilter || r._phase === phaseFilter);
+    return (!tecFilter || r._tec === tecFilter) && (!phaseFilter || r._phase === phaseFilter) && (!soloMonto || r._monto);
   });
 }
 function exportRepGeneralCSV() {
@@ -9150,16 +9155,26 @@ function buildSemContent() {
 }
 
 /* REPORT FILTERS */
+// Lee si el toggle "Solo con monto" esta activo — funcion compartida por
+// repApplyFilters() (tabla en pantalla) y _repExportVisibleRows() (Excel),
+// para que ambos lean el mismo estado sin duplicar la logica.
+function _repFilterMontoActivo() {
+  var btn = document.getElementById('rep-fil-monto');
+  return !!(btn && btn.getAttribute('data-active') === '1');
+}
+
 function repApplyFilters() {
   var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
   var phaseFilter = (document.getElementById('rep-fil-phase') || {}).value || '';
+  var soloMonto = _repFilterMontoActivo();
   var rows = document.querySelectorAll('#rep-table-wrap tbody tr');
   var visible = 0;
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     var tec = row.getAttribute('data-tec') || '';
     var phase = row.getAttribute('data-phase') || '';
-    var show = (!tecFilter || tec === tecFilter) && (!phaseFilter || phase === phaseFilter);
+    var tieneMonto = row.getAttribute('data-monto') === '1';
+    var show = (!tecFilter || tec === tecFilter) && (!phaseFilter || phase === phaseFilter) && (!soloMonto || tieneMonto);
     row.style.display = show ? '' : 'none';
     if (show) visible++;
   }
@@ -9167,11 +9182,31 @@ function repApplyFilters() {
   if (cnt) cnt.textContent = visible + ' orden(es)';
 }
 
+// Boton tipo "pill" igual a los demas toggles del reporte (Ver
+// productividad, Mis casos cerrados) pero sin reconstruir toda la tabla —
+// no hay motivo para perder los filtros de tecnico/estatus que ya estaban
+// puestos solo por marcar este.
+function toggleRepFilterMonto() {
+  var btn = document.getElementById('rep-fil-monto');
+  if (!btn) return;
+  var activo = !(btn.getAttribute('data-active') === '1');
+  btn.setAttribute('data-active', activo ? '1' : '0');
+  btn.style.borderColor = activo ? '#3D7EFF' : 'var(--bd)';
+  btn.style.background = activo ? 'rgba(61,126,255,.15)' : 'var(--bg3)';
+  btn.style.color = activo ? '#3D7EFF' : 'var(--tx3)';
+  repApplyFilters();
+}
+
 function repClearFilters() {
   var t = document.getElementById('rep-fil-tec');
   var p = document.getElementById('rep-fil-phase');
   if (t) t.value = '';
   if (p) p.value = '';
+  var m = document.getElementById('rep-fil-monto');
+  if (m && m.getAttribute('data-active') === '1') {
+    m.setAttribute('data-active', '0');
+    m.style.borderColor = 'var(--bd)'; m.style.background = 'var(--bg3)'; m.style.color = 'var(--tx3)';
+  }
   repApplyFilters();
 }
 
