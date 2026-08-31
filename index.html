@@ -4752,6 +4752,13 @@ var _jefeShowProdTecnicos = false;
 // vehiculos especificos componen el numero agregado de "Mi productividad —
 // ordenes CERRADAS"). Se reinicia cada vez que se abre el reporte.
 var _tecRepShowClosed = false;
+// Jefe/Asesor/Partes: nombre del tecnico cuyos casos CERRADOS se estan
+// consultando ('' = ninguno, vista normal). Reusa el mismo dropdown de
+// filtro que ya existe (boton "Ver cerradas de un tecnico") en vez de
+// agregar otro filtro aparte — pedido explicito de Byron 30 ago 2026, para
+// no seguir sumando botones a una barra que ya esta cargada. Se reinicia
+// cada vez que se abre el reporte, igual que los demas toggles de aqui.
+var _jefeVerCerradasDeTec = '';
 // Toggle jefe/asesor/partes: detalle (OR/Salida/Cliente/Vehiculo/Tecnico/
 // Monto) de las ordenes que componen la tarjeta "Ya cerrado este mes". Se
 // reinicia cada vez que se abre el reporte.
@@ -4771,6 +4778,7 @@ function openRep() {
   _jefeShowProdCols = false;
   _jefeShowProdTecnicos = false;
   _tecRepShowClosed = false;
+  _jefeVerCerradasDeTec = '';
   _jefeShowCerradosDetalle = false;
   // Auto-refresh every 30 seconds while report is open
   if (window._repInterval) clearInterval(window._repInterval);
@@ -4799,6 +4807,15 @@ function buildRepContent() {
   var myName = rMe && rMe.tec ? rMe.tn : null;
   var repOrders = myName ? orders.filter(function(o){ return o.tech === myName || o.tech2 === myName; }) : orders;
 
+  // "De quien" son los casos cerrados que se estan mostrando: si un tecnico
+  // entro con su propio usuario, siempre es el mismo (myName). Si es Jefe/
+  // Asesor/Partes consultando a alguien mas (boton "Ver cerradas de un
+  // tecnico"), es _jefeVerCerradasDeTec. tecActivo unifica ambos casos para
+  // no duplicar toda la logica de abajo (tarjetas de productividad, tabla,
+  // columnas, export) — es exactamente la misma vista, solo cambia de quien.
+  var tecActivo = myName || (_jefeVerCerradasDeTec || null);
+  var vistaCerradas = (myName && _tecRepShowClosed) || (!myName && !!_jefeVerCerradasDeTec);
+
   // Mes objetivo compartido por todo lo de "cerradas" del tecnico en este
   // reporte — la tarjeta "Mi productividad CERRADAS" y la tabla "Mis casos
   // cerrados" usan el mismo selector (_repProdMonthOffset), asi navegan
@@ -4816,15 +4833,15 @@ function buildRepContent() {
   // el mes" que _calcTecHorasCerradasEnMes: cierre real O congelamiento "Ya
   // facturada" cayendo en el mes, para que cuadren exactamente).
   var sorted;
-  if (myName && _tecRepShowClosed) {
+  if (vistaCerradas) {
     var seenTecClosedIds = {};
     sorted = orders.concat(archived || []).filter(function(o) {
       if (seenTecClosedIds[o.id]) return false;
       seenTecClosedIds[o.id] = true;
-      if (!((o.tech === myName || o.tech2 === myName) && o.phase === 'cer')) return false;
+      if (!((o.tech === tecActivo || o.tech2 === tecActivo) && o.phase === 'cer')) return false;
       var closeTsFilt = o.timestamps && o.timestamps.cer;
       if (!closeTsFilt) return false;
-      var frozenHorasFilt = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[myName];
+      var frozenHorasFilt = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecActivo];
       if (frozenHorasFilt) {
         var fdFilt = new Date(o.horasFacturadoSnapshot.ts);
         if (fdFilt.getFullYear() === curYc && fdFilt.getMonth() === curMc) return true;
@@ -5052,8 +5069,9 @@ function buildRepContent() {
     }
   }
 
-  if (myName) {
-    html += '<div style="background:var(--blbg);border:1px solid var(--blbd);border-radius:var(--r);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--ac)">Mostrando solo tus casos asignados</div>';
+  if (tecActivo) {
+    html += '<div style="background:var(--blbg);border:1px solid var(--blbd);border-radius:var(--r);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--ac)">' +
+      (myName ? 'Mostrando solo tus casos asignados' : 'Mostrando los casos de ' + esc(tecActivo)) + '</div>';
 
     // Productividad: horas de comision (flat rate) acumuladas vs. horas
     // reales trabajadas (fase Trabajando). Reusa _calcTecHorasAgregado(tec,
@@ -5066,12 +5084,12 @@ function buildRepContent() {
     // 'orders' (antes de que el Jefe las archive) — ambos bugs juntos podian
     // inflar mucho el numero, como se reporto para Henry Barillas (51% aqui
     // vs. 99% en la tabla real).
-    var aggActiveProd = _calcTecHorasAgregado(myName, 'activas');
+    var aggActiveProd = _calcTecHorasAgregado(tecActivo, 'activas');
     var hrsFlat = aggActiveProd.flat, hrsReal = aggActiveProd.real;
     var prodPct = hrsReal > 0 ? (hrsFlat / hrsReal * 100) : null;
     var prodColor = prodPct === null ? 'var(--tx3)' : (prodPct >= 100 ? 'var(--gn)' : (prodPct >= 70 ? 'var(--or)' : 'var(--rd)'));
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px;margin-bottom:10px">' +
-      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">&#128202; Mi productividad — ordenes ACTIVAS (aun puede cambiar)</div>' +
+      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">&#128202; ' + (myName ? 'Mi productividad' : 'Productividad de ' + esc(tecActivo)) + ' — ordenes ACTIVAS (aun puede cambiar)</div>' +
       '<div style="display:flex;gap:18px;flex-wrap:wrap">' +
         '<div><div style="font-size:18px;font-weight:700;color:var(--tx2)">' + hrsFlat.toFixed(2).replace('.', ',') + '</div><div style="font-size:10px;color:var(--tx3)">Hrs. com. acumuladas</div></div>' +
         '<div><div style="font-size:18px;font-weight:700;color:var(--tx2)">' + hrsReal.toFixed(2).replace('.', ',') + '</div><div style="font-size:10px;color:var(--tx3)">Horas reales trabajadas</div></div>' +
@@ -5088,7 +5106,7 @@ function buildRepContent() {
     // igual que en el Semaforo Financiero.
     // prodTargetDate/curYc/curMc/isCurrentProdMonth ya se calcularon arriba
     // (compartidos con el filtro de la tabla "Mis casos cerrados").
-    var aggClosedProd = _calcTecHorasCerradasEnMes(myName, curYc, curMc);
+    var aggClosedProd = _calcTecHorasCerradasEnMes(tecActivo, curYc, curMc);
     var hrsFlatClosed = aggClosedProd.flat, hrsRealClosed = aggClosedProd.real,
         closedCountThisMonth = aggClosedProd.count, abVecesClosed = aggClosedProd.abVeces;
     var prodPctClosed = hrsRealClosed > 0 ? (hrsFlatClosed / hrsRealClosed * 100) : null;
@@ -5096,7 +5114,7 @@ function buildRepContent() {
     var monthLabelClosed = prodTargetDate.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
     html += '<div style="background:var(--bg3);border:1px solid var(--gnbd);border-radius:var(--r);padding:10px 16px;margin-bottom:10px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
-        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">&#9989; Mi productividad — ordenes CERRADAS de ' + monthLabelClosed + (isCurrentProdMonth ? ' (actual)' : '') + ' (' + closedCountThisMonth + ')</div>' +
+        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">&#9989; ' + (myName ? 'Mi productividad' : 'Productividad de ' + esc(tecActivo)) + ' — ordenes CERRADAS de ' + monthLabelClosed + (isCurrentProdMonth ? ' (actual)' : '') + ' (' + closedCountThisMonth + ')</div>' +
         '<div style="display:flex;gap:4px;flex-shrink:0">' +
           '<button onclick="repProdChangeMonth(1)" title="Mes anterior" style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx);cursor:pointer;font-size:10px">&#9664;</button>' +
           '<button onclick="repProdChangeMonth(-1)" title="Mes siguiente" ' + (isCurrentProdMonth ? 'disabled' : '') + ' style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:' + (isCurrentProdMonth ? 'var(--bg3)' : 'var(--bg4)') + ';color:' + (isCurrentProdMonth ? 'var(--tx3)' : 'var(--tx)') + ';cursor:' + (isCurrentProdMonth ? 'not-allowed' : 'pointer') + ';font-size:10px">&#9654;</button>' +
@@ -5111,6 +5129,19 @@ function buildRepContent() {
   }
 
   // Filter controls
+  if (!myName && vistaCerradas) {
+    // Jefe/Asesor/Partes consultando los cerrados de UN tecnico (boton "Ver
+    // cerradas de un tecnico" mas abajo): los filtros de tecnico/estatus/
+    // monto no aplican aqui (todo es del mismo tecnico, toda fila es fase
+    // 'cer'), asi que se ocultan en vez de dejarlos puestos sin efecto —
+    // misma vista simplificada que ya tiene el propio tecnico.
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:1rem">' +
+      '<span style="font-size:12px;font-weight:700;color:var(--ac);background:var(--bg3);border:1px solid var(--bd);border-radius:20px;padding:6px 12px">&#128193; Cerradas de ' + esc(tecActivo) + '</span>' +
+      '<button onclick="volverDeVerCerradasDeTec()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#9664; Volver a ordenes activas</button>' +
+      '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
+      '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
+    '</div>';
+  } else {
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem">' +
     (myName ? '' :
     '<select id="rep-fil-tec" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
@@ -5144,10 +5175,13 @@ function buildRepContent() {
     (myName
       ? '<button onclick="setTecRepClosed(false)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (!_tecRepShowClosed ? '#3D7EFF' : 'var(--bd)') + ';background:' + (!_tecRepShowClosed ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (!_tecRepShowClosed ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (!_tecRepShowClosed ? '700' : '400') + '">&#128295; Mis casos activos</button>' +
         '<button onclick="setTecRepClosed(true)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_tecRepShowClosed ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_tecRepShowClosed ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_tecRepShowClosed ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (_tecRepShowClosed ? '700' : '400') + '">&#9989; Mis casos cerrados</button>'
-      : '') +
+      : ((role === 'jefe' || role === 'asesor' || role === 'partes')
+        ? '<button onclick="verCerradasDeTecnico()" title="Elige un tecnico en el filtro de arriba y toca aqui" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128193; Ver cerradas de un tecnico</button>'
+        : '')) +
     '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
     '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
   '</div>';
+  }
 
   // Panel "Productividad por tecnico" (jefe-only, toggle) — un vistazo de
   // los 6 tecnicos con sus horas Trabajando/Comision/% acumuladas, separado
@@ -5166,7 +5200,7 @@ function buildRepContent() {
   // tabla de "Mis casos cerrados" (ademas de la que ya tiene la tarjeta "Mi
   // productividad CERRADAS" arriba) para no obligar al tecnico a desplazarse
   // hacia arriba cada vez que quiera cambiar de mes.
-  if (myName && _tecRepShowClosed) {
+  if (vistaCerradas) {
     html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:var(--tx3)">' +
       '<span>&#128197; Mostrando cerradas de <strong style="color:var(--tx2)">' + monthLabelClosed + '</strong>' + (isCurrentProdMonth ? ' (actual)' : '') + '</span>' +
       '<button onclick="repProdChangeMonth(1)" title="Mes anterior" style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx);cursor:pointer;font-size:10px">&#9664;</button>' +
@@ -5188,10 +5222,10 @@ function buildRepContent() {
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">No.</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Placa</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Tecnico</th>' +
-      (myName
+      (tecActivo
         ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. En Proceso</th>' +
           '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Pagadas</th>' +
-          (_tecRepShowClosed ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">% Productividad</th>' : '')
+          (vistaCerradas ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">% Productividad</th>' : '')
         : (role === 'jefe' && _jefeShowProdCols
             ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Trabajando</th>' +
               '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Hrs. Comision</th>' +
@@ -5205,9 +5239,9 @@ function buildRepContent() {
   // en el archivo van como NUMERO (no como "1,6 h"), para que en Excel se
   // puedan sumar y ordenar bien.
   _repExportHeader = ['OR #','Ingreso','Estatus','Cliente','Vehiculo','No.','Placa','Tecnico'];
-  if (myName) {
+  if (tecActivo) {
     _repExportHeader.push('Hrs. En Proceso','Hrs. Pagadas');
-    if (_tecRepShowClosed) _repExportHeader.push('% Productividad');
+    if (vistaCerradas) _repExportHeader.push('% Productividad');
   } else if (role === 'jefe' && _jefeShowProdCols) {
     _repExportHeader.push('Hrs. Trabajando','Hrs. Comision','% Productividad');
   } else {
@@ -5247,20 +5281,20 @@ function buildRepContent() {
     // horas acumuladas en "En proceso" (ab) y horas de comision pagadas en
     // ESTA orden especificamente, en vez de la generica "T. fase".
     var tecRowCells = '';
-    if (myName) {
+    if (tecActivo) {
       // calcTecHoras() ya reparte las horas Trabajando entre 2 tecnicos por
       // "regla de 3" (proporcional a su % de horas de comision) — reusa la
       // misma fuente que "Mi productividad" en vez de duplicar el calculo.
-      var tecHorasRow = calcTecHoras(o, myName);
+      var tecHorasRow = calcTecHoras(o, tecActivo);
       var abHorasRow = tecHorasRow.real;
       var hrsComRow = tecHorasRow.flat;
       tecRowCells =
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--or)">' + abHorasRow.toFixed(2).replace('.', ',') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx)">' + hrsComRow.toFixed(2).replace('.', ',') + '</td>';
-      // Vista "Mis casos cerrados": tercera columna con el % de productividad
-      // de ESTA orden (mismo criterio ya usado en toda la app), para que el
-      // tecnico vea que vehiculo especifico compone el % agregado de arriba.
-      if (_tecRepShowClosed) {
+      // Vista "cerrados": tercera columna con el % de productividad
+      // de ESTA orden (mismo criterio ya usado en toda la app), para que se
+      // vea que vehiculo especifico compone el % agregado de arriba.
+      if (vistaCerradas) {
         var pctRowTec = abHorasRow > 0 ? Math.round(hrsComRow / abHorasRow * 100) : null;
         tecRowCells += '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:700;color:' + (pctRowTec !== null ? _productividadColor(pctRowTec) : 'var(--tx3)') + '">' + (pctRowTec !== null ? pctRowTec + '%' : '—') + '</td>';
       }
@@ -5314,7 +5348,7 @@ function buildRepContent() {
       '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + esc(o.plate||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.tech||'Sin asignar') + (o.tech2?' + '+esc(o.tech2.split(' ')[0]):'') + '</td>' +
-      (myName ? tecRowCells : ((role === 'jefe' && _jefeShowProdCols) ? jefeProdRowCells : '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>')) +
+      (tecActivo ? tecRowCells : ((role === 'jefe' && _jefeShowProdCols) ? jefeProdRowCells : '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>')) +
       factPotencialCell +
     '</tr>';
 
@@ -5326,9 +5360,9 @@ function buildRepContent() {
       o.numFisico || '', o.plate || '',
       (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2.split(' ')[0] : '')
     ];
-    if (myName) {
+    if (tecActivo) {
       expRow.push(_csvNum(abHorasRow.toFixed(2)), _csvNum(hrsComRow.toFixed(2)));
-      if (_tecRepShowClosed) expRow.push(pctRowTec !== null ? pctRowTec + '%' : '');
+      if (vistaCerradas) expRow.push(pctRowTec !== null ? pctRowTec + '%' : '');
     } else if (role === 'jefe' && _jefeShowProdCols) {
       expRow.push(_csvNum(hrsRealRow2.toFixed(2)), _csvNum(hrsComRow2.toFixed(2)));
       expRow.push(sinComisionRow ? 'Sin comision' : (pctRow2 !== null ? pctRow2 + '%' : ''));
@@ -9208,6 +9242,24 @@ function repClearFilters() {
     m.style.borderColor = 'var(--bd)'; m.style.background = 'var(--bg3)'; m.style.color = 'var(--tx3)';
   }
   repApplyFilters();
+}
+
+// Jefe/Asesor/Partes: consultar los casos CERRADOS de un tecnico especifico
+// (pedido por Byron 30 ago 2026). Reusa el dropdown de tecnico que ya
+// existe en vez de agregar un filtro aparte: lee lo que ya este elegido ahi
+// y reconstruye el reporte entero con la vista de "cerrados de esa
+// persona" — misma vista que ya tiene el propio tecnico de sus casos,
+// nada nuevo que mantener por separado.
+function verCerradasDeTecnico() {
+  var sel = document.getElementById('rep-fil-tec');
+  var val = sel ? sel.value : '';
+  if (!val) { toast('Elige un tecnico en el filtro de arriba primero'); return; }
+  _jefeVerCerradasDeTec = val;
+  buildRepContent();
+}
+function volverDeVerCerradasDeTec() {
+  _jefeVerCerradasDeTec = '';
+  buildRepContent();
 }
 
 function repProdChangeMonth(delta) {
