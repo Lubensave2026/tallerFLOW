@@ -1943,6 +1943,59 @@ function secBox(num, title, innerHtml, key) {
   '</div>';
 }
 
+// Plantillas de "Servicio Menor/Intermedio/Mayor" (pedido de los tecnicos,
+// confirmado con Byron 1 sep 2026): listas GENERICAS (sin marca/SKU) para
+// agregar de una vez los repuestos y materiales tipicos de cada nivel, en
+// vez de escribirlos uno por uno — sin quitar la opcion de seguir agregando
+// algo mas a mano despues (pedido explicito de Byron), la plantilla solo
+// ahorra la escritura inicial. Acumulativo: Mayor incluye lo de Intermedio
+// y Menor, Intermedio incluye lo de Menor — tal como lo confirmo Byron
+// contra su tabla real. El aceite (motor, caja mecanica, diferencial)
+// queda FUERA a proposito: varia por vehiculo (cantidad/viscosidad), se
+// sigue pidiendo a mano como siempre. Los materiales de bodega no varian
+// por nivel (misma tabla). "Filtro de combustible" queda marcado "si
+// aplica" en el texto mismo — no todos los vehiculos lo llevan.
+var SERVICIO_REPUESTOS_TEMPLATE = {
+  menor: ['Filtro de aceite', 'Empaque tapon aceitera'],
+  intermedio: ['Filtro de aceite', 'Empaque tapon aceitera', 'Plomos balance', 'Filtro de aire'],
+  mayor: ['Filtro de aceite', 'Empaque tapon aceitera', 'Plomos balance', 'Filtro de aire', 'Bujias', 'Filtro de cabina', 'Filtro de combustible (si aplica)'],
+};
+var SERVICIO_BODEGA_TEMPLATE = ['Brake cleaner', 'Desengrasante de motor', 'Abrillantador de motor', 'Liquido para chorritos', 'Lija', 'Wippe', 'Materiales auxiliares'];
+var SERVICIO_TEMPLATE_LABELS = { menor: 'Menor', intermedio: 'Intermedio', mayor: 'Mayor' };
+
+// Aplica la plantilla del nivel elegido: agrega los repuestos genericos a
+// o.repuestos[] Y los materiales de bodega a o.bodega[] en una sola accion
+// (mismo formato/campos que ya usan los formularios de "+ Agregar" y "+
+// Solicitar" de esas mismas secciones, para que se comporten identico a un
+// item agregado a mano — incluye addedByTec cuando lo aplica un tecnico,
+// para que sigan pidiendo Vo.Bo. del Jefe igual que cualquier repuesto que
+// el tecnico agregue por su cuenta).
+function aplicarPlantillaServicio(id, nivel) {
+  var itemsRep = SERVICIO_REPUESTOS_TEMPLATE[nivel];
+  if (!itemsRep) return;
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  var rMe = role ? ROLES[role] : null;
+  var puede = (role === 'jefe') || (rMe && rMe.tec && o.phase === 'ab');
+  if (!puede) { toast('No tienes permiso para aplicar esta plantilla'); return; }
+  var who = ROLES[role] ? ROLES[role].label : role;
+  var addedByTec = !!(rMe && rMe.tec);
+  o.repuestos = o.repuestos || [];
+  itemsRep.forEach(function(desc) {
+    o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec});
+  });
+  o.bodega = o.bodega || [];
+  SERVICIO_BODEGA_TEMPLATE.forEach(function(desc) {
+    o.bodega.push({cantidad:'', desc: esc(desc), especificacion:'', by: who, ts: Date.now(), vobo:false, despachado:false});
+  });
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#9889; Plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + itemsRep.length + ' repuesto(s) + ' + SERVICIO_BODEGA_TEMPLATE.length + ' material(es) de bodega' + (addedByTec ? ' — repuestos requieren Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
+  save();
+  toast('Plantilla ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + itemsRep.length + ' repuestos + ' + SERVICIO_BODEGA_TEMPLATE.length + ' materiales de bodega');
+  openDrw(id);
+}
+
 function openDrw(id) {
   var confirmBadge = '';
   var o = null;
@@ -2697,6 +2750,21 @@ function openDrw(id) {
     '</div>';
   }
   if (canAddRep) {
+    // Plantilla de servicio (pedido de los tecnicos, 1 sep 2026): agrega de
+    // una vez los repuestos tipicos AQUI y los materiales de bodega en la
+    // seccion 06 — requiere poder hacer ambas cosas (tecnico asignado
+    // mientras esta Trabajando, o Jefe en cualquier fase), no solo repuestos,
+    // para que la plantilla siempre llene las dos secciones completas.
+    if ((role === 'jefe') || (r.tec && o.phase === 'ab')) {
+      repuestosHtml += '<div style="margin-bottom:8px">' +
+        '<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">&#9889; Plantilla de servicio — agrega los repuestos aqui y los materiales en Despacho Bodega de una vez (se puede seguir agregando algo mas a mano despues)</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<button id="btn-plantilla-menor" style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Menor</button>' +
+          '<button id="btn-plantilla-intermedio" style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Intermedio</button>' +
+          '<button id="btn-plantilla-mayor" style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Mayor</button>' +
+        '</div>' +
+      '</div>';
+    }
     // Mismo armado que el formulario de Despacho Bodega (etiquetas visibles
     // arriba de cada campo y el boton hasta el final): la primera version
     // dejaba "Especificacion" DEBAJO del boton "+ Agregar", asi que el boton
@@ -3072,6 +3140,10 @@ function openDrw(id) {
       });
     })(delRepBtns[dri]);
   }
+  ['menor', 'intermedio', 'mayor'].forEach(function(nivel) {
+    var btnPlantilla = document.getElementById('btn-plantilla-' + nivel);
+    if (btnPlantilla) btnPlantilla.addEventListener('click', function() { aplicarPlantillaServicio(id, nivel); });
+  });
   var addRepBtn = document.getElementById('btn-add-rep');
   if (addRepBtn) {
     addRepBtn.addEventListener('click', function() {
