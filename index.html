@@ -1971,28 +1971,110 @@ var SERVICIO_TEMPLATE_LABELS = { menor: 'Menor', intermedio: 'Intermedio', mayor
 // para que sigan pidiendo Vo.Bo. del Jefe igual que cualquier repuesto que
 // el tecnico agregue por su cuenta).
 function aplicarPlantillaServicio(id, nivel) {
-  var itemsRep = SERVICIO_REPUESTOS_TEMPLATE[nivel];
-  if (!itemsRep) return;
+  var itemsNuevos = SERVICIO_REPUESTOS_TEMPLATE[nivel];
+  if (!itemsNuevos) return;
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
   var rMe = role ? ROLES[role] : null;
   var puede = (role === 'jefe') || (rMe && rMe.tec && o.phase === 'ab');
   if (!puede) { toast('No tienes permiso para aplicar esta plantilla'); return; }
+  // Mismo candado que ya esconde el boton (Byron, 1 sep 2026): sin que el
+  // cliente haya pedido un Servicio al abrir la orden, no aplica ningun
+  // nivel — se deja aqui tambien, no solo en el render, por si algo mas
+  // llega a llamar esta funcion sin pasar por el boton.
+  if (!o.tipoServicioSolicitado) { toast('Esta orden no tiene un Servicio pedido por el cliente — no aplica la plantilla'); return; }
   var who = ROLES[role] ? ROLES[role].label : role;
   var addedByTec = !!(rMe && rMe.tec);
   o.repuestos = o.repuestos || [];
-  itemsRep.forEach(function(desc) {
-    o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec});
-  });
   o.bodega = o.bodega || [];
-  SERVICIO_BODEGA_TEMPLATE.forEach(function(desc) {
-    o.bodega.push({cantidad:'', desc: esc(desc), especificacion:'', by: who, ts: Date.now(), vobo:false, despachado:false});
+  var nivelViejo = o.tipoServicioAplicado || null;
+
+  if (nivelViejo && nivelViejo === nivel) {
+    toast('Ya esta aplicada la plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel]);
+    return;
+  }
+
+  if (nivelViejo) {
+    // CORRECCION (Byron, 1 sep 2026 — un tecnico se equivoco de nivel): en
+    // vez de borrar todo y volver a escribirlo, se corrige por diferencia —
+    // se quita solo lo que YA NO aplica al nivel nuevo y se agrega solo lo
+    // que falta; lo que se repite en ambos niveles se deja intacto, para no
+    // perder Vo.Bo./Mensajero/Partes/Instalado ya avanzado en un repuesto
+    // que sigue aplicando de todas formas. Los materiales de bodega NUNCA
+    // cambian entre niveles (misma lista los 3), asi que no se tocan aqui.
+    var itemsViejos = SERVICIO_REPUESTOS_TEMPLATE[nivelViejo] || [];
+    var aQuitar = itemsViejos.filter(function(d) { return itemsNuevos.indexOf(d) === -1; });
+    var aAgregar = itemsNuevos.filter(function(d) { return itemsViejos.indexOf(d) === -1; });
+    var entradasAQuitar = o.repuestos.filter(function(rp) { return rp.desdeServicioPlantilla && aQuitar.indexOf(rp.desc) !== -1; });
+    var conAvance = entradasAQuitar.filter(function(rp) { return rp.ck1 || rp.ck2 || rp.ck3; });
+    var msgConfirm = 'Ya aplicaste la plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivelViejo] + '. ¿Cambiar a Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + '?\n\n' +
+      'Se van a quitar ' + entradasAQuitar.length + ' repuesto(s) que ya no aplican y agregar ' + aAgregar.length + ' nuevo(s). Los que se repiten en los dos niveles se quedan igual.';
+    if (conAvance.length) {
+      msgConfirm += '\n\n⚠ ' + conAvance.length + ' de los que se van a quitar ya tienen avance (Vo.Bo./Mensajero/Partes/Instalado): ' + conAvance.map(function(rp){ return rp.desc; }).join(', ');
+    }
+    if (!confirm(msgConfirm)) return;
+    o.repuestos = o.repuestos.filter(function(rp) { return !(rp.desdeServicioPlantilla && aQuitar.indexOf(rp.desc) !== -1); });
+    aAgregar.forEach(function(desc) {
+      o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec, desdeServicioPlantilla: true});
+    });
+    o.tipoServicioAplicado = nivel;
+    o.msgs = o.msgs || [];
+    o.msgs.push({who:who, txt:'&#9889; Plantilla de servicio cambiada: ' + SERVICIO_TEMPLATE_LABELS[nivelViejo] + ' → ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' (' + entradasAQuitar.length + ' quitado(s), ' + aAgregar.length + ' agregado(s))', ts:Date.now(), type:'system'});
+    save();
+    toast('Cambiado a Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ': ' + entradasAQuitar.length + ' quitados, ' + aAgregar.length + ' agregados');
+    openDrw(id);
+    return;
+  }
+
+  // Primera vez que se aplica una plantilla a esta orden: se agrega todo
+  // (repuestos + materiales de bodega), igual que antes.
+  itemsNuevos.forEach(function(desc) {
+    o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec, desdeServicioPlantilla: true});
   });
+  SERVICIO_BODEGA_TEMPLATE.forEach(function(desc) {
+    o.bodega.push({cantidad:'', desc: esc(desc), especificacion:'', by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
+  });
+  o.tipoServicioAplicado = nivel;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'&#9889; Plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + itemsRep.length + ' repuesto(s) + ' + SERVICIO_BODEGA_TEMPLATE.length + ' material(es) de bodega' + (addedByTec ? ' — repuestos requieren Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
+  o.msgs.push({who:who, txt:'&#9889; Plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + itemsNuevos.length + ' repuesto(s) + ' + SERVICIO_BODEGA_TEMPLATE.length + ' material(es) de bodega' + (addedByTec ? ' — repuestos requieren Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
   save();
-  toast('Plantilla ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + itemsRep.length + ' repuestos + ' + SERVICIO_BODEGA_TEMPLATE.length + ' materiales de bodega');
+  toast('Plantilla ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + itemsNuevos.length + ' repuestos + ' + SERVICIO_BODEGA_TEMPLATE.length + ' materiales de bodega');
+  openDrw(id);
+}
+
+// Quita por completo la plantilla ya aplicada (repuestos Y materiales de
+// bodega que traigan desdeServicioPlantilla) — red de seguridad para cuando
+// ni siquiera correspondia un Servicio (Byron, 1 sep 2026: probo en una
+// orden que entro por sobrecalentamiento, no por servicio, y pudo aplicar
+// una plantilla igual). A diferencia del boton de nivel, este NO exige
+// o.tipoServicioSolicitado — sirve justo para deshacer un caso asi.
+function quitarPlantillaServicio(id) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || !o.tipoServicioAplicado) return;
+  var rMe = role ? ROLES[role] : null;
+  var puede = (role === 'jefe') || (rMe && rMe.tec && o.phase === 'ab');
+  if (!puede) { toast('No tienes permiso para quitar esta plantilla'); return; }
+  var repsAQuitar = (o.repuestos || []).filter(function(rp) { return rp.desdeServicioPlantilla; });
+  var bodAQuitar = (o.bodega || []).filter(function(bd) { return bd.desdeServicioPlantilla; });
+  var conAvanceRep = repsAQuitar.filter(function(rp) { return rp.ck1 || rp.ck2 || rp.ck3; });
+  var conAvanceBod = bodAQuitar.filter(function(bd) { return bd.vobo || bd.despachado; });
+  var msgConfirm = 'Se va a quitar por completo la plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[o.tipoServicioAplicado] + ': ' +
+    repsAQuitar.length + ' repuesto(s) y ' + bodAQuitar.length + ' material(es) de bodega. ¿Continuar?';
+  if (conAvanceRep.length || conAvanceBod.length) {
+    msgConfirm += '\n\n⚠ Algunos ya tienen avance (Vo.Bo./Mensajero/Partes/Instalado/Despachado) y se van a quitar igual: ' +
+      conAvanceRep.concat(conAvanceBod).map(function(x){ return x.desc; }).join(', ');
+  }
+  if (!confirm(msgConfirm)) return;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.repuestos = (o.repuestos || []).filter(function(rp) { return !rp.desdeServicioPlantilla; });
+  o.bodega = (o.bodega || []).filter(function(bd) { return !bd.desdeServicioPlantilla; });
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#9889; Plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[o.tipoServicioAplicado] + ' quitada por completo: ' + repsAQuitar.length + ' repuesto(s) y ' + bodAQuitar.length + ' material(es) eliminados', ts:Date.now(), type:'system'});
+  o.tipoServicioAplicado = null;
+  save();
+  toast('Plantilla quitada: ' + repsAQuitar.length + ' repuestos y ' + bodAQuitar.length + ' materiales eliminados');
   openDrw(id);
 }
 
@@ -2755,14 +2837,39 @@ function openDrw(id) {
     // seccion 06 — requiere poder hacer ambas cosas (tecnico asignado
     // mientras esta Trabajando, o Jefe en cualquier fase), no solo repuestos,
     // para que la plantilla siempre llene las dos secciones completas.
-    if ((role === 'jefe') || (r.tec && o.phase === 'ab')) {
+    var puedeUsarPlantilla = (role === 'jefe') || (r.tec && o.phase === 'ab');
+    // Los 3 botones de nivel SOLO aparecen si el cliente de verdad pidio un
+    // Servicio al abrir la orden (o.tipoServicioSolicitado) — pedido de
+    // Byron 1 sep 2026: probo en una orden que entro por sobrecalentamiento
+    // (no por servicio) y el sistema igual dejaba agregar un nivel, lo cual
+    // no tiene sentido para ese tipo de trabajo.
+    if (o.tipoServicioSolicitado && puedeUsarPlantilla) {
+      // El boton del nivel YA aplicado se resalta — asi se ve de un vistazo
+      // cual esta activo. Tocar OTRO nivel ya no repite todo desde cero: se
+      // corrige por diferencia (ver aplicarPlantillaServicio), pedido de
+      // Byron 1 sep 2026 para cuando un tecnico se equivoca de nivel.
+      var plantillaBtnStyle = function(nivelBtn) {
+        var activo = o.tipoServicioAplicado === nivelBtn;
+        return 'font-size:11px;padding:5px 12px;border-radius:20px;cursor:pointer;font-weight:' + (activo ? '700' : '400') +
+          ';border:1px solid ' + (activo ? '#3D7EFF' : 'var(--bd)') + ';background:' + (activo ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (activo ? '#3D7EFF' : 'var(--tx2)');
+      };
       repuestosHtml += '<div style="margin-bottom:8px">' +
-        '<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">&#9889; Plantilla de servicio — agrega los repuestos aqui y los materiales en Despacho Bodega de una vez (se puede seguir agregando algo mas a mano despues)</div>' +
+        '<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">&#9889; Plantilla de servicio — agrega los repuestos aqui y los materiales en Despacho Bodega de una vez (se puede seguir agregando algo mas a mano despues). Tocar otro nivel corrige lo ya aplicado, con confirmacion antes.</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          '<button id="btn-plantilla-menor" style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Menor</button>' +
-          '<button id="btn-plantilla-intermedio" style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Intermedio</button>' +
-          '<button id="btn-plantilla-mayor" style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Mayor</button>' +
+          '<button id="btn-plantilla-menor" style="' + plantillaBtnStyle('menor') + '">Menor' + (o.tipoServicioAplicado === 'menor' ? ' &#10003;' : '') + '</button>' +
+          '<button id="btn-plantilla-intermedio" style="' + plantillaBtnStyle('intermedio') + '">Intermedio' + (o.tipoServicioAplicado === 'intermedio' ? ' &#10003;' : '') + '</button>' +
+          '<button id="btn-plantilla-mayor" style="' + plantillaBtnStyle('mayor') + '">Mayor' + (o.tipoServicioAplicado === 'mayor' ? ' &#10003;' : '') + '</button>' +
         '</div>' +
+      '</div>';
+    }
+    // "Quitar plantilla completa" — aparte del gate de arriba: sirve
+    // justamente de red de seguridad para el caso que reporto Byron (una
+    // plantilla que se aplico sin que correspondiera), asi que se muestra
+    // con solo que YA haya algo aplicado (o.tipoServicioAplicado), sin
+    // exigir tambien o.tipoServicioSolicitado.
+    if (o.tipoServicioAplicado && puedeUsarPlantilla) {
+      repuestosHtml += '<div style="margin-bottom:8px">' +
+        '<button id="btn-plantilla-quitar" style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--rd);background:var(--rdbg);color:var(--rd);cursor:pointer">&#10005; Quitar plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[o.tipoServicioAplicado] + ' por completo</button>' +
       '</div>';
     }
     // Mismo armado que el formulario de Despacho Bodega (etiquetas visibles
@@ -3152,6 +3259,8 @@ function openDrw(id) {
     var btnPlantilla = document.getElementById('btn-plantilla-' + nivel);
     if (btnPlantilla) btnPlantilla.addEventListener('click', function() { aplicarPlantillaServicio(id, nivel); });
   });
+  var btnPlantillaQuitar = document.getElementById('btn-plantilla-quitar');
+  if (btnPlantillaQuitar) btnPlantillaQuitar.addEventListener('click', function() { quitarPlantillaServicio(id); });
   var addRepBtn = document.getElementById('btn-add-rep');
   if (addRepBtn) {
     addRepBtn.addEventListener('click', function() {
