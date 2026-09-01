@@ -2993,10 +2993,18 @@ function openDrw(id) {
     // igual que antes dejando "Personalizado..." sin seleccionar.
     var catalogDatalistOptions = '';
     for (var catKey in TIPO_OPERACION_CATALOG) { catalogDatalistOptions += '<option value="' + esc(TIPO_OPERACION_CATALOG[catKey]) + '">'; }
+    // Prellenar (sin obligar) con el nivel de Servicio que pidio el cliente
+    // al abrir la orden (Byron + tecnicos, 1 sep 2026: unificar sin amarrar
+    // — el tecnico puede cambiarlo si lo que de verdad hizo fue otro nivel).
+    // No se sugiere si ya se registro un trabajo de ese mismo tipo, para no
+    // insistir con algo que ya se confirmo.
+    var yaRegistradoEseTipo = (o.trabajos || []).some(function(tw){ return tw.tipoOperacion === o.tipoServicioSolicitado; });
+    var catalogLabelPrellenado = (o.tipoServicioSolicitado && !yaRegistradoEseTipo && TIPO_OPERACION_CATALOG[o.tipoServicioSolicitado])
+      ? TIPO_OPERACION_CATALOG[o.tipoServicioSolicitado] : '';
     trabajosHtml += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
-      '<input id="trab-tipo" class="cin" list="trab-tipo-datalist" placeholder="Buscar en catalogo..." style="flex:0 0 170px" autocomplete="off">' +
+      '<input id="trab-tipo" class="cin" list="trab-tipo-datalist" placeholder="Buscar en catalogo..." value="' + esc(catalogLabelPrellenado) + '" style="flex:0 0 170px" autocomplete="off">' +
       '<datalist id="trab-tipo-datalist">' + catalogDatalistOptions + '</datalist>' +
-      '<input id="trab-inp" class="cin" placeholder="Descripcion del trabajo realizado..." style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
+      '<input id="trab-inp" class="cin" placeholder="Descripcion del trabajo realizado..." value="' + esc(catalogLabelPrellenado) + '" style="flex:1;min-width:140px;border:2px solid var(--ac);background:var(--bg2)">' +
       (role === 'jefe' ? '<input id="trab-horas" class="cin" type="number" min="0" step="0.25" placeholder="Hrs. com." style="flex:0 0 80px">' : '') +
       '<select id="trab-tec" class="cin" style="flex:0 0 auto">' + tecOptions + '</select>' +
       '<button id="btn-add-trab" style="padding:6px 12px;border-radius:var(--rs);background:var(--or);border:none;color:#000;font-size:12px;font-weight:600;cursor:pointer">+ Agregar</button>' +
@@ -4424,8 +4432,17 @@ function sendMsg(id) {
 
 /* NEW ORDER */
 var _noRepDraft = []; // repuestos capturados en el modal de Nueva Orden, antes de crear la orden
+// Que nivel de "Servicio" pidio el cliente (menor/intermedio/mayor), si se
+// uso uno de esos 3 botones al describir la solicitud — null si no aplica
+// (otro preset, o texto libre). Se usa solo para PRELLENAR el catalogo de
+// "Trabajos realizados" del tecnico mas adelante — nunca lo obliga, el
+// tecnico puede cambiarlo si lo que de verdad hizo fue otro nivel (Byron +
+// tecnicos, 1 sep 2026: unificar sin amarrar, porque lo pedido por el
+// cliente y lo realmente trabajado son dos hechos que pueden no coincidir).
+var _noTipoServicio = null;
 function openNO() {
   _noRepDraft = [];
+  _noTipoServicio = null;
   renderNoRepList();
   // Boton siempre habilitado al abrir: si un intento anterior quedo a medias
   // (se corto la conexion), no debe heredarse el estado "Creando..."
@@ -4434,6 +4451,7 @@ function openNO() {
 }
 function closeNO() {
   _noRepDraft = [];
+  _noTipoServicio = null;
   if (typeof _setSavingNO === 'function') _setSavingNO(false);
   document.getElementById('m-no').classList.remove('on');
 }
@@ -4487,9 +4505,18 @@ function renderNoRepList() {
 // insertan el texto en la casilla de notas SIN reemplazar lo ya escrito, asi
 // el asesor puede combinar un preset con su propia observacion del cliente.
 // No agrega el mismo preset dos veces si ya esta presente.
+// Mapa preset -> clave de TIPO_OPERACION_CATALOG (mismo catalogo que ya usa
+// "Trabajos realizados"), solo para los 3 niveles de Servicio por ahora —
+// se puede extender a otros presets mas adelante con el mismo mecanismo.
+var _PRESET_A_TIPO_SERVICIO = {
+  'Servicio menor': 'servicioMenor',
+  'Servicio intermedio': 'servicioIntermedio',
+  'Servicio mayor': 'servicioMayor',
+};
 function addDescPreset(txt) {
   var el = document.getElementById('f-dc');
   if (!el) return;
+  if (_PRESET_A_TIPO_SERVICIO[txt]) _noTipoServicio = _PRESET_A_TIPO_SERVICIO[txt];
   var current = el.value.trim();
   if (!current) { el.value = txt; return; }
   var parts = current.split(/,\s*/);
@@ -4536,7 +4563,7 @@ function saveNO() {
 
   function createWithId(assignedId) {
     var ot = otInput || ('OT-' + assignedId);
-    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,km:km,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
+    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,km:km,tipoServicioSolicitado:_noTipoServicio||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
     if (_noRepDraft.length) {
       no.repuestos = _noRepDraft.map(function(d0) {
         // El borrador guarda objetos {desc, cantidad?, especificacion?};
@@ -4563,6 +4590,7 @@ function saveNO() {
     orders.push(no);
     addNotif('Nueva orden: ' + plate + ' - ' + model, no.id);
     _noRepDraft = [];
+    _noTipoServicio = null;
     save(); closeNO(); toast('Orden creada'); renderBoard();
     ['f-pl','f-ot','f-mo','f-cl','f-dc','f-num','f-col','f-hrs','f-km'].forEach(function(fid) { var el = document.getElementById(fid); if (el) el.value = ''; });
     _setSavingNO(false);
