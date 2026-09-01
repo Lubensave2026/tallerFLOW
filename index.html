@@ -2086,7 +2086,22 @@ function openDrw(id) {
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Vehiculo</label><input class="fi" id="e-model" value="' + esc(o.model) + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Cliente</label><input class="fi" id="e-client" value="' + esc(o.client) + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Kilometraje — opcional</label><input class="fi" id="e-km" type="number" min="0" step="1" value="' + (o.km!=null?o.km:'') + '"></div>' +
-        '<div class="fg" style="margin-bottom:6px"><label class="fl">Tiempo estimado (hrs) — opcional</label><input class="fi" id="e-hrs" type="number" min="0.5" step="0.5" value="' + (o.hrsEstimado||'') + '"></div>' +
+        '<div class="fg" style="margin-bottom:6px"><label class="fl">Tiempo estimado (hrs) — opcional</label><input class="fi" id="e-hrs" type="number" min="0.5" step="0.5" value="' + (o.hrsEstimado||'') + '">' +
+          (function() {
+            // Aviso si la orden ya trae horas reales de vueltas anteriores en
+            // Trabajando (ej. diagnostico separado del trabajo real) — para
+            // que al poner/ajustar el estimado se sume eso y no se quede
+            // corto (Byron, 1 sep 2026: encontro que Capacidad del taller
+            // restaba TODO el real acumulado, no solo el de la vuelta mas
+            // reciente, y el estimado que puso no lo habia contemplado).
+            var horasReales = _sumPhaseHours(o, 'ab');
+            if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) {
+              horasReales += _minutosFase('ab', o.timestamps.ab, Date.now()) / 60;
+            }
+            if (horasReales < 0.1) return '';
+            return '<div style="font-size:10px;color:var(--or);margin-top:3px">&#9203; Ya lleva ' + horasReales.toFixed(1) + 'h reales acumuladas en Trabajando (vueltas anteriores incluidas) — considera sumarlas al estimado.</div>';
+          })() +
+        '</div>' +
         (role === 'jefe' ?
           '<div class="fg" style="margin-bottom:6px"><label class="fl">Prioridad</label><select class="fi" id="e-prio">' +
             '<option value="normal"' + (!o.prio || o.prio === 'normal' ? ' selected' : '') + '>Normal</option>' +
@@ -7682,9 +7697,22 @@ function _capacidadCalc(nowTs) {
     }
   }
 
+  // Semaforo (verde/amarillo/rojo): compara contra la capacidad que REALMENTE
+  // resta hoy (horasRestantesHoy x % de cada tecnico) — la misma base que ya
+  // usa "Disponibilidad" por tecnico — en vez del dia completo. Antes
+  // comparaba contra el dia completo y podia decir "disponibilidad alta"
+  // aunque la tabla de abajo ya mostrara a todos con 0 horas libres reales
+  // (Byron, 1 sep 2026: letrero verde/56% usado con la tabla ya en rojo por
+  // todos lados). "Capacidad real hoy" (el numero del encabezado) se deja
+  // igual — sigue siendo la foto del dia completo, solo el semaforo cambia
+  // de base.
+  var capacidadRestanteTotal = 0;
+  for (var i = 0; i < tecs.length; i++) {
+    if (!tecs[i].ausente) capacidadRestanteTotal += horasRestantesHoy * tecs[i].pct / 100;
+  }
   var pctUso = null, semaforo;
-  if (capacidadTotal > 0) {
-    pctUso = (cargaTotal / capacidadTotal) * 100;
+  if (capacidadRestanteTotal > 0) {
+    pctUso = (cargaTotal / capacidadRestanteTotal) * 100;
     semaforo = pctUso >= 100 ? 'rojo' : (pctUso >= 70 ? 'amarillo' : 'verde');
   } else {
     semaforo = 'rojo'; // nadie disponible -> no se puede recibir nada, sin importar la carga
