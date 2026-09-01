@@ -4062,6 +4062,24 @@ function doSign(id, sigId) {
       }
     }
   }
+  // 'ent' phase, firma "Jefe verifica facturacion": si la orden tiene monto
+  // facturado (o.montoTotal), a partir de ahora tambien exige el total
+  // cotizado antes de dejar firmar — alimenta el % de aprobacion (Byron,
+  // 30 ago 2026: total facturado / total cotizado). Sin monto facturado
+  // (garantia, orden interna) no se pide nada — esas no cuentan para esta
+  // metrica. Aplica solo hacia adelante, igual que hrsEstimado en
+  // advance(): si la orden ya tenia montoCotizado guardado no se pregunta
+  // de nuevo, y las que ya pasaron por aqui antes de hoy nunca lo tendran
+  // ni se les exige retroactivo.
+  if (o.phase === 'ent' && sigId === 'jefe' && o.montoTotal && !o.montoCotizado) {
+    var cotizadoInput = prompt('Total cotizado para ' + o.plate + ' (para calcular % de aprobacion):');
+    if (cotizadoInput === null) return; // cancelo
+    var cotizadoVal = parseFloat(cotizadoInput);
+    if (!cotizadoVal || cotizadoVal <= 0) { toast('Ingresa un monto de cotizacion mayor a 0'); return; }
+    o.montoCotizado = cotizadoVal;
+    o.msgs = o.msgs || [];
+    o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'Total cotizado registrado: Q.' + cotizadoVal.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}), ts:Date.now(), type:'system'});
+  }
   o.sigs[sigId] = true;
   o.sigsTs = o.sigsTs || {};
   o.sigsTs[sigId] = Date.now();
@@ -4985,6 +5003,7 @@ function buildRepContent() {
       '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repuestosPendientesCount + '</div><div class="kpi-l">Repuestos pendientes</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + reprocesosCount + '</div><div class="kpi-l">Reprocesos</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:#E67E22">' + (presupPromedioHoras !== null ? presupPromedioHoras.toFixed(1) + 'h' : '—') + '</div><div class="kpi-l">Prom. en Presupuesto (mes)</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:' + (semData.pctAprobacion !== null ? _productividadColor(Math.round(semData.pctAprobacion)) : 'var(--tx3)') + '">' + (semData.pctAprobacion !== null ? semData.pctAprobacion.toFixed(0) + '%' : '—') + '</div><div class="kpi-l">% de aprobacion (mes)</div></div>' +
     '</div>';
   } else {
     html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
@@ -5051,6 +5070,10 @@ function buildRepContent() {
           '<th style="padding:6px 8px;text-align:left;border-bottom:2px solid #FFD700">Tecnico</th>' +
           '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Monto (general)</th>' +
           '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Monto (M.O.)</th>' +
+          // Agregadas al final, sin tocar las columnas de arriba (pedido de
+          // Byron 30 ago 2026: no correr lo que ya existe).
+          '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Monto cotizado</th>' +
+          '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">% Aprobacion</th>' +
         '</tr></thead><tbody>';
       for (var oci = 0; oci < semData.ordenes.length; oci++) {
         var ocx = semData.ordenes[oci];
@@ -5063,6 +5086,12 @@ function buildRepContent() {
           '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(ocx.tech||'—') + '</td>' +
           '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--gn)">' + fmtQ2(ocx.total) + '</td>' +
           '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--ac)">' + fmtQ2(ocx.mo) + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx2)">' + (ocx.montoCotizado ? fmtQ2(ocx.montoCotizado) : '—') + '</td>' +
+          // % de esta fila = monto TOTAL de la orden / cotizado — no el monto
+          // incremental de esta fila (que puede ser solo lo adicional si la
+          // orden ya tenia un cierre "Ya facturada" previo) — asi coincide
+          // siempre con la tarjeta agregada de arriba, que usa el mismo dato.
+          '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:700;color:' + ((ocx.montoCotizado && ocx.montoTotalOrden) ? _productividadColor(Math.round(ocx.montoTotalOrden / ocx.montoCotizado * 100)) : 'var(--tx3)') + '">' + ((ocx.montoCotizado && ocx.montoTotalOrden) ? (ocx.montoTotalOrden / ocx.montoCotizado * 100).toFixed(0) + '%' : '—') + '</td>' +
         '</tr>';
       }
       html += '</tbody></table></div>';
@@ -5175,7 +5204,10 @@ function buildRepContent() {
     (myName
       ? '<button onclick="setTecRepClosed(false)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (!_tecRepShowClosed ? '#3D7EFF' : 'var(--bd)') + ';background:' + (!_tecRepShowClosed ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (!_tecRepShowClosed ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (!_tecRepShowClosed ? '700' : '400') + '">&#128295; Mis casos activos</button>' +
         '<button onclick="setTecRepClosed(true)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_tecRepShowClosed ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_tecRepShowClosed ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_tecRepShowClosed ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (_tecRepShowClosed ? '700' : '400') + '">&#9989; Mis casos cerrados</button>'
-      : ((role === 'jefe' || role === 'asesor' || role === 'partes')
+      // Solo Jefe: todo lo que sea productividad por tecnico (Hrs. En
+      // Proceso/Pagadas/% Productividad) queda reservado a su usuario —
+      // confirmado por Byron 30 ago 2026. Asesor y Partes no ven este boton.
+      : (role === 'jefe'
         ? '<button onclick="verCerradasDeTecnico()" title="Elige un tecnico en el filtro de arriba y toca aqui" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128193; Ver cerradas de un tecnico</button>'
         : '')) +
     '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
@@ -6891,13 +6923,23 @@ function _buildOrderSummaryCSV(allOrders) {
   var header = ['OT','Ingreso','Salida','Dias','Cliente','Vehiculo','Placa','Tecnico',
     'Asig_espera','Trabajando','Presup_partes','Presup_MO','Esp_autorizacion','Esp_repuestos',
     'Detenido','Trabajo_externo','Prueba_Insp_Final','Lavado','Listo_pEntrega','Entregado',
-    'Monto_Total','Monto_MO','Hrs_Com','Pct_Productividad','Tiempo_En_Ruta'];
+    'Monto_Total','Monto_MO','Hrs_Com','Pct_Productividad','Tiempo_En_Ruta',
+    // Agregadas al final, sin correr las columnas de arriba (pedido de
+    // Byron 30 ago 2026). Monto_Cotizado es de la ORDEN completa (no se
+    // reparte entre 2 tecnicos, a diferencia de Monto_Total/Monto_MO/
+    // Hrs_Com que si son por-tecnico) — se repite igual en ambas filas si
+    // hay 2 tecnicos, mismo criterio que Cliente/Vehiculo/Dias.
+    'Monto_Cotizado','Pct_Aprobacion'];
   var rows = [header];
 
   var sumDias = 0;
   var sumHoras = {};
   _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) { sumHoras[ph] = 0; });
   var sumMontoTotal = 0, sumMontoMO = 0, sumHrsCom = 0, sumRutaMin = 0;
+  // Acumulados UNA VEZ por orden (no por fila/tecnico) — Monto_Cotizado no
+  // se reparte, asi que sumarlo en el loop de filas lo duplicaria con 2
+  // tecnicos.
+  var sumMontoCotizado = 0, sumMontoTotalConCotizado = 0;
 
   for (var i = 0; i < sorted.length; i++) {
     var o = sorted[i];
@@ -6934,6 +6976,13 @@ function _buildOrderSummaryCSV(allOrders) {
     // se reparte entre tecnicos), se repite igual en ambas filas si hay 2.
     var rutaHoras = (o.rutaMinutos !== undefined && o.rutaMinutos !== null) ? (o.rutaMinutos / 60) : null;
     if (rutaHoras !== null) sumRutaMin += o.rutaMinutos;
+
+    // Monto cotizado + % de aprobacion — de la ORDEN completa (ver nota del
+    // header), calculados una sola vez aqui, antes del reparto por tecnico.
+    var montoCotizado = o.montoCotizado ? Number(o.montoCotizado) : 0;
+    var pctAprobacionRow = (montoCotizado && montoTotal) ? Math.round(montoTotal / montoCotizado * 100) : null;
+    if (montoCotizado) sumMontoCotizado += montoCotizado;
+    if (montoCotizado && montoTotal) sumMontoTotalConCotizado += montoTotal;
 
     // Con 2 tecnicos asignados, la orden sale como 2 FILAS (una por
     // tecnico) — las fechas y el resto de fases quedan iguales en ambas,
@@ -6999,7 +7048,9 @@ function _buildOrderSummaryCSV(allOrders) {
         rowMontoMO ? _csvNum(rowMontoMO.toFixed(2)) : '',
         rowHrsCom ? _csvNum(rowHrsCom.toFixed(2)) : '',
         pctProdRow !== null ? pctProdRow : '',
-        rutaHoras !== null ? _csvNum(rutaHoras.toFixed(2)) : ''
+        rutaHoras !== null ? _csvNum(rutaHoras.toFixed(2)) : '',
+        montoCotizado ? _csvNum(montoCotizado.toFixed(2)) : '',
+        pctAprobacionRow !== null ? pctAprobacionRow : ''
       ]);
     }
   }
@@ -7025,6 +7076,12 @@ function _buildOrderSummaryCSV(allOrders) {
   // Tiempo en ruta: TOTAL del periodo (no promedio), igual criterio que
   // Monto_Total/Monto_MO/Hrs_Com arriba.
   footer.push(_csvNum((sumRutaMin / 60).toFixed(2)));
+  // Monto_Cotizado: TOTAL del periodo. Pct_Aprobacion: global ponderado por
+  // monto (suma facturado / suma cotizado, no promedio de los % por fila) —
+  // mismo criterio que semComputeFromOrders(), para que este numero
+  // coincida con la tarjeta "% de aprobacion" del Reporte General.
+  footer.push(_csvNum(sumMontoCotizado.toFixed(2)));
+  footer.push(sumMontoCotizado > 0 ? Math.round(sumMontoTotalConCotizado / sumMontoCotizado * 100) : '');
   rows.push(footer);
 
   return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
@@ -8928,6 +8985,13 @@ function semComputeFromOrders(monthOffset) {
   var totalFact = 0, totalMO = 0, countCerradas = 0;
   var potTotal = 0, potMO = 0, countPotencial = 0;
   var hoyTotal = 0, hoyMO = 0, hoyCount = 0;
+  // % de aprobacion = total facturado / total cotizado, sumado entre TODAS
+  // las ordenes cerradas este mes que tengan ambos datos (Byron, 30 ago
+  // 2026). Solo se cuentan las que SI tienen monto facturado — sin eso
+  // (garantia, orden interna) nunca se pide el cotizado, asi que no aplica.
+  // Es un agregado ponderado por monto (suma/suma), no un promedio de cada
+  // % individual, para que una orden grande no pese igual que una chica.
+  var sumFacturadoConCotizado = 0, sumCotizado = 0, countConCotizado = 0;
   // Incluir tambien las ordenes ya archivadas (archiveOld() las saca de
   // 'orders' a los 7 dias de cerradas, pero siguen siendo facturacion real
   // del mes y deben seguir contando en el semaforo/reporte). Se evita
@@ -8957,7 +9021,7 @@ function semComputeFromOrders(monthOffset) {
           byDay[facKey].total += facTotal; byDay[facKey].mo += facMO; byDay[facKey].count++;
           totalFact += facTotal; totalMO += facMO; countCerradas++;
           if (isCurrentMonth && fd.getDate() === dToday) { hoyTotal += facTotal; hoyMO += facMO; hoyCount++; }
-          ordenesCerradas.push({ot:o.ot, salida:facTs, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:facTotal, mo:facMO});
+          ordenesCerradas.push({ot:o.ot, salida:facTs, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:facTotal, mo:facMO, montoCotizado:o.montoCotizado || null, montoTotalOrden:o.montoTotal || null});
         }
       }
     }
@@ -8981,7 +9045,10 @@ function semComputeFromOrders(monthOffset) {
       byDay[key].total += t; byDay[key].mo += mo; byDay[key].count++;
       totalFact += t; totalMO += mo; countCerradas++;
       if (isCurrentMonth && d.getDate() === dToday) { hoyTotal += t; hoyMO += mo; hoyCount++; }
-      ordenesCerradas.push({ot:o.ot, salida:ts, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:t, mo:mo});
+      if (o.montoTotal && o.montoCotizado) {
+        sumFacturadoConCotizado += o.montoTotal; sumCotizado += o.montoCotizado; countConCotizado++;
+      }
+      ordenesCerradas.push({ot:o.ot, salida:ts, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:t, mo:mo, montoCotizado:o.montoCotizado || null, montoTotalOrden:o.montoTotal || null});
     } else if (o.montoTotal && isCurrentMonth) {
       // "Proyectado" son ordenes AUN activas — solo tiene sentido para el mes
       // actual, no aplica retroactivamente a un mes ya cerrado. Si ya tiene
@@ -9003,6 +9070,8 @@ function semComputeFromOrders(monthOffset) {
     potTotal: potTotal, potMO: potMO, potRep: potTotal - potMO, countPotencial: countPotencial,
     hoyTotal: hoyTotal, hoyMO: hoyMO, hoyRep: hoyTotal - hoyMO, hoyCount: hoyCount,
     monthLabel: monthLabel, isCurrentMonth: isCurrentMonth, monthOffset: monthOffset,
+    pctAprobacion: sumCotizado > 0 ? (sumFacturadoConCotizado / sumCotizado * 100) : null,
+    countConCotizado: countConCotizado,
     ordenes: ordenesCerradas
   };
 }
@@ -9244,13 +9313,17 @@ function repClearFilters() {
   repApplyFilters();
 }
 
-// Jefe/Asesor/Partes: consultar los casos CERRADOS de un tecnico especifico
-// (pedido por Byron 30 ago 2026). Reusa el dropdown de tecnico que ya
-// existe en vez de agregar un filtro aparte: lee lo que ya este elegido ahi
-// y reconstruye el reporte entero con la vista de "cerrados de esa
-// persona" — misma vista que ya tiene el propio tecnico de sus casos,
-// nada nuevo que mantener por separado.
+// Jefe: consultar los casos CERRADOS de un tecnico especifico (pedido por
+// Byron 30 ago 2026). Reusa el dropdown de tecnico que ya existe en vez de
+// agregar un filtro aparte: lee lo que ya este elegido ahi y reconstruye el
+// reporte entero con la vista de "cerrados de esa persona" — misma vista
+// que ya tiene el propio tecnico de sus casos, nada nuevo que mantener por
+// separado. Solo Jefe: confirmado que toda productividad por tecnico queda
+// reservada a su usuario, Asesor y Partes no la ven (ni el boton). El check
+// de rol va tambien aqui adentro, no solo escondiendo el boton, por si algo
+// mas llega a llamar esta funcion.
 function verCerradasDeTecnico() {
+  if (role !== 'jefe') return;
   var sel = document.getElementById('rep-fil-tec');
   var val = sel ? sel.value : '';
   if (!val) { toast('Elige un tecnico en el filtro de arriba primero'); return; }
