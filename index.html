@@ -7658,7 +7658,22 @@ function _capacidadCalc(nowTs) {
     if (!asignados.length) continue;
     if (!o.hrsEstimado) { sinHora.push(o.plate || o.ot || ('#' + o.id)); continue; }
     var pendiente = (o.repuestos || []).some(function(r){ return !r.ck3; });
-    var horasPorTec = o.hrsEstimado / asignados.length;
+    // Horas ya reales acumuladas en Trabajando para ESTA orden (tramos ya
+    // congelados en la bitacora + el tramo en vivo si sigue en 'ab' ahora
+    // mismo) — mismo reloj que ya usa calcTecHoras()/"% productividad" en
+    // toda la app, no uno nuevo (Byron, 1 sep 2026: una orden que cruza de
+    // un dia a otro seguia cobrando el estimado completo cada manana,
+    // aunque ya se hubiera avanzado). Se resta del estimado ANTES de
+    // repartir entre tecnicos (si hay 2), para que el reparto siga siendo
+    // 50/50 sobre lo que falta — igual que ya era 50/50 sobre el estimado
+    // completo. Nunca baja de 0: si ya se paso del estimado, esa orden deja
+    // de sumar carga nueva (el atraso ya lo refleja "% productividad").
+    var horasYaTrabajadas = _sumPhaseHours(o, 'ab');
+    if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) {
+      horasYaTrabajadas += _minutosFase('ab', o.timestamps.ab, hoy.getTime()) / 60;
+    }
+    var horasRestantesOrden = Math.max(0, o.hrsEstimado - horasYaTrabajadas);
+    var horasPorTec = horasRestantesOrden / asignados.length;
     for (var j = 0; j < asignados.length; j++) {
       var tec = porNombre[asignados[j]];
       tec.carga += horasPorTec;
