@@ -3886,9 +3886,24 @@ function openDrw(id) {
       // asi su productividad de este mes no se pierde ni se mezcla con las
       // horas adicionales que trabaje despues, si la orden se reabre para
       // terminar el proceso real (mismo mecanismo que el monto).
+      // BUG REAL REPORTADO (Byron, 1 sep 2026, orden 5333 "Gabriel Rodas +
+      // T. Externo"): TEC_EXTERNO ('T. Externo') tiene un punto, y Firebase
+      // Realtime Database RECHAZA cualquier escritura donde una LLAVE de
+      // objeto contenga un punto (".", "#", "$", "/", "[", "]"). Como
+      // porTecnico[ox.tech2] usaba el nombre del tecnico como LLAVE, guardar
+      // esto en una orden con Tecnico Externo asignado hacia fallar la
+      // escritura COMPLETA a Firebase (un solo update() con todos los campos
+      // juntos) — el navegador mostraba el monto "ya facturado" localmente
+      // (la mutacion en memoria si ocurrio) pero NADA llegaba al servidor;
+      // en cuanto llegaba cualquier otra actualizacion de esa orden desde
+      // Firebase, la copia local (nunca guardada de verdad) se revertia sin
+      // avisar. T. Externo no es una persona real de la casa y ya se excluye
+      // de "quien se le mide desempeno" en Capacidad del taller y en
+      // TEC_ASIGNABLES — aqui se excluye por la misma razon, ademas de por
+      // ser la causa tecnica del fallo.
       ox.horasFacturadoSnapshot = {ts: facTs, porTecnico: {}};
-      if (ox.tech) ox.horasFacturadoSnapshot.porTecnico[ox.tech] = calcTecHoras(ox, ox.tech);
-      if (ox.tech2) ox.horasFacturadoSnapshot.porTecnico[ox.tech2] = calcTecHoras(ox, ox.tech2);
+      if (ox.tech && ox.tech !== TEC_EXTERNO) ox.horasFacturadoSnapshot.porTecnico[ox.tech] = calcTecHoras(ox, ox.tech);
+      if (ox.tech2 && ox.tech2 !== TEC_EXTERNO) ox.horasFacturadoSnapshot.porTecnico[ox.tech2] = calcTecHoras(ox, ox.tech2);
       // Tambien se congela el desglose de horas por fase (bitacora) y las
       // horas de comision totales de la orden — asi, si se reabre para
       // seguir trabajando, sigue apareciendo en el reporte de bitacora (CSV)
