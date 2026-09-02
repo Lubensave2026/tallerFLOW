@@ -5005,6 +5005,13 @@ var _jefeVerCerradasDeTec = '';
 // Monto) de las ordenes que componen la tarjeta "Ya cerrado este mes". Se
 // reinicia cada vez que se abre el reporte.
 var _jefeShowCerradosDetalle = false;
+// Navegador de mes de la tarjeta "Ya cerrado este mes" (jefe/asesor/partes)
+// — pedido de Byron 1 sep 2026, para poder ver con cuanto cerro un mes
+// anterior sin salir del Reporte General. Independiente de
+// _repProdMonthOffset (esa es solo para la productividad/casos cerrados del
+// tecnico, mas abajo) para que navegar una tarjeta no mueva la otra. Se
+// reinicia cada vez que se abre el reporte.
+var _repCerradoMonthOffset = 0;
 
 // Copia en texto plano de la tabla del Reporte General, llenada durante el
 // MISMO render que dibuja la tabla en pantalla (ver buildRepContent) — es lo
@@ -5022,6 +5029,7 @@ function openRep() {
   _tecRepShowClosed = false;
   _jefeVerCerradasDeTec = '';
   _jefeShowCerradosDetalle = false;
+  _repCerradoMonthOffset = 0;
   // Auto-refresh every 30 seconds while report is open
   if (window._repInterval) clearInterval(window._repInterval);
   window._repInterval = setInterval(function() {
@@ -5243,6 +5251,14 @@ function buildRepContent() {
   // Facturacion potencial + ya cerrado (jefe, asesor de servicio y encargado
   // de repuestos — REQ002: ambos perfiles ven exactamente los mismos indicadores)
   if (role === 'jefe' || role === 'asesor' || role === 'partes') {
+    // Dato de la tarjeta "Ya cerrado este mes": separado de semData (que
+    // alimenta las tarjetas KPI de arriba, siempre mes actual) para que
+    // navegar a un mes anterior con las flechas de esta tarjeta NO mueva
+    // "Cerradas (mes)" ni "% de aprobacion (mes)" del grid de arriba — esos
+    // dos siempre deben reflejar el mes en curso. Si el offset es 0
+    // reutiliza semData en vez de recalcular lo mismo dos veces.
+    var semCerradoData = _repCerradoMonthOffset === 0 ? semData : semComputeFromOrders(_repCerradoMonthOffset);
+    var monthLabelCerrado = semCerradoData.monthLabel.charAt(0).toUpperCase() + semCerradoData.monthLabel.slice(1);
     var potTotal = 0, potMO = 0, conMonto = 0;
     for (var ki=0; ki<orders.length; ki++) {
       var ko = orders[ki];
@@ -5268,21 +5284,26 @@ function buildRepContent() {
         '</div>' +
       '</div>' +
       '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px">' +
-          '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">&#9989; Ya cerrado este mes (' + semData.countCerradas + ' ordenes)</div>' +
-          (semData.countCerradas ? '<button onclick="toggleJefeCerradosDetalle()" style="font-size:9px;padding:3px 8px;border-radius:10px;border:1px solid ' + (_jefeShowCerradosDetalle ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowCerradosDetalle ? 'rgba(61,126,255,.15)' : 'var(--bg4)') + ';color:' + (_jefeShowCerradosDetalle ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;white-space:nowrap">&#128065; ' + (_jefeShowCerradosDetalle ? 'Ocultar' : 'Ver') + ' detalle</button>' : '') +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px;flex-wrap:wrap">' +
+          '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">&#9989; Ya cerrado ' + (semCerradoData.isCurrentMonth ? 'este mes' : 'en ' + monthLabelCerrado) + ' (' + semCerradoData.countCerradas + ' ordenes)</div>' +
+          '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">' +
+            '<button onclick="repCerradoChangeMonth(1)" title="Mes anterior" style="width:20px;height:20px;border-radius:6px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx);cursor:pointer;font-size:9px;line-height:1">&#9664;</button>' +
+            '<button onclick="repCerradoChangeMonth(-1)" title="Mes siguiente" ' + (semCerradoData.isCurrentMonth ? 'disabled' : '') + ' style="width:20px;height:20px;border-radius:6px;border:1px solid var(--bd);background:' + (semCerradoData.isCurrentMonth ? 'var(--bg3)' : 'var(--bg4)') + ';color:' + (semCerradoData.isCurrentMonth ? 'var(--tx3)' : 'var(--tx)') + ';cursor:' + (semCerradoData.isCurrentMonth ? 'not-allowed' : 'pointer') + ';font-size:9px;line-height:1">&#9654;</button>' +
+            (semCerradoData.countCerradas ? '<button onclick="toggleJefeCerradosDetalle()" style="font-size:9px;padding:3px 8px;border-radius:10px;border:1px solid ' + (_jefeShowCerradosDetalle ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowCerradosDetalle ? 'rgba(61,126,255,.15)' : 'var(--bg4)') + ';color:' + (_jefeShowCerradosDetalle ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;white-space:nowrap">&#128065; ' + (_jefeShowCerradosDetalle ? 'Ocultar' : 'Ver') + ' detalle</button>' : '') +
+          '</div>' +
         '</div>' +
         '<div style="display:flex;gap:16px">' +
-          '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(semData.totalFact) + '</div><div style="font-size:10px;color:var(--tx3)">Total general</div></div>' +
-          '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(semData.totalMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+          '<div><div style="font-size:18px;font-weight:700;color:var(--gn)">' + fmtQ2(semCerradoData.totalFact) + '</div><div style="font-size:10px;color:var(--tx3)">Total general</div></div>' +
+          '<div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + fmtQ2(semCerradoData.totalMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
         '</div>' +
       '</div>' +
     '</div>';
 
     // Detalle de las ordenes que componen "Ya cerrado este mes" — toggle,
     // para no saturar la vista por defecto. Misma fuente exacta que los
-    // totales de arriba (semData.ordenes), asi que siempre cuadran.
-    if (_jefeShowCerradosDetalle && semData.countCerradas) {
+    // totales de arriba (semCerradoData.ordenes), asi que siempre cuadran,
+    // incluido el mes que se este navegando con las flechas.
+    if (_jefeShowCerradosDetalle && semCerradoData.countCerradas) {
       var fmtFechaSalida = function(ts) { return new Date(ts).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'}); };
       html += '<div style="overflow-x:auto;margin-bottom:1rem">' +
         '<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">' +
@@ -5299,8 +5320,8 @@ function buildRepContent() {
           '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Monto cotizado</th>' +
           '<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">% Aprobacion</th>' +
         '</tr></thead><tbody>';
-      for (var oci = 0; oci < semData.ordenes.length; oci++) {
-        var ocx = semData.ordenes[oci];
+      for (var oci = 0; oci < semCerradoData.ordenes.length; oci++) {
+        var ocx = semCerradoData.ordenes[oci];
         var ocRowBg = oci % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
         html += '<tr style="background:' + ocRowBg + '">' +
           '<td style="padding:6px 8px;font-family:var(--mo);font-weight:600;border-bottom:1px solid var(--bd)">' + esc(ocx.ot||'—') + '</td>' +
@@ -7986,9 +8007,19 @@ function buildCapacidadContent(nowTs) {
     rojo:      {bg:'var(--rdbg)', bd:'var(--rdbd)', tx:'var(--rd)', label:'&#128308; TALLER LLENO — reprogramar para manana'}
   };
   var sc = semInfo[d.semaforo];
+  // Tres estados posibles ademas del normal (bug real detectado 1 sep 2026,
+  // corregido el mismo dia): tallerCerradoHoy (domingo, jornada=0) y
+  // capacidadTotal===0 (todos ausentes) ya estaban cubiertos, pero faltaba
+  // el caso donde el taller SI abre hoy y hay tecnicos presentes
+  // (capacidadTotal > 0) pero ya no queda horario (horasRestantesHoy===0,
+  // ej. despues de las 5pm entre semana o despues de mediodia el sabado) —
+  // ahi pctUso queda en null (ver capacidadRestanteTotal arriba) y el
+  // .toFixed(0) de abajo tronaba con "Cannot read properties of null".
   var semMsg = d.tallerCerradoHoy
     ? '&#128308; TALLER CERRADO HOY'
-    : (d.capacidadTotal > 0 ? sc.label + ' (' + d.pctUso.toFixed(0) + '% usado)' : '&#128308; NINGUN TECNICO DISPONIBLE HOY');
+    : (d.capacidadTotal <= 0
+        ? '&#128308; NINGUN TECNICO DISPONIBLE HOY'
+        : (d.pctUso !== null ? sc.label + ' (' + d.pctUso.toFixed(0) + '% usado)' : '&#128308; YA NO QUEDA HORARIO HOY — reprogramar para manana'));
   html += '<div style="background:' + sc.bg + ';border:1px solid ' + sc.bd + ';border-radius:var(--r);padding:10px 14px;margin-bottom:12px;font-size:12px;font-weight:700;color:' + sc.tx + ';text-align:center">' +
     semMsg +
   '</div>';
@@ -9589,6 +9620,12 @@ function volverDeVerCerradasDeTec() {
 
 function repProdChangeMonth(delta) {
   _repProdMonthOffset = Math.max(0, _repProdMonthOffset + delta); // nunca hacia el futuro
+  buildRepContent();
+}
+
+function repCerradoChangeMonth(delta) {
+  if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) return;
+  _repCerradoMonthOffset = Math.max(0, _repCerradoMonthOffset + delta); // nunca hacia el futuro
   buildRepContent();
 }
 
