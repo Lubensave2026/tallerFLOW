@@ -2682,7 +2682,19 @@ function openDrw(id) {
     // montos en vivo despues — solo lo ADICIONAL cuenta en un cierre futuro.
     // El aviso de "congelada" (si aplica) se muestra SIEMPRE, este activa o
     // no, para que quede claro en la bitacora que ya no cuenta completo para
-    // este mes; el boton para marcarla solo aparece mientras sigue cerrada.
+    // este mes.
+    //
+    // El boton para marcarla YA NO se limita a "mientras sigue cerrada"
+    // (bug real reportado por Byron 1 sep 2026: cerro la orden 5333 con
+    // fecha retroactiva al 31 de agosto, no la congelo, la reabrio a Esp.
+    // repuesto porque en realidad faltaban repuestos — y el monto de agosto
+    // desaparecio del reporte sin ninguna forma de recuperarlo, porque el
+    // boton solo existia mientras phase==='cer'). Ahora tambien aparece con
+    // la orden YA reabierta, mientras exista un cierre previo
+    // (o.timestamps.cer) sin congelar — permite congelar RETROACTIVO ese
+    // cierre anterior aunque la orden ya no este en 'cer'. o.montoTotal/
+    // o.montoMO nunca se borran al reabrir (ver advance()), asi que el
+    // monto con que se cerro sigue disponible para congelarlo despues.
     if (role === 'jefe') {
       if (o.montoFacturadoTotal || o.montoFacturadoMO) {
         phaseLogHtml += '<div style="background:#2a1f3d;border:1px solid #8B5CF6;border-radius:var(--rs);padding:8px 10px;margin-top:8px">' +
@@ -2696,6 +2708,18 @@ function openDrw(id) {
       } else if (cierreEsActual) {
         phaseLogHtml += '<button id="btn-marcar-facturada" class="btn-s" style="width:100%;margin-top:8px;font-size:12px;padding:8px;border-color:#8B5CF6;color:#B794F6;background:#2a1f3d">&#128176; Marcar como Ya Facturada (congelar monto de este mes)</button>' +
           '<div style="font-size:9px;color:var(--tx3);margin-top:4px;padding:0 2px">Usalo si esta orden se cerro para cumplir el minimo del mes pero el trabajo real sigue. El monto actual queda contado en este mes aunque despues reabras la orden y la cierres de nuevo con otro monto.</div>';
+      } else {
+        // Orden YA reabierta y sin congelar: el monto de aquel cierre esta
+        // en riesgo (no cuenta en ningun mes hasta que se vuelva a cerrar).
+        // Fondo rojo (a diferencia del morado normal) para que se note que
+        // esto es una alerta, no el flujo esperado.
+        var cierrePerdidoMes = new Date(o.timestamps.cer).toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+        phaseLogHtml += '<div style="background:var(--rdbg);border:1px solid var(--rdbd);border-radius:var(--rs);padding:8px 10px;margin-top:8px">' +
+          '<div style="font-size:10px;color:var(--rd);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">&#9888; Se reabrio sin congelar el cierre de ' + cierrePerdidoMes + '</div>' +
+          '<div style="font-size:11px;color:var(--tx2);margin-bottom:6px">El monto de aquel cierre (Q.' + Number(o.montoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ') no esta contando en ningun mes ahora mismo.</div>' +
+          '<button id="btn-marcar-facturada" class="btn-s" style="width:100%;font-size:12px;padding:8px;border-color:#8B5CF6;color:#B794F6;background:#2a1f3d">&#128176; Congelar retroactivo a ' + cierrePerdidoMes + '</button>' +
+          '<div style="font-size:9px;color:var(--tx3);margin-top:4px;padding:0 2px">Revisa antes que no le hayas agregado nada nuevo desde que se reabrio — se va a congelar el monto ACTUAL como si fuera el de aquel cierre.</div>' +
+        '</div>';
       }
     }
   }
@@ -3846,7 +3870,14 @@ function openDrw(id) {
       // corresponde el cierre, aunque se marque dias despues.
       var facTs = (ox.timestamps && ox.timestamps.cer) ? ox.timestamps.cer : Date.now();
       var facMesLabel = new Date(facTs).toLocaleDateString('es-GT', {month:'long', year:'numeric'});
-      if (!confirm('Se congelara el monto actual (Q.' + Number(ox.montoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ') como facturado de ' + facMesLabel + ' (el mes de su fecha de cierre). Si despues reabres la orden y la cierras de nuevo, solo se contara lo ADICIONAL. Continuar?')) return;
+      // Confirmacion distinta si la orden ya se reabrio (congelado
+      // retroactivo, ver render arriba): advierte que el monto ACTUAL
+      // podria ya incluir cosas agregadas DESPUES de reabrir, cosa que no
+      // aplica cuando se congela mientras todavia sigue cerrada.
+      var confirmMsg = (ox.phase === 'cer')
+        ? ('Se congelara el monto actual (Q.' + Number(ox.montoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ') como facturado de ' + facMesLabel + ' (el mes de su fecha de cierre). Si despues reabres la orden y la cierras de nuevo, solo se contara lo ADICIONAL. Continuar?')
+        : ('Esta orden ya esta reabierta. Se congelara el monto ACTUAL (Q.' + Number(ox.montoTotal||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ') como si fuera el de su cierre en ' + facMesLabel + '. Asegurate de no haberle agregado nada nuevo desde que se reabrio, o eso tambien quedaria contado en ' + facMesLabel + ' en vez del mes en que realmente se agrego. Continuar?');
+      if (!confirm(confirmMsg)) return;
       ox.montoFacturadoTotal = ox.montoTotal || 0;
       ox.montoFacturadoMO = ox.montoMO || 0;
       ox.montoFacturadoTs = facTs;
