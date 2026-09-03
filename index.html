@@ -5459,6 +5459,7 @@ function buildRepContent() {
       '<span style="font-size:12px;font-weight:700;color:var(--ac);background:var(--bg3);border:1px solid var(--bd);border-radius:20px;padding:6px 12px">&#128193; Cerradas de ' + esc(tecActivo) + '</span>' +
       '<button onclick="volverDeVerCerradasDeTec()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#9664; Volver a ordenes activas</button>' +
       '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
+      '<button onclick="exportTodosTecnicosCerradosCSV()" title="Un solo archivo con las cerradas de TODOS los tecnicos de este mes (2 filas si la orden tuvo 2 tecnicos), para filtrar despues en Excel en vez de exportar uno por uno" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar TODOS los tecnicos</button>' +
       '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
     '</div>';
   } else {
@@ -5499,7 +5500,8 @@ function buildRepContent() {
       // Proceso/Pagadas/% Productividad) queda reservado a su usuario —
       // confirmado por Byron 30 ago 2026. Asesor y Partes no ven este boton.
       : (role === 'jefe'
-        ? '<button onclick="verCerradasDeTecnico()" title="Elige un tecnico en el filtro de arriba y toca aqui" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128193; Ver cerradas de un tecnico</button>'
+        ? '<button onclick="verCerradasDeTecnico()" title="Elige un tecnico en el filtro de arriba y toca aqui" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128193; Ver cerradas de un tecnico</button>' +
+          '<button onclick="exportTodosTecnicosCerradosCSV()" title="Un solo archivo con las cerradas de TODOS los tecnicos de este mes (2 filas si la orden tuvo 2 tecnicos), para filtrar despues en Excel en vez de exportar uno por uno" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar TODOS los tecnicos</button>'
         : '')) +
     '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
     '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
@@ -9662,6 +9664,79 @@ function verCerradasDeTecnico() {
 function volverDeVerCerradasDeTec() {
   _jefeVerCerradasDeTec = '';
   buildRepContent();
+}
+
+// Exporta, en UN SOLO archivo, las ordenes cerradas del mes que se este
+// viendo (mismo mes que las flechas de "cerradas"/_repProdMonthOffset)
+// para LOS 6 TECNICOS a la vez — pedido de Byron 2 sep 2026: antes tenia
+// que usar "Ver cerradas de un tecnico" y exportar uno por uno (6 veces)
+// para despues filtrar el dato de cada quien. Deliberadamente NO toca
+// buildRepContent, _jefeVerCerradasDeTec, _repExportHeader/_repExportRows
+// ni exportRepGeneralCSV() — es una funcion aparte, de solo lectura, que
+// arma su propio archivo desde cero repitiendo (por cada tecnico del
+// roster fijo) el MISMO criterio de filtro y el MISMO calculo por tecnico
+// (calcTecHoras) que ya usa esa vista individual en pantalla, para no
+// arriesgar nada de lo que ya funciona ahi.
+//
+// Una orden con 2 tecnicos aparece 2 VECES en el archivo — una fila por
+// tecnico, cada una con la parte de horas (Hrs. En Proceso/Pagadas/%) que
+// le corresponde a ESE tecnico — confirmado con Byron: es la unica forma
+// de que el dato de cada quien salga correcto al filtrar despues por la
+// columna "Tecnico" en Excel, aunque signifique el mismo No. de OR
+// repetido en 2 filas.
+function exportTodosTecnicosCerradosCSV() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar esto'); return; }
+  var prodTargetDate = new Date(new Date().getFullYear(), new Date().getMonth() - _repProdMonthOffset, 1);
+  var curYc = prodTargetDate.getFullYear(), curMc = prodTargetDate.getMonth();
+  var monthLabel = prodTargetDate.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+
+  var rows = [['Tecnico','OR #','Ingreso','Estatus','Cliente','Vehiculo','No.','Placa','Hrs. En Proceso','Hrs. Pagadas','% Productividad','Fact. potencial','Ya facturada']];
+
+  for (var ti = 0; ti < TEC_NAMES.length; ti++) {
+    var tecName = TEC_NAMES[ti];
+    // Mismo criterio EXACTO que la rama vistaCerradas de buildRepContent
+    // (busca "PARTE 5" de test_export_todos_tecnicos.js si hace falta
+    // revisar la fuente): orden cerrada AHORA MISMO (phase==='cer'), y el
+    // evento que la ubica en este mes es o bien el congelamiento "Ya
+    // facturada" de ESTE tecnico si su fecha cae en el mes, o si no, la
+    // fecha de cierre real de la orden.
+    var seenIds = {};
+    var ordenesTec = orders.concat(archived || []).filter(function(o) {
+      if (seenIds[o.id]) return false;
+      seenIds[o.id] = true;
+      if (!((o.tech === tecName || o.tech2 === tecName) && o.phase === 'cer')) return false;
+      var closeTs = o.timestamps && o.timestamps.cer;
+      if (!closeTs) return false;
+      var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
+      if (frozenHoras) {
+        var fd = new Date(o.horasFacturadoSnapshot.ts);
+        if (fd.getFullYear() === curYc && fd.getMonth() === curMc) return true;
+      }
+      var cd = new Date(closeTs);
+      return cd.getFullYear() === curYc && cd.getMonth() === curMc;
+    }).sort(function(a,b) { return (parseInt(b.ot||0)||0) - (parseInt(a.ot||0)||0); });
+
+    for (var oi = 0; oi < ordenesTec.length; oi++) {
+      var o = ordenesTec[oi];
+      var pc = PHASE_COLORS[o.phase] || {label: o.phase};
+      var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT', {day:'2-digit', month:'2-digit', year:'numeric'}) : '';
+      var tecHoras = calcTecHoras(o, tecName);
+      var pctTec = tecHoras.real > 0 ? Math.round(tecHoras.flat / tecHoras.real * 100) : null;
+      rows.push([
+        tecName, o.ot || '', fecha, pc.label || o.phase, o.client || '', o.model || '',
+        o.numFisico || '', o.plate || '',
+        _csvNum(tecHoras.real.toFixed(2)), _csvNum(tecHoras.flat.toFixed(2)),
+        pctTec !== null ? pctTec + '%' : '',
+        o.montoTotal ? _csvNum(Number(o.montoTotal).toFixed(2)) : '',
+        o.montoFacturadoTotal ? 'Si' : ''
+      ]);
+    }
+  }
+
+  if (rows.length <= 1) { toast('Ningun tecnico tiene ordenes cerradas en ' + monthLabel); return; }
+  var csv = rows.map(function(rr) { return rr.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
+  _downloadCSV(csv, 'tallerflow_cerradas_todos_los_tecnicos_' + monthLabel.replace(/ /g, '_') + '_' + _todayKey() + '.csv');
+  toast('Exportado: ' + (rows.length - 1) + ' fila(s) — ' + monthLabel);
 }
 
 function repProdChangeMonth(delta) {
