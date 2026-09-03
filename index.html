@@ -7525,9 +7525,22 @@ function openExportPicker() {
         '<span style="font-size:22px">&#128203;</span>' +
         '<div><div style="font-size:14px;font-weight:600">Bitacora</div><div style="font-size:11px;color:var(--tx3)">Una fila por orden cerrada, con tiempos por fase</div></div>' +
       '</div>' +
-      '<div id="exp-pick-reprocesos" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);cursor:pointer">' +
+      '<div id="exp-pick-reprocesos" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
         '<span style="font-size:22px">&#9851;</span>' +
         '<div><div style="font-size:14px;font-weight:600">Reprocesos</div><div style="font-size:11px;color:var(--tx3)">Una fila por reproceso, con causa y fecha</div></div>' +
+      '</div>' +
+      // Repuestos/Bodega: pedido de Byron 2 sep 2026, para empezar a llevar
+      // un conteo de que se pide mas seguido (filtros, candelas, etc.)
+      // mientras se define bodega virtual. Se metieron AQUI, en vez de como
+      // botones nuevos en la pantalla principal, a proposito — mismo punto
+      // de entrada que ya existia.
+      '<div id="exp-pick-repuestos" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
+        '<span style="font-size:22px">&#128295;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">Repuestos pedidos</div><div style="font-size:11px;color:var(--tx3)">Una fila por cada repuesto/subcontrato pedido, con el No. de OT</div></div>' +
+      '</div>' +
+      '<div id="exp-pick-bodega" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);cursor:pointer">' +
+        '<span style="font-size:22px">&#128230;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">Materiales de bodega</div><div style="font-size:11px;color:var(--tx3)">Una fila por cada material despachado, con cantidad y No. de OT</div></div>' +
       '</div>' +
     '</div>';
   document.getElementById('m-export-pick').classList.add('on');
@@ -7538,6 +7551,14 @@ function openExportPicker() {
   document.getElementById('exp-pick-reprocesos').addEventListener('click', function() {
     closeExportPicker();
     exportReprocesosCSV();
+  });
+  document.getElementById('exp-pick-repuestos').addEventListener('click', function() {
+    closeExportPicker();
+    exportRepuestosSolicitadosCSV();
+  });
+  document.getElementById('exp-pick-bodega').addEventListener('click', function() {
+    closeExportPicker();
+    exportMaterialesBodegaCSV();
   });
 }
 function closeExportPicker() {
@@ -7598,6 +7619,165 @@ function exportReprocesosCSV() {
       finish(orders.concat(histArr));
     }).catch(function(e) {
       console.log('Error al leer historial para exportar reprocesos:', e);
+      toast('No se pudo leer el historial completo — exportando solo lo activo');
+      finish(orders.slice());
+    });
+  } else {
+    finish(orders.concat(archived || []));
+  }
+}
+
+// Quita mayusculas/minusculas, espacios de mas y acentos, para que
+// "Filtro de aire", "filtro aire" y "Filtro de Aire" cuenten como LA MISMA
+// cosa al agrupar en una tabla dinamica de Excel. NO adivina sinonimos
+// distintos (ej. "candela" vs "bujia" siguen siendo cosas separadas) — solo
+// junta variaciones obvias de escritura de lo mismo. Se deja la
+// descripcion ORIGINAL en su propia columna tambien, para poder revisar
+// contra que quedo agrupado cada renglon.
+function _normalizarDescParaConteo(s) {
+  var t = (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+  // Rango de marcas diacriticas combinantes (acentos) construido con
+  // codigos de caracter en vez de escribirlo literal en el regex — evita
+  // dejar caracteres Unicode "invisibles" sueltos en el codigo fuente.
+  try {
+    var diacriticos = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
+    t = t.normalize('NFD').replace(diacriticos, '');
+  } catch (e) {}
+  return t;
+}
+
+// Listado de repuestos y materiales pedidos/despachados (pedido de Byron 2
+// sep 2026: llevar un conteo de que se pide mas seguido — filtros,
+// candelas, etc. — para ir armando el historial mientras se define bodega
+// virtual). Deliberadamente NO agrega ningun boton nuevo a la pantalla
+// principal (ver conversacion con Byron sobre no seguir saturando de
+// botones) — se metio como 2 opciones mas dentro del mismo selector que ya
+// existe para "Exportar bitacora (CSV)" (ver openExportPicker), asi que el
+// unico punto de entrada sigue siendo el boton que ya estaba.
+//
+// Es UNA FILA POR CADA repuesto/material pedido (no por orden), con el No.
+// de OT en cada fila para poder rastrear cualquier renglon hasta su caso
+// exacto (pedido explicito de Byron). Deliberadamente NO se agrupa/suma
+// aqui — el plan es exportar en crudo y que Byron arme la tabla dinamica en
+// Excel el mismo (asi lo pidio) — se agrega si acaso una columna de
+// descripcion NORMALIZADA (ver arriba) para que agrupar en Excel salga mas
+// limpio, sin tocar la columna original.
+function _buildRepuestosSolicitadosCSV(allOrders) {
+  var fmtDateTime = function(ts) {
+    return new Date(ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  };
+  var header = ['OT','Fecha','Placa','Vehiculo','Cliente','Tecnico','Descripcion','Descripcion_agrupada','Mensajero','Partes','Instalado','De_Plantilla','Agregado_por'];
+  var allRows = [];
+  for (var i = 0; i < allOrders.length; i++) {
+    var o = allOrders[i];
+    var reps = o.repuestos || [];
+    for (var j = 0; j < reps.length; j++) {
+      var rp = reps[j];
+      allRows.push({
+        ot: o.ot, ts: rp.ts || o.cat || 0, plate: o.plate, model: o.model, client: o.client,
+        tech: (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : ''),
+        desc: rp.desc || '', descNorm: _normalizarDescParaConteo(rp.desc),
+        ck1: rp.ck1 ? 'Si' : '', ck2: rp.ck2 ? 'Si' : '', ck3: rp.ck3 ? 'Si' : '',
+        dePlantilla: rp.desdeServicioPlantilla ? 'Si' : '', by: rp.by || ''
+      });
+    }
+  }
+  allRows.sort(function(a, b) {
+    var otDiff = (parseInt(a.ot, 10) || 0) - (parseInt(b.ot, 10) || 0);
+    if (otDiff !== 0) return otDiff;
+    return a.ts - b.ts;
+  });
+  var rows = [header];
+  for (var k = 0; k < allRows.length; k++) {
+    var r = allRows[k];
+    rows.push([r.ot, r.ts ? fmtDateTime(r.ts) : '', r.plate, r.model, r.client, r.tech, r.desc, r.descNorm, r.ck1, r.ck2, r.ck3, r.dePlantilla, r.by]);
+  }
+  rows.push(['Total de repuestos pedidos: ' + allRows.length, '', '', '', '', '', '', '', '', '', '', '', '']);
+  return rows.map(function(rr) { return rr.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
+}
+function exportRepuestosSolicitadosCSV() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar'); return; }
+  var finish = function(allOrders) {
+    var total = 0;
+    for (var i = 0; i < allOrders.length; i++) { total += (allOrders[i].repuestos || []).length; }
+    if (!total) { toast('No hay repuestos pedidos todavia'); return; }
+    var csv = _buildRepuestosSolicitadosCSV(allOrders);
+    _downloadCSV(csv, 'tallerflow_repuestos_pedidos_' + _todayKey() + '.csv');
+    toast('Exportado: ' + total + ' repuesto(s) pedido(s)');
+  };
+  if (fbReady && db) {
+    toast('Preparando exportacion...');
+    db.ref('taller/historial').once('value').then(function(snap) {
+      var data = snap.val() || {};
+      var histArr = Object.keys(data).map(function(k) { return data[k]; }).filter(Boolean);
+      finish(orders.concat(histArr));
+    }).catch(function(e) {
+      console.log('Error al leer historial para exportar repuestos:', e);
+      toast('No se pudo leer el historial completo — exportando solo lo activo');
+      finish(orders.slice());
+    });
+  } else {
+    finish(orders.concat(archived || []));
+  }
+}
+
+// Mismo criterio que _buildRepuestosSolicitadosCSV, pero para Despacho
+// Bodega (o.bodega[]) — se exportan por separado porque miden cosas
+// distintas: repuestos se piden a proveedor, bodega ya esta en el taller
+// (materiales/consumibles). Bodega SI tiene cantidad como dato propio
+// (repuestos no — ahi "cuantas veces se pidio" ES el conteo).
+function _buildMaterialesBodegaCSV(allOrders) {
+  var fmtDateTime = function(ts) {
+    return new Date(ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  };
+  var header = ['OT','Fecha','Placa','Vehiculo','Cliente','Tecnico','Descripcion','Descripcion_agrupada','Cantidad','Especificacion','Vo_Bo','Despachado','De_Plantilla','Agregado_por'];
+  var allRows = [];
+  for (var i = 0; i < allOrders.length; i++) {
+    var o = allOrders[i];
+    var mats = o.bodega || [];
+    for (var j = 0; j < mats.length; j++) {
+      var bd = mats[j];
+      allRows.push({
+        ot: o.ot, ts: bd.ts || o.cat || 0, plate: o.plate, model: o.model, client: o.client,
+        tech: (o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + o.tech2 : ''),
+        desc: bd.desc || '', descNorm: _normalizarDescParaConteo(bd.desc),
+        cantidad: bd.cantidad || '', especif: bd.especificacion || '',
+        vobo: bd.vobo ? 'Si' : '', despachado: bd.despachado ? 'Si' : '',
+        dePlantilla: bd.desdeServicioPlantilla ? 'Si' : '', by: bd.by || ''
+      });
+    }
+  }
+  allRows.sort(function(a, b) {
+    var otDiff = (parseInt(a.ot, 10) || 0) - (parseInt(b.ot, 10) || 0);
+    if (otDiff !== 0) return otDiff;
+    return a.ts - b.ts;
+  });
+  var rows = [header];
+  for (var k = 0; k < allRows.length; k++) {
+    var r = allRows[k];
+    rows.push([r.ot, r.ts ? fmtDateTime(r.ts) : '', r.plate, r.model, r.client, r.tech, r.desc, r.descNorm, r.cantidad, r.especif, r.vobo, r.despachado, r.dePlantilla, r.by]);
+  }
+  rows.push(['Total de materiales de bodega: ' + allRows.length, '', '', '', '', '', '', '', '', '', '', '', '', '']);
+  return rows.map(function(rr) { return rr.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
+}
+function exportMaterialesBodegaCSV() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar'); return; }
+  var finish = function(allOrders) {
+    var total = 0;
+    for (var i = 0; i < allOrders.length; i++) { total += (allOrders[i].bodega || []).length; }
+    if (!total) { toast('No hay materiales de bodega registrados todavia'); return; }
+    var csv = _buildMaterialesBodegaCSV(allOrders);
+    _downloadCSV(csv, 'tallerflow_materiales_bodega_' + _todayKey() + '.csv');
+    toast('Exportado: ' + total + ' material(es) de bodega');
+  };
+  if (fbReady && db) {
+    toast('Preparando exportacion...');
+    db.ref('taller/historial').once('value').then(function(snap) {
+      var data = snap.val() || {};
+      var histArr = Object.keys(data).map(function(k) { return data[k]; }).filter(Boolean);
+      finish(orders.concat(histArr));
+    }).catch(function(e) {
+      console.log('Error al leer historial para exportar materiales de bodega:', e);
       toast('No se pudo leer el historial completo — exportando solo lo activo');
       finish(orders.slice());
     });
