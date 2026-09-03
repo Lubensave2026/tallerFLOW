@@ -404,7 +404,7 @@ button{cursor:pointer}
       <button class="lg-btn" onclick="goPin('tec_henry')"><span class="ico">🔩</span>Henry<span class="sub">Barillas</span></button>
       <button class="lg-btn" onclick="goPin('tec_gabriel')"><span class="ico">🔩</span>Gabriel<span class="sub">Rodas</span></button>
       <button class="lg-btn" onclick="goPin('tec_pablo')"><span class="ico">🔩</span>Pablo<span class="sub">Jolon</span></button>
-      <button class="lg-btn" onclick="goPin('tec_luisc')"><span class="ico">🔩</span>Luis<span class="sub">Caceres</span></button>
+      <button class="lg-btn" onclick="goPin('tec_luisc')"><span class="ico">🔩</span>Wilmer<span class="sub">Mecanica</span></button>
     </div>
   </div>
   <div style="font-size:11px;color:var(--tx3);text-align:center;max-width:320px">Cada colaborador ingresa con su PIN personal</div>
@@ -1053,7 +1053,11 @@ var PINS = {
   jefe:'225181514', asesor:'1893118', partes:'13118915',
   lavador:'23912135', mensajero:'23912129',
   tec_gerson:'75181915', tec_dany:'411425', tec_henry:'85141825',
-  tec_gabriel:'712189', tec_pablo:'16121215', tec_luisc:'1221919'
+  // tec_luisc: usuario reasignado de Luis Caceres (transferido a Aguilar
+  // Batres) a Wilmer, 2 sep 2026 — mismo PIN que ya usa como Lavador, para
+  // que solo tenga que recordar un numero aunque tenga 2 usuarios distintos
+  // (Lavador para lavado, este para mecanica).
+  tec_gabriel:'712189', tec_pablo:'16121215', tec_luisc:'23912135'
 };
 
 var ROLES = {
@@ -1067,7 +1071,15 @@ var ROLES = {
   tec_henry:  {label:'Henry Barillas',           ico:'🔩',  tec:true,  tn:'Henry Barillas',lanes:['aa','ab','prb','er']},
   tec_gabriel:{label:'Gabriel Rodas',            ico:'🔩',  tec:true,  tn:'Gabriel Rodas', lanes:['aa','ab','prb','er']},
   tec_pablo:  {label:'Pablo Jolon',              ico:'🔩',  tec:true,  tn:'Pablo Jolon',   lanes:['aa','ab','prb','er']},
-  tec_luisc:  {label:'Luis Caceres',             ico:'🔩',  tec:true,  tn:'Luis Caceres',  lanes:['aa','ab','prb','er']}
+  // tec_luisc: renombrado de Luis Caceres (transferido a Aguilar Batres, ya
+  // sin ordenes activas aqui) a Wilmer — pedido de Byron 2 sep 2026: Wilmer
+  // ahora tiene 2 usuarios separados, "lavador" (como siempre, ve TODOS los
+  // carros en Lavado) y este (tecnico completo, solo ve lo que se le
+  // asigne) — entra a uno u otro segun este lavando o haciendo mecanica.
+  // Se conserva la LLAVE del rol (tec_luisc) tal cual para no tener que
+  // tocar getSigId() ni nada mas que dependa de ese identificador interno
+  // — solo cambia lo que se ve (label/tn).
+  tec_luisc:  {label:'Wilmer',                   ico:'🔩',  tec:true,  tn:'Wilmer',        lanes:['aa','ab','prb','er']}
 };
 
 // Numeros de WhatsApp para recordatorios de firmas pendientes. Formato con
@@ -1077,7 +1089,10 @@ var ROLES = {
 var WA_PHONES = {
   jefe:'', asesor:'50254137857', partes:'', mensajero:'50248428251', lavador:'50246925588',
   'Gerson Rodas':'50255542764', 'Dany Acalon':'50236557803', 'Henry Barillas':'50250275414',
-  'Gabriel Rodas':'50252140683', 'Pablo Jolon':'50255996949', 'Luis Caceres':'50230622657'
+  // 'Wilmer' aqui es su lado tecnico (o.tech='Wilmer') — mismo numero que
+  // ya tiene arriba como 'lavador', se repite porque este mapa busca por
+  // NOMBRE de tecnico, no por rol.
+  'Gabriel Rodas':'50252140683', 'Pablo Jolon':'50255996949', 'Wilmer':'50246925588'
 };
 var WA_FIRST_NAMES = {
   jefe:'Byron', asesor:'Ricardo', partes:'Mario', mensajero:'William', lavador:'Wilmer'
@@ -1130,7 +1145,7 @@ var LANES = [
 // lugares (asignacion en la ficha, panel Editar, Nueva Orden, filtro del
 // tablero y filtro del reporte), asi que agregar o quitar a alguien obligaba
 // a acordarse de los 5.
-var TEC_NAMES = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Luis Caceres'];
+var TEC_NAMES = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Wilmer'];
 
 // A quien se le puede ASIGNAR una orden. Ademas de los tecnicos incluye
 // "T. Externo", para las ordenes que no trabaja nadie de la casa sino un
@@ -1448,7 +1463,7 @@ function seed() {
     {id:1,plate:'P-456BCD',model:'Audi A1 2018',client:'Mario Lopez',tech:'Henry Barillas',ot:'OT-4315',phase:'prb',prio:'urgente',loc:'AGUILARB',space:'3',sigs:{jefe:true},desc:'Reparacion DSG',msgs:[{who:'Byron',txt:'En prueba de ruta',ts:Date.now()-3600000}],cat:Date.now()-86400000},
     {id:2,plate:'Q-123ZZZ',model:'Toyota Hilux 2020',client:'Ana Garcia',tech:'Gerson Rodas',ot:'OT-4320',phase:'ab',prio:'normal',loc:'AGUILARB',space:'1',sigs:{tecnico:true},desc:'Servicio 10,000 km',msgs:[{who:'Ricardo',txt:'Llave entregada',ts:Date.now()-7200000}],cat:Date.now()-43200000},
     {id:3,plate:'O-789MMM',model:'Hyundai Tucson 2022',client:'Carlos Rivas',tech:'Dany Acalon',ot:'OT-4318',phase:'lav',prio:'normal',loc:'FRAIJNES',space:'2',sigs:{},desc:'Frenos completos',msgs:[{who:'Byron',txt:'Prueba ok',ts:Date.now()-900000}],cat:Date.now()-54000000},
-    {id:4,plate:'P-555QQQ',model:'Nissan Frontier 2019',client:'Roberto Diaz',tech:'Luis Caceres',ot:'OT-4322',phase:'er',prio:'urgente',loc:'AGUILARB',space:'5',sigs:{},desc:'Cambio de clutch',msgs:[{who:'Mario',txt:'Disco en pedido',ts:Date.now()-5400000}],cat:Date.now()-108000000},
+    {id:4,plate:'P-555QQQ',model:'Nissan Frontier 2019',client:'Roberto Diaz',tech:'Wilmer',ot:'OT-4322',phase:'er',prio:'urgente',loc:'AGUILARB',space:'5',sigs:{},desc:'Cambio de clutch',msgs:[{who:'Mario',txt:'Disco en pedido',ts:Date.now()-5400000}],cat:Date.now()-108000000},
     {id:5,plate:'S-321PPP',model:'Honda CR-V 2021',client:'Sofia Perez',tech:'Pablo Jolon',ot:'OT-4325',phase:'rec',prio:'normal',loc:'Z10',space:'',sigs:{},desc:'Ruido suspension',msgs:[],cat:Date.now()-3600000},
     {id:6,plate:'M-777GGG',model:'VW Tiguan 2020',client:'Eduardo Mendez',tech:'Gabriel Rodas',ot:'OT-4328',phase:'pa',prio:'normal',loc:'AGUILARB',space:'4',sigs:{},desc:'Cotizacion direccion hidraulica',msgs:[{who:'Gabriel Rodas',txt:'Requiere cotizacion cremallera',ts:Date.now()-10800000}],cat:Date.now()-172800000}
   ];
@@ -2078,6 +2093,51 @@ function quitarPlantillaServicio(id) {
   openDrw(id);
 }
 
+// Marca o.tipoServicioSolicitado en una orden que YA esta abierta (caso
+// real de Byron, 2 sep 2026: el cliente pide un Servicio ADEMAS de lo que
+// ya se habia registrado al abrir la orden — ej. entro por ruido de frenos
+// y luego pide tambien Servicio menor). Antes esto SOLO se podia marcar al
+// crear la orden (addDescPreset, "Nueva Orden") — sin esto, la Plantilla de
+// servicio (aplicarPlantillaServicio) nunca se desbloqueaba para una orden
+// que ya estaba abierta, aunque el cliente si estuviera pidiendo un
+// Servicio de verdad. Mismo texto/mapeo que _PRESET_A_TIPO_SERVICIO, solo
+// que aplicado retroactivo a una orden existente en vez de al formulario de
+// creacion. Jefe/Asesor unicamente (mismos roles que pueden editar
+// "Trabajos solicitados por el cliente", ver canEditDesc en openDrw).
+var _SERVICIO_RETRO_LABEL = {
+  servicioMenor: 'Servicio menor',
+  servicioIntermedio: 'Servicio intermedio',
+  servicioMayor: 'Servicio mayor',
+};
+function agregarServicioSolicitadoRetro(id, nivel) {
+  if (!(role === 'jefe' || role === 'asesor')) { toast('Solo el Asesor de servicio o el Jefe de taller pueden marcar esto'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  // Ya marcado (por aqui o desde la apertura de la orden) — no se puede
+  // volver a tocar desde este boton, para no pisar un nivel ya elegido sin
+  // querer. Corregir el nivel se hace desde la Plantilla de servicio (esa
+  // si permite cambiar de nivel por diferencia, con confirmacion).
+  if (o.tipoServicioSolicitado) { toast('Esta orden ya tiene un Servicio en la solicitud del cliente'); return; }
+  var txtPreset = _SERVICIO_RETRO_LABEL[nivel];
+  if (!txtPreset) return;
+  if (!confirm('¿El cliente tambien esta pidiendo "' + txtPreset + '"?\n\nSe va a agregar a "Trabajos solicitados por el cliente" y el tecnico va a poder usar la Plantilla de servicio en esta orden.')) return;
+  o.tipoServicioSolicitado = nivel;
+  var current = (o.desc || '').trim();
+  if (!current) {
+    o.desc = txtPreset;
+  } else {
+    var parts = current.split(/,\s*/);
+    if (parts.indexOf(txtPreset) === -1) o.desc = current + ', ' + txtPreset;
+  }
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#128172; Se agrego "' + txtPreset + '" a la solicitud del cliente (orden ya abierta) — ya se puede usar la Plantilla de servicio', ts:Date.now(), type:'system'});
+  save();
+  toast('Agregado: ' + txtPreset);
+  openDrw(id);
+}
+
 function openDrw(id) {
   var confirmBadge = '';
   var o = null;
@@ -2394,6 +2454,28 @@ function openDrw(id) {
     // para marcar "aqui se escribe") por uno neutro, para no sugerirle a
     // quien no puede editar que si puede.
     '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')"' + (canEditDesc ? '' : ' style="border:1px solid var(--bd);background:var(--bg3);opacity:.75;cursor:default" readonly') + '>' + esc(o.desc) + '</textarea>' +
+    // El cliente puede pedir un Servicio DESPUES de que la orden ya se abrio
+    // (caso real de Byron, 2 sep 2026: orden abierta por otro motivo — ej.
+    // ruido de frenos — y el cliente aprovecha para pedir tambien un
+    // Servicio). o.tipoServicioSolicitado antes SOLO se podia fijar al
+    // crear la orden (botones "Servicio menor/intermedio/mayor" de Nueva
+    // Orden, ver addDescPreset) — sin esto, la Plantilla de servicio
+    // (seccion 03 mas abajo) nunca se desbloqueaba para esa orden aunque el
+    // cliente si estuviera pidiendo un Servicio. Mismos 3 niveles, mismo
+    // texto que se agrega a la solicitud, solo que retroactivo — una vez
+    // marcado no se puede volver a tocar desde aqui (evita marcarlo dos
+    // veces); para CAMBIAR de nivel despues de marcado, usar los botones de
+    // la Plantilla de servicio (esos si permiten corregir por diferencia).
+    (canEditDesc && !o.tipoServicioSolicitado
+      ? '<div style="font-size:10px;color:var(--tx3);margin-top:8px;margin-bottom:4px">&#128172; Si el cliente tambien pide un Servicio (aunque la orden ya este abierta por otro motivo):</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<button type="button" onclick="agregarServicioSolicitadoRetro(' + id + ',\'servicioMenor\')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#10133; Servicio menor</button>' +
+          '<button type="button" onclick="agregarServicioSolicitadoRetro(' + id + ',\'servicioIntermedio\')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#10133; Servicio intermedio</button>' +
+          '<button type="button" onclick="agregarServicioSolicitadoRetro(' + id + ',\'servicioMayor\')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#10133; Servicio mayor</button>' +
+        '</div>'
+      : (canEditDesc && o.tipoServicioSolicitado
+          ? '<div style="font-size:10px;color:var(--gn);margin-top:8px">&#10003; Servicio ya en la solicitud — el tecnico puede usar la Plantilla de servicio (seccion de Repuestos, mas abajo).</div>'
+          : '')) +
   '</div>';
 
   // Seccion 01) INFORMACION lista — todo lo de arriba (edicion, datos,
@@ -5723,7 +5805,7 @@ function buildRepContent() {
       {label:'Henry Barillas', sigId:'tecnico', tn:'Henry Barillas'},
       {label:'Gabriel Rodas', sigId:'tecnico', tn:'Gabriel Rodas'},
       {label:'Pablo Jolon', sigId:'tecnico', tn:'Pablo Jolon'},
-      {label:'Luis Caceres', sigId:'tecnico', tn:'Luis Caceres'}
+      {label:'Wilmer (mecanica)', sigId:'tecnico', tn:'Wilmer'}
     ];
     var sigsSummaryHtml = '';
     for (var rsi = 0; rsi < rolesSigs.length; rsi++) {
