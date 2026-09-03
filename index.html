@@ -5596,9 +5596,16 @@ function buildRepContent() {
   // vistazo: casos ya cerrados (negro/amarillo) y casos en proceso
   // (amarillo/negro), para monitorear el desempeno global de cada uno.
   if (role === 'jefe' && _jefeShowProdTecnicos) {
+    // "Casos ya cerrados" ahora se AMARRA al mismo mes que se este
+    // consultando con las flechas de "Ya cerrado este mes"
+    // (_repCerradoMonthOffset) — pedido de Byron 3 sep 2026: al retroceder
+    // esa tarjeta a un mes anterior, esta tabla se quedaba mostrando el mes
+    // en curso, desamarrada de lo que se estaba viendo. semCerradoData ya
+    // se calculo mas arriba (misma variable que usa esa tarjeta), asi que
+    // el titulo aqui siempre coincide exacto con lo que dice arriba.
     html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:12px;margin-bottom:1rem">' +
       '<div style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:10px">&#128101; Productividad por tecnico</div>' +
-      _buildTecProdTable('cerradas', '#000000', '#FFD700', '&#128309; Casos ya cerrados (mes en curso: ' + new Date().toLocaleDateString('es-GT', {month:'long', year:'numeric'}) + ')') +
+      _buildTecProdTable('cerradas', '#000000', '#FFD700', '&#128309; Casos ya cerrados (' + (semCerradoData.isCurrentMonth ? 'mes en curso: ' + monthLabelCerrado : monthLabelCerrado) + ')', _repCerradoMonthOffset) +
       _buildTecProdTable('activas', '#FFD700', '#000000', '&#9898; Casos en proceso') +
     '</div>';
   }
@@ -9882,16 +9889,28 @@ function volverDeVerCerradasDeTec() {
 }
 
 // Exporta, en UN SOLO archivo, las ordenes cerradas del mes que se este
-// viendo (mismo mes que las flechas de "cerradas"/_repProdMonthOffset)
-// para LOS 6 TECNICOS a la vez — pedido de Byron 2 sep 2026: antes tenia
-// que usar "Ver cerradas de un tecnico" y exportar uno por uno (6 veces)
-// para despues filtrar el dato de cada quien. Deliberadamente NO toca
-// buildRepContent, _jefeVerCerradasDeTec, _repExportHeader/_repExportRows
-// ni exportRepGeneralCSV() — es una funcion aparte, de solo lectura, que
-// arma su propio archivo desde cero repitiendo (por cada tecnico del
-// roster fijo) el MISMO criterio de filtro y el MISMO calculo por tecnico
-// (calcTecHoras) que ya usa esa vista individual en pantalla, para no
-// arriesgar nada de lo que ya funciona ahi.
+// viendo para LOS 6 TECNICOS a la vez — pedido de Byron 2 sep 2026: antes
+// tenia que usar "Ver cerradas de un tecnico" y exportar uno por uno (6
+// veces) para despues filtrar el dato de cada quien. Deliberadamente NO
+// toca buildRepContent, _jefeVerCerradasDeTec, _repExportHeader/
+// _repExportRows ni exportRepGeneralCSV() — es una funcion aparte, de solo
+// lectura, que arma su propio archivo desde cero repitiendo (por cada
+// tecnico del roster fijo) el MISMO criterio de filtro y el MISMO calculo
+// por tecnico (calcTecHoras) que ya usa esa vista individual en pantalla,
+// para no arriesgar nada de lo que ya funciona ahi.
+//
+// BUG REAL REPORTADO (Byron, 3 sep 2026): el boton esta en 2 lugares —
+// dentro de "Cerradas de [tecnico]" (ahi SI se ven las flechas de
+// _repProdMonthOffset, "Mi productividad ... CERRADAS") y junto a "Ver
+// cerradas de un tecnico" en el tablero normal (ahi la UNICA flecha visible
+// en pantalla es la de la tarjeta "Ya cerrado este mes", que usa
+// _repCerradoMonthOffset — una variable DISTINTA). El boton siempre leia
+// _repProdMonthOffset sin importar desde donde se llamara, asi que
+// exportar desde el tablero normal despues de navegar la tarjeta "Ya
+// cerrado" a agosto en realidad exportaba el mes actual (septiembre, casi
+// sin cierres todavia) — de ahi las "solo 3 ordenes". Corregido: usa la
+// flecha que esta REALMENTE visible en cada uno de los 2 lugares donde
+// aparece el boton.
 //
 // Una orden con 2 tecnicos aparece 2 VECES en el archivo — una fila por
 // tecnico, cada una con la parte de horas (Hrs. En Proceso/Pagadas/%) que
@@ -9901,7 +9920,13 @@ function volverDeVerCerradasDeTec() {
 // repetido en 2 filas.
 function exportTodosTecnicosCerradosCSV() {
   if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar esto'); return; }
-  var prodTargetDate = new Date(new Date().getFullYear(), new Date().getMonth() - _repProdMonthOffset, 1);
+  // Dentro de "Cerradas de un tecnico" (_jefeVerCerradasDeTec activo) las
+  // flechas visibles son las de _repProdMonthOffset ("Mi productividad ...
+  // CERRADAS"); en el tablero normal, las flechas visibles son las de la
+  // tarjeta "Ya cerrado este mes" (_repCerradoMonthOffset) — se usa la que
+  // corresponda a lo que Byron esta viendo en pantalla en ese momento.
+  var monthOffsetAUsar = _jefeVerCerradasDeTec ? _repProdMonthOffset : _repCerradoMonthOffset;
+  var prodTargetDate = new Date(new Date().getFullYear(), new Date().getMonth() - monthOffsetAUsar, 1);
   var curYc = prodTargetDate.getFullYear(), curMc = prodTargetDate.getMonth();
   var monthLabel = prodTargetDate.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
 
@@ -10037,13 +10062,23 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
 // Suma horas Trabajando + horas de comision de UN tecnico a lo largo de
 // TODAS sus ordenes ACTIVAS (aun no cerradas), incluyendo lo ya archivado —
 // para 'cerradas' se usa _calcTecHorasCerradasEnMes en su lugar, acotado al
-// mes en curso (ver reporte "Productividad por tecnico", solo Jefe).
-// Reusa calcTecHoras() por-orden (misma logica ya usada en la tarjeta y la
-// ficha), asi que un caso con 2 tecnicos se reparte 50/50 igual que ahi.
-function _calcTecHorasAgregado(tecName, source) {
+// mes que se este consultando (ver reporte "Productividad por tecnico",
+// solo Jefe). Reusa calcTecHoras() por-orden (misma logica ya usada en la
+// tarjeta y la ficha), asi que un caso con 2 tecnicos se reparte 50/50
+// igual que ahi.
+//
+// monthOffset (0 = mes actual, 1 = mes anterior, etc.) SOLO aplica a
+// 'cerradas' — 'activas' es un estado en vivo sin corte mensual, igual que
+// antes. Pedido de Byron 3 sep 2026: al retroceder la tarjeta "Ya cerrado
+// este mes" a un mes anterior, "Productividad por tecnico" (rama Cerrados)
+// seguia mostrando el mes en curso sin importar que mes se estuviera
+// consultando — quedaban desamarrados. Los otros 2 llamados de esta funcion
+// (linea ~5303 y ~5489) siempre pasan 'activas', asi que nunca leen este
+// parametro nuevo — quedan exactamente igual que antes.
+function _calcTecHorasAgregado(tecName, source, monthOffset) {
   if (source === 'cerradas') {
-    var now = new Date();
-    return _calcTecHorasCerradasEnMes(tecName, now.getFullYear(), now.getMonth());
+    var target = new Date(new Date().getFullYear(), new Date().getMonth() - (monthOffset || 0), 1);
+    return _calcTecHorasCerradasEnMes(tecName, target.getFullYear(), target.getMonth());
   }
   var allO = orders.concat(archived || []);
   var seen = {};
@@ -10061,12 +10096,13 @@ function _calcTecHorasAgregado(tecName, source) {
 }
 
 // Arma una de las 2 tablas del panel "Productividad por tecnico" — una fila
-// por cada uno de los 6 tecnicos, con sus 3 columnas agregadas.
-function _buildTecProdTable(source, headerBg, headerText, title) {
+// por cada uno de los 6 tecnicos, con sus 3 columnas agregadas. monthOffset
+// se reenvia tal cual a _calcTecHorasAgregado (solo importa para 'cerradas').
+function _buildTecProdTable(source, headerBg, headerText, title, monthOffset) {
   var rows = '';
   for (var i = 0; i < _TEC_NAMES_PROD.length; i++) {
     var tn = _TEC_NAMES_PROD[i];
-    var agg = _calcTecHorasAgregado(tn, source);
+    var agg = _calcTecHorasAgregado(tn, source, monthOffset);
     var pctColor = agg.pct !== null ? _productividadColor(agg.pct) : 'var(--tx3)';
     rows += '<tr style="background:' + (i % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)') + '">' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(tn) + (agg.count ? ' <span style="font-size:9px;color:var(--tx3)">(' + agg.count + ')</span>' : '') + '</td>' +
