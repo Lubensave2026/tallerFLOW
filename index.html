@@ -5248,18 +5248,31 @@ function buildRepContent() {
   // gestion, y mas abajo tambien lo usa la tarjeta "Ya cerrado este mes" —
   // se calcula una sola vez aqui y se reutiliza en los dos lugares.
   var semData = isMgmtView ? semComputeFromOrders() : null;
+  // semCerradoData: version NAVEGABLE de semData, para el mes que se este
+  // consultando con las flechas de "Ya cerrado este mes"
+  // (_repCerradoMonthOffset) — se calcula aqui (antes solo se calculaba mas
+  // abajo, junto a esa tarjeta) porque ahora TAMBIEN alimenta 3 de los KPI
+  // de arriba (Reprocesos/Presupuesto/% aprobacion, ver mas abajo — pedido
+  // de Byron 3 sep 2026, mismo criterio que ya se aplico a "Productividad
+  // por tecnico — Casos ya cerrados"). Si el offset es 0 reutiliza semData
+  // en vez de recalcular lo mismo dos veces.
+  var semCerradoData = isMgmtView ? (_repCerradoMonthOffset === 0 ? semData : semComputeFromOrders(_repCerradoMonthOffset)) : null;
 
   var html;
   if (isMgmtView) {
     // Vista de gestion (Jefe/Asesor/Partes): en vez de Total/Hoy/Urgentes/
     // Detenidas (poco accionables dia a dia), se muestran indicadores
-    // operativos globales del taller. TODOS los que representan un evento
-    // acumulado (cierres, horas trabajadas, reprocesos) se acotan al MES EN
-    // CURSO y se reinician solos al cambiar de mes. "Activas" y "Repuestos
-    // pendientes" son conteos en vivo del estado actual (no hay nada que
-    // "acumular" en un mes — siempre reflejan ahora mismo), asi que no
-    // aplica un corte mensual para esos dos.
-    var nowKpi = new Date();
+    // operativos globales del taller. Reprocesos/Presupuesto/% aprobacion
+    // se acotan al MES QUE SE ESTE CONSULTANDO (_repCerradoMonthOffset,
+    // mismas flechas que "Ya cerrado este mes" — pedido de Byron 3 sep
+    // 2026). "Cerradas (mes)" y "Productividad cerrados" quedan a
+    // proposito ANCLADOS al mes en curso real (Byron no pidio moverlos, y
+    // sirven como pulso de "como vamos ahora" sin depender de que mes se
+    // este navegando aparte) — usan nowKpi2 (mas abajo) en vez de nowKpi.
+    // "Activas", "Productividad en proceso" y "Repuestos pendientes" son
+    // conteos en vivo del estado actual (no hay nada que "acumular" en un
+    // mes), asi que tampoco aplica corte mensual para esos tres.
+    var nowKpi = new Date(new Date().getFullYear(), new Date().getMonth() - _repCerradoMonthOffset, 1);
     var curYKpi = nowKpi.getFullYear(), curMKpi = nowKpi.getMonth();
     var _eventInCurrentMonth = function(ts) {
       if (!ts) return false;
@@ -5363,7 +5376,7 @@ function buildRepContent() {
       '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repuestosPendientesCount + '</div><div class="kpi-l">Repuestos pendientes</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + reprocesosCount + '</div><div class="kpi-l">Reprocesos</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:#E67E22">' + (presupPromedioHoras !== null ? presupPromedioHoras.toFixed(1) + 'h' : '—') + '</div><div class="kpi-l">Prom. en Presupuesto (mes)</div></div>' +
-      '<div class="kpi"><div class="kpi-n" style="color:' + (semData.pctAprobacion !== null ? _productividadColor(Math.round(semData.pctAprobacion)) : 'var(--tx3)') + '">' + (semData.pctAprobacion !== null ? semData.pctAprobacion.toFixed(0) + '%' : '—') + '</div><div class="kpi-l">% de aprobacion (mes)</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:' + (semCerradoData.pctAprobacion !== null ? _productividadColor(Math.round(semCerradoData.pctAprobacion)) : 'var(--tx3)') + '">' + (semCerradoData.pctAprobacion !== null ? semCerradoData.pctAprobacion.toFixed(0) + '%' : '—') + '</div><div class="kpi-l">% de aprobacion (mes)</div></div>' +
     '</div>';
   } else {
     html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
@@ -5379,13 +5392,11 @@ function buildRepContent() {
   // Facturacion potencial + ya cerrado (jefe, asesor de servicio y encargado
   // de repuestos — REQ002: ambos perfiles ven exactamente los mismos indicadores)
   if (role === 'jefe' || role === 'asesor' || role === 'partes') {
-    // Dato de la tarjeta "Ya cerrado este mes": separado de semData (que
-    // alimenta las tarjetas KPI de arriba, siempre mes actual) para que
-    // navegar a un mes anterior con las flechas de esta tarjeta NO mueva
-    // "Cerradas (mes)" ni "% de aprobacion (mes)" del grid de arriba — esos
-    // dos siempre deben reflejar el mes en curso. Si el offset es 0
-    // reutiliza semData en vez de recalcular lo mismo dos veces.
-    var semCerradoData = _repCerradoMonthOffset === 0 ? semData : semComputeFromOrders(_repCerradoMonthOffset);
+    // Dato de la tarjeta "Ya cerrado este mes": semCerradoData ya se
+    // calculo mas arriba (junto a semData), donde tambien alimenta 3 de
+    // los KPI del grid de arriba (Reprocesos/Presupuesto/% aprobacion) —
+    // "Cerradas (mes)" y "Productividad cerrados" siguen usando semData/
+    // nowKpi2 (siempre mes en curso real), sin moverse con estas flechas.
     var monthLabelCerrado = semCerradoData.monthLabel.charAt(0).toUpperCase() + semCerradoData.monthLabel.slice(1);
     var potTotal = 0, potMO = 0, conMonto = 0;
     for (var ki=0; ki<orders.length; ki++) {
