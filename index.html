@@ -9571,6 +9571,27 @@ function semComputeFromOrders(monthOffset) {
     if (seenIds[o.id]) continue;
     seenIds[o.id] = true;
     var facTotal = o.montoFacturadoTotal || 0, facMO = o.montoFacturadoMO || 0;
+    // BUG REAL REPORTADO (Byron, 3 sep 2026): "% de aprobacion (mes)" daba
+    // 54% pero sumando a mano el detalle (Q.5,808 facturado / Q.24,790
+    // cotizado) daba 23.42%. Causa: sumFacturadoConCotizado/sumCotizado
+    // SOLO se acumulaban dentro de la rama "cierre normal" (if phase==='cer'
+    // + algo adicional que registrar) — una orden marcada "Ya facturada"
+    // (congelada) SI contaba para totalFact/countCerradas/el detalle de la
+    // tabla (con su % individual correcto, calculado aparte en el render),
+    // pero NUNCA llegaba a sumar aqui, porque para una orden congelada sin
+    // nada adicional despues (t=0, mo=0) el "if (!t && !mo) continue"
+    // saltaba TODO el resto de esa vuelta, incluida esta suma. En el caso
+    // real de Byron, 3 de las 4 ordenes cerradas del mes estaban "Ya
+    // facturada" — el agregado terminaba contando SOLO la orden restante
+    // (53.7%, redondeado a 54%) en vez de las 4 (23.4% real).
+    // eventoEsteMesAprobacion se marca true si CUALQUIERA de las 2 ramas de
+    // abajo (congelamiento o cierre normal) registro un evento de esta
+    // orden en el mes que se esta consultando — la suma se hace UNA SOLA
+    // VEZ al final, con el monto/cotizado COMPLETOS de la orden (mismo dato
+    // que ya usa el % individual de cada fila en el detalle), sin importar
+    // por cual rama entro, y sin contarla 2 veces si por alguna razon le
+    // pega a ambas el mismo mes.
+    var eventoEsteMesAprobacion = false;
     // "Ya facturada" (congelado): un cierre prematuro (ej. para alcanzar el
     // minimo del mes en una orden que en realidad sigue activa) se congela
     // como un evento de facturacion propio, en el mes en que se congelo —
@@ -9585,13 +9606,13 @@ function semComputeFromOrders(monthOffset) {
           byDay[facKey].total += facTotal; byDay[facKey].mo += facMO; byDay[facKey].count++;
           totalFact += facTotal; totalMO += facMO; countCerradas++;
           if (isCurrentMonth && fd.getDate() === dToday) { hoyTotal += facTotal; hoyMO += facMO; hoyCount++; }
+          eventoEsteMesAprobacion = true;
           ordenesCerradas.push({ot:o.ot, salida:facTs, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:facTotal, mo:facMO, montoCotizado:o.montoCotizado || null, montoTotalOrden:o.montoTotal || null});
         }
       }
     }
     if (o.phase === 'cer') {
       var ts = o.timestamps && o.timestamps['cer'];
-      if (!ts) continue;
       // Si ya se congelo un monto "Ya facturada", este cierre (el mismo u
       // otro posterior tras reabrirla) solo aporta lo ADICIONAL — nunca
       // vuelve a contar lo que ya se congelo en su propio mes. Se limita a
@@ -9599,20 +9620,20 @@ function semComputeFromOrders(monthOffset) {
       // ABAJO despues de congelar (ej. al revisar la orden), el segundo
       // cierre nunca reste del total ya contado en el mes congelado — a lo
       // sumo aporta cero adicional, jamas un valor negativo.
-      var t = Math.max(0, (o.montoTotal || 0) - facTotal);
-      var mo = Math.max(0, (o.montoMO || 0) - facMO);
-      if (!t && !mo) continue; // nada adicional que registrar para este cierre
-      var d = new Date(ts);
-      if (d.getFullYear() !== y || d.getMonth() !== m) continue; // solo el mes que se esta consultando
-      var key = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
-      if (!byDay[key]) byDay[key] = {total:0, mo:0, count:0};
-      byDay[key].total += t; byDay[key].mo += mo; byDay[key].count++;
-      totalFact += t; totalMO += mo; countCerradas++;
-      if (isCurrentMonth && d.getDate() === dToday) { hoyTotal += t; hoyMO += mo; hoyCount++; }
-      if (o.montoTotal && o.montoCotizado) {
-        sumFacturadoConCotizado += o.montoTotal; sumCotizado += o.montoCotizado; countConCotizado++;
+      var t = ts ? Math.max(0, (o.montoTotal || 0) - facTotal) : 0;
+      var mo = ts ? Math.max(0, (o.montoMO || 0) - facMO) : 0;
+      if (ts && (t || mo)) { // hay algo adicional que registrar para este cierre
+        var d = new Date(ts);
+        if (d.getFullYear() === y && d.getMonth() === m) { // solo el mes que se esta consultando
+          var key = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+          if (!byDay[key]) byDay[key] = {total:0, mo:0, count:0};
+          byDay[key].total += t; byDay[key].mo += mo; byDay[key].count++;
+          totalFact += t; totalMO += mo; countCerradas++;
+          if (isCurrentMonth && d.getDate() === dToday) { hoyTotal += t; hoyMO += mo; hoyCount++; }
+          eventoEsteMesAprobacion = true;
+          ordenesCerradas.push({ot:o.ot, salida:ts, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:t, mo:mo, montoCotizado:o.montoCotizado || null, montoTotalOrden:o.montoTotal || null});
+        }
       }
-      ordenesCerradas.push({ot:o.ot, salida:ts, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:t, mo:mo, montoCotizado:o.montoCotizado || null, montoTotalOrden:o.montoTotal || null});
     } else if (o.montoTotal && isCurrentMonth) {
       // "Proyectado" son ordenes AUN activas — solo tiene sentido para el mes
       // actual, no aplica retroactivamente a un mes ya cerrado. Si ya tiene
@@ -9620,6 +9641,9 @@ function semComputeFromOrders(monthOffset) {
       // prematuro), solo se proyecta lo adicional, no lo ya congelado — nunca
       // un valor negativo si el monto se corrigio hacia abajo.
       potTotal += Math.max(0, o.montoTotal - facTotal); potMO += Math.max(0, (o.montoMO || 0) - facMO); countPotencial++;
+    }
+    if (eventoEsteMesAprobacion && o.montoTotal && o.montoCotizado) {
+      sumFacturadoConCotizado += o.montoTotal; sumCotizado += o.montoCotizado; countConCotizado++;
     }
   }
   var dias = Object.keys(byDay).map(function(k) {
