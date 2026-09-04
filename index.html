@@ -8244,11 +8244,25 @@ function _capacidadCalc(nowTs) {
     }
   }
 
+  // Capacidad disponible del EQUIPO hoy: suma de "Disponibilidad" de cada
+  // tecnico ACTIVO (pedido de Byron 3 sep 2026 — dato que el usa para
+  // planificar el dia, distinto de "Quedan hoy" que es horas de RELOJ
+  // hasta el cierre, iguales para todos, no horas-tecnico). Se excluyen
+  // los ausentes (su "disponible" no representa capacidad real: no estan
+  // trabajando hoy). Se suma tal cual (incluye negativos de un tecnico
+  // sobrecargado) para que un sobrecupo real SI reduzca el total del
+  // equipo, en vez de esconderlo.
+  var capacidadDisponibleEquipoHoy = 0;
+  for (var i2 = 0; i2 < tecs.length; i2++) {
+    if (!tecs[i2].ausente) capacidadDisponibleEquipoHoy += tecs[i2].disponible;
+  }
+
   return {
     tecs: tecs, capacidadTotal: capacidadTotal, cargaTotal: cargaTotal,
     pctUso: pctUso, semaforo: semaforo, sinHora: sinHora,
     jornadaHoy: jornadaHoy, horasRestantesHoy: horasRestantesHoy, tallerCerradoHoy: tallerCerradoHoy,
-    activos: tecs.filter(function(t){ return !t.ausente; }).length
+    activos: tecs.filter(function(t){ return !t.ausente; }).length,
+    capacidadDisponibleEquipoHoy: capacidadDisponibleEquipoHoy
   };
 }
 
@@ -8279,8 +8293,27 @@ function buildCapacidadContent(nowTs) {
       ((nowTs ? new Date(nowTs) : new Date()).getDay() === 6 ? ' (sabado)' : '') + '</span>' +
     '<span>Tecnicos activos: <strong style="color:var(--tx)">' + d.activos + ' de ' + d.tecs.length + '</strong></span>' +
     (d.capacidadTotal > 0 ? '<span>Capacidad real hoy: <strong style="color:var(--tx)">' + d.capacidadTotal.toFixed(1) + ' hrs</strong></span>' : '') +
-    (!d.tallerCerradoHoy ? '<span>Quedan hoy: <strong style="color:var(--tx)">' + d.horasRestantesHoy.toFixed(2).replace(/\.?0+$/, '') + ' hrs</strong></span>' : '') +
+    // "Quedan hoy" = horas de RELOJ hasta el cierre (mismo numero para
+    // todo el taller, sin importar cuantos tecnicos haya) — NO es la suma
+    // de horas-tecnico disponibles (esa es la tarjeta grande de abajo).
+    // Byron confundio los dos (3 sep 2026: esperaba que "Quedan hoy" fuera
+    // 30.1h, la suma de Disponibilidad de los 6) — se deja el titulo como
+    // aclaracion, sin tocar el numero (esta correcto tal cual esta).
+    (!d.tallerCerradoHoy ? '<span title="Horas de reloj hasta el cierre de hoy — igual para todo el taller, no es la suma de horas de los tecnicos">Quedan hoy: <strong style="color:var(--tx)">' + d.horasRestantesHoy.toFixed(2).replace(/\.?0+$/, '') + ' hrs</strong></span>' : '') +
   '</div>';
+
+  // Capacidad disponible del EQUIPO hoy — pedido de Byron 3 sep 2026: el
+  // dato que de verdad usa para planificar el dia (suma de "Disponibilidad"
+  // de cada tecnico activo, mas abajo en la tabla), remarcado porque antes
+  // no existia como numero propio en ningun lado — solo se podia sumar a
+  // mano fila por fila.
+  if (!d.tallerCerradoHoy && d.activos > 0) {
+    html += '<div style="background:var(--bg3);border:2px solid var(--ac);border-radius:var(--r);padding:12px 16px;margin-bottom:12px;text-align:center">' +
+      '<div style="font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#127919; Capacidad disponible del equipo — HOY</div>' +
+      '<div style="font-size:28px;font-weight:800;color:var(--ac)">' + d.capacidadDisponibleEquipoHoy.toFixed(1) + ' hrs</div>' +
+      '<div style="font-size:9px;color:var(--tx3);margin-top:2px">Suma de "Disponibilidad" de cada tecnico activo — el dato clave para planificar el dia</div>' +
+    '</div>';
+  }
 
   var semInfo = {
     verde:     {bg:'var(--gnbg)', bd:'var(--gnbd)', tx:'var(--gn)', label:'&#128994; DISPONIBILIDAD ALTA — margen para expresos'},
