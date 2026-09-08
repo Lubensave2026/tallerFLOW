@@ -362,6 +362,18 @@ button{cursor:pointer}
     --bd:#ccc; --bd2:#ccc;
     --ac:#1a56db; --gn:#157347; --or:#b45309; --rd:#b91c1c;
   }
+  /* Tamano de hoja para CUALQUIER impresion de la app (no habia ninguna
+     regla de pagina antes de esto — el navegador usaba el default de la
+     impresora/SO, que en varios equipos sale en A4 en vez de Carta, y sin
+     orientacion fija dejaba lo ultimo que haya quedado seleccionado). Pedido
+     de Byron (8 sep) especificamente para "Orden de Trabajo", pero @page no
+     se puede acotar a un solo boton/contenido — aplica a lo que se este
+     imprimiendo en ese momento, sea cual sea. Portrait es el default de
+     "letter" (sin agregar "landscape"), y no se fuerza ningun margen — asi
+     el padding propio de "Orden de Trabajo" (40px 48px, ver
+     _buildOrdenTrabajoFormalHtml) no se duplica con un margen de pagina
+     extra. */
+  @page { size: letter; }
 }
 
 /* Logo LUBE N SAVE: una sola copia de la imagen, usada en los 3 lugares
