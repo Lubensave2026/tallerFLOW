@@ -338,7 +338,13 @@ button{cursor:pointer}
     background:#fff !important; backdrop-filter:none !important;
   }
   #m-hist-detail.on .rep-modal, #m-repparts.on .rep-modal {
-    box-shadow:none; max-width:100%; width:100%; border-radius:0; border:none;
+    /* !important en max-width/width: el modal de "Detalle de orden" trae un
+       max-width:500px puesto EN LINEA en el HTML (ver #m-hist-detail mas
+       abajo) — un estilo en linea le gana a cualquier regla de clase sin
+       !important, sin importar el media query. Sin este !important, el
+       "Orden de Trabajo" imprimia en una columna angosta de 500px con
+       media hoja Carta en blanco al lado (reportado por Byron, 8 sep). */
+    box-shadow:none; max-width:100% !important; width:100% !important; border-radius:0; border:none;
     max-height:none !important; overflow:visible !important; position:static;
   }
   #m-hist-detail.on #hist-detail-body { max-height:none !important; overflow:visible !important }
