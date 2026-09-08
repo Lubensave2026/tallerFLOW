@@ -7142,7 +7142,8 @@ function openAvisoLavResumen(o) {
   closeRepParts();
   var canPrint = (role === 'jefe' || role === 'asesor' || role === 'partes');
   var printBtnHtml = canPrint
-    ? '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>'
+    ? '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>' +
+      '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="generarOrdenTrabajoFormal(' + o.id + ')">&#128196; Orden de Trabajo</button>'
     : '';
   var titleEl = document.getElementById('hist-detail-title');
   if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
@@ -7158,6 +7159,139 @@ function openAvisoLavResumen(o) {
   var printOnlyElA = document.getElementById('hist-detail-print-only');
   if (printOnlyElA) printOnlyElA.innerHTML = '';
   document.getElementById('m-hist-detail').classList.add('on');
+}
+
+// "Orden de Trabajo" formal para enviar al cliente por WhatsApp antes de
+// facturar (Byron, 8 sep 2026 — diseno hecho con Claude Design). Reusa el
+// mismo modal/mecanismo de impresion que el resumen de "Preparar
+// Facturacion" (#m-hist-detail ya esta exento de la regla que oculta el
+// resto de modales al imprimir, ver @media print) en vez de crear un modal
+// nuevo — asi no hay que tocar la hoja de estilos de impresion.
+function generarOrdenTrabajoFormal(id) {
+  var o = null;
+  for (var goi = 0; goi < orders.length; goi++) { if (orders[goi].id === id) { o = orders[goi]; break; } }
+  if (!o) { toast('Orden no encontrada'); return; }
+  var titleEl = document.getElementById('hist-detail-title');
+  if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
+    '<span style="margin-left:auto;display:flex;gap:6px">' +
+    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>' +
+    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="volverAResumenDesdeOrdenTrabajo(' + o.id + ')">&#8592; Volver al resumen</button>' +
+    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeHistDetail()">&#x2715;</button></span>';
+  var bodyEl = document.getElementById('hist-detail-body');
+  if (bodyEl) bodyEl.innerHTML = _buildOrdenTrabajoFormalHtml(o);
+  document.getElementById('m-hist-detail').classList.remove('print-restringido');
+  var printOnlyElB = document.getElementById('hist-detail-print-only');
+  if (printOnlyElB) printOnlyElB.innerHTML = '';
+  document.getElementById('m-hist-detail').classList.add('on');
+}
+function volverAResumenDesdeOrdenTrabajo(id) {
+  var o = null;
+  for (var voi = 0; voi < orders.length; voi++) { if (orders[voi].id === id) { o = orders[voi]; break; } }
+  if (!o) { closeHistDetail(); return; }
+  openAvisoLavResumen(o);
+}
+
+// Construye el documento formal de "Orden de Trabajo" (ver README del
+// diseno entregado por Byron, 8 sep 2026 — layout pixel-a-pixel de ese
+// diseno, con estas adaptaciones acordadas con el ANTES de construirlo:
+//  - ORDEN DE VENTA y ORDEN DE TRABAJO muestran el mismo numero (o.ot) —
+//    en TallerFLOW son el mismo dato, no dos numeros distintos.
+//  - FECHA es la fecha en que se genera el documento (no la de apertura
+//    de la orden).
+//  - CHASIS, COLOR y NIT DE FACTURA se dejan en blanco — Byron confirmo
+//    que no se necesitan por ahora.
+//  - MARCA/LINEA se unen en un solo campo "VEHICULO" con el texto libre
+//    que ya se guarda en o.model — partirlo a la fuerza en 2 campos se
+//    rompe con marcas de mas de una palabra (ej. "Land Rover").
+// FASE 1 — sin precio por renglon todavia: TallerFLOW nunca ha guardado un
+// precio individual por repuesto/material/trabajo, solo los 2 totales
+// agregados (montoTotal, montoMO) que ya existen. No se inventa un precio
+// prorrateado por renglon (se veria como un dato real cuando no lo es) —
+// Byron confirmo que esto se resuelve cuando se integre bodega virtual con
+// catalogo de precios (fase 2, pendiente).
+function _buildOrdenTrabajoFormalHtml(o) {
+  var esc0 = function(s) { return esc(s || ''); };
+  var fmtQ = function(n) { return 'Q' + Number(n).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var hoyStr = new Date().toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',year:'numeric'});
+  var otStr = esc0(o.ot);
+
+  var html = '<div style="background:#fff;color:#111;padding:40px 48px;font-family:Arial,Helvetica,sans-serif;font-size:12px">';
+
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">' +
+    '<div style="font-family:Arial Black,Arial,sans-serif;font-weight:900;font-style:italic;font-size:38px;letter-spacing:-1px;line-height:1">LUBE N\' SAVE</div>' +
+    '<div style="text-align:right;font-size:15px;font-weight:bold">' +
+      '<div>ORDEN DE VENTA No. ' + otStr + '</div>' +
+      '<div>ORDEN DE TRABAJO No. ORDEN ' + otStr + '</div>' +
+    '</div>' +
+  '</div>';
+
+  html += '<table style="width:100%;border-collapse:collapse;border:2px solid #000;font-size:12px">' +
+    '<tr><td colspan="2" style="text-align:center;font-weight:bold;border-bottom:1px solid #000;padding:3px 0">DATOS DEL CLIENTE</td></tr>' +
+    '<tr>' +
+      '<td style="padding:3px 8px;border-bottom:1px solid #000;width:60%"><strong>CLIENTE:</strong> ' + esc0(o.client).toUpperCase() + '</td>' +
+      '<td style="padding:3px 8px;border-bottom:1px solid #000;border-left:1px solid #000"><strong>FECHA:</strong> ' + hoyStr + '</td>' +
+    '</tr>' +
+    '<tr>' +
+      '<td style="padding:3px 8px;border-bottom:1px solid #000"><strong>FACTURAR A NOMBRE DE:</strong> <span style="text-decoration:underline">' + esc0(o.client).toUpperCase() + '</span></td>' +
+      '<td style="padding:3px 8px;border-bottom:1px solid #000;border-left:1px solid #000"><strong>NIT DE FACTURA:</strong></td>' +
+    '</tr>' +
+    '<tr><td colspan="2" style="text-align:center;font-weight:bold;border-bottom:1px solid #000;border-top:1px solid #000;padding:3px 0">DATOS DEL VEHICULO</td></tr>' +
+    '<tr>' +
+      '<td style="padding:3px 8px;border-bottom:1px solid #000;width:25%"><strong>PLACA:</strong> ' + esc0(o.plate).toUpperCase() + '</td>' +
+      '<td style="padding:3px 8px;border-bottom:1px solid #000;border-left:1px solid #000"><strong>VEHICULO:</strong> ' + esc0(o.model).toUpperCase() +
+        (o.km ? ' &nbsp;&nbsp;&nbsp; <strong>KILOMETRAJE:</strong> ' + Number(o.km).toLocaleString('es-GT') + ' KM' : '') + '</td>' +
+    '</tr>' +
+    '<tr>' +
+      '<td style="padding:3px 8px"><strong>CHASIS:</strong></td>' +
+      '<td style="padding:3px 8px;border-left:1px solid #000"><strong>COLOR:</strong> &nbsp;&nbsp;&nbsp; <strong>Tipo de servicio:</strong> ' + (o.tipoServicioSolicitado ? esc0(o.tipoServicioSolicitado) : '') + '</td>' +
+    '</tr>' +
+    '<tr><td colspan="2" style="text-align:center;font-weight:bold;border-top:1px solid #000;padding:3px 0">OBSERVACIONES</td></tr>' +
+    '<tr><td colspan="2" style="padding:6px 8px;height:44px;vertical-align:top">' + esc0(o.desc) + '</td></tr>' +
+  '</table>';
+
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:16px">' +
+    '<thead><tr style="border-bottom:1px solid #000">' +
+      '<th style="text-align:left;padding:2px 0">DESCRIPCION</th>' +
+      '<th style="text-align:right;padding:2px 0;width:90px">CANTIDAD</th>' +
+    '</tr></thead><tbody>';
+
+  function seccionRenglones(titulo, items, descFn, cantFn) {
+    if (!items || !items.length) return '';
+    var out = '<tr><td colspan="2" style="font-weight:bold;padding-top:10px">' + titulo + '</td></tr>';
+    for (var sri = 0; sri < items.length; sri++) {
+      out += '<tr><td style="padding-left:20px">' + descFn(items[sri]) + '</td>' +
+        '<td style="text-align:right">' + cantFn(items[sri]) + '</td></tr>';
+    }
+    return out;
+  }
+
+  html += seccionRenglones('REPUESTOS', o.repuestos,
+    function(r) { return esc0(r.desc) + (r.especificacion ? ' &mdash; ' + esc0(r.especificacion) : ''); },
+    function(r) { return r.cantidad || ''; });
+  html += seccionRenglones('LUBRICANTES Y MATERIALES', o.bodega,
+    function(b) { return esc0(b.desc) + (b.especificacion ? ' &mdash; ' + esc0(b.especificacion) : ''); },
+    function(b) { return b.cantidad || ''; });
+  html += seccionRenglones('MANO DE OBRA', o.trabajos,
+    function(t) { return esc0(t.desc); },
+    function() { return ''; });
+
+  html += '</tbody></table>';
+
+  // Materiales y repuestos = la diferencia entre los 2 totales agregados,
+  // y SOLO se calcula cuando ambos existen — para no mostrar un numero que
+  // en realidad es solo "lo que falta de sumar" cuando Mano de Obra todavia
+  // no se ha registrado por separado.
+  var hayMO = !!o.montoMO;
+  var hayTotal = !!o.montoTotal;
+  var materiales = (hayTotal && hayMO) ? (o.montoTotal - o.montoMO) : null;
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px">' +
+    '<tr><td style="text-align:right;padding:2px 8px 2px 0">MANO DE OBRA:</td><td style="text-align:right;width:110px">' + (hayMO ? fmtQ(o.montoMO) : '&mdash;') + '</td></tr>' +
+    '<tr><td style="text-align:right;padding:2px 8px 2px 0">MATERIALES Y REPUESTOS:</td><td style="text-align:right">' + (materiales !== null ? fmtQ(materiales) : '&mdash;') + '</td></tr>' +
+    '<tr><td style="text-align:right;font-weight:bold;padding-top:8px;font-size:13px">TOTAL:</td><td style="text-align:right;font-weight:bold;padding-top:8px;font-size:13px;border-bottom:3px double #000">' + (hayTotal ? fmtQ(o.montoTotal) : '&mdash;') + '</td></tr>' +
+  '</table>';
+
+  html += '</div>';
+  return html;
 }
 
 /* UTILS */
