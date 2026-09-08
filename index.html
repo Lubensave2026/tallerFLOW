@@ -4537,6 +4537,30 @@ function advance(id, newPhase) {
     o.msgs = o.msgs || [];
     o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'Tiempo estimado registrado: ' + hrsVal + 'h', ts:Date.now(), type:'system'});
   }
+  // Al entrar a Espera-asignacion se OFRECE (no se exige) poner un tiempo
+  // estimado desde ya — pedido de Byron 8 sep 2026: una orden en cola, aunque
+  // todavia no tenga tecnico asignado, ya representa carga real que alguien
+  // del equipo va a tener que atender hoy — sin este dato, Capacidad del
+  // taller la saltaba por completo (no restaba ni del semaforo ni de
+  // "Capacidad disponible del equipo"). A diferencia del candado de
+  // Trabajando (arriba), este es OPCIONAL y NO bloquea el avance si se deja
+  // en blanco o se cancela — a esta altura muchas veces todavia no se sabe
+  // bien cuanto va a tomar (depende del diagnostico). Aplica hacia ADELANTE
+  // unicamente, igual que el de Trabajando — ordenes que ya estaban en 'aa'
+  // antes de esto no se les llena solo, hay que editarlas a mano.
+  if (newPhase === 'aa' && !o.hrsEstimado) {
+    var hrsInputAA = prompt('Tiempo estimado para reparar ' + o.plate + ' (opcional — asi ya cuenta en Capacidad del taller aunque todavia no tenga tecnico asignado. Deja en blanco si no lo sabes todavia):');
+    if (hrsInputAA !== null && hrsInputAA.trim() !== '') {
+      var hrsValAA = parseFloat(hrsInputAA);
+      if (hrsValAA > 0) {
+        o.hrsEstimado = hrsValAA;
+        o.msgs = o.msgs || [];
+        o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'Tiempo estimado registrado (en cola, sin tecnico aun): ' + hrsValAA + 'h', ts:Date.now(), type:'system'});
+      } else {
+        toast('Numero invalido — no se guardo el estimado (lo puedes agregar despues editando la orden)');
+      }
+    }
+  }
   // Guardar el motivo de la detencion que se esta dejando (si aplica) ANTES
   // de tocar o.detMotivo, para que quede registrado en la bitacora de
   // tiempos por fase (phaseLog) aunque se limpie de la carpeta abajo.
@@ -8176,12 +8200,25 @@ function _capacidadCalc(nowTs) {
 
   var cargaTotal = 0;
   var sinHora = [];
+  // Ordenes en Espera-asignacion SIN tecnico todavia: no se le pueden sumar
+  // a nadie en particular (no se sabe quien las va a hacer), pero SI
+  // representan carga real del dia — pedido de Byron 8 sep 2026, antes se
+  // saltaban por completo (ni el semaforo ni "Capacidad disponible del
+  // equipo" las tomaban en cuenta). Se acumulan aparte, en un "pool" comun.
+  var cargaSinAsignar = 0;
+  var ordenesSinAsignar = [];
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.phase !== 'ab' && o.phase !== 'aa') continue;
     // "T. Externo" y nombres vacios no reparten capacidad de nadie de la casa.
     var asignados = [o.tech, o.tech2].filter(function(n){ return n && porNombre[n]; });
-    if (!asignados.length) continue;
+    if (!asignados.length) {
+      if (o.phase === 'aa' && o.hrsEstimado) {
+        cargaSinAsignar += o.hrsEstimado;
+        ordenesSinAsignar.push({plate: o.plate, ot: o.ot, model: o.model, horas: o.hrsEstimado});
+      }
+      continue;
+    }
     if (!o.hrsEstimado) { sinHora.push(o.plate || o.ot || ('#' + o.id)); continue; }
     var pendiente = (o.repuestos || []).some(function(r){ return !r.ck3; });
     // Horas ya reales acumuladas en Trabajando para ESTA orden (tramos ya
@@ -8221,9 +8258,12 @@ function _capacidadCalc(nowTs) {
   for (var i = 0; i < tecs.length; i++) {
     if (!tecs[i].ausente) capacidadRestanteTotal += horasRestantesHoy * tecs[i].pct / 100;
   }
+  // cargaSinAsignar entra al mismo semaforo que la carga ya asignada — es
+  // trabajo del taller igual, solo que todavia no tiene dueño (Byron, 8 sep
+  // 2026).
   var pctUso = null, semaforo;
   if (capacidadRestanteTotal > 0) {
-    pctUso = (cargaTotal / capacidadRestanteTotal) * 100;
+    pctUso = ((cargaTotal + cargaSinAsignar) / capacidadRestanteTotal) * 100;
     semaforo = pctUso >= 100 ? 'rojo' : (pctUso >= 70 ? 'amarillo' : 'verde');
   } else {
     semaforo = 'rojo'; // nadie disponible -> no se puede recibir nada, sin importar la carga
@@ -8252,17 +8292,26 @@ function _capacidadCalc(nowTs) {
   // trabajando hoy). Se suma tal cual (incluye negativos de un tecnico
   // sobrecargado) para que un sobrecupo real SI reduzca el total del
   // equipo, en vez de esconderlo.
+  // Se resta tambien cargaSinAsignar (Byron, 8 sep 2026) — ese trabajo va a
+  // consumir tiempo de ALGUIEN del equipo en cuanto se asigne, aunque hoy
+  // todavia no sepamos de quien. Se permite bajar de 0 (igual que ya se
+  // permite por un tecnico sobrecargado): si lo que espera en cola por si
+  // solo ya supera lo que le queda libre al equipo, el numero negativo es
+  // la señal correcta ("ya no hay margen ni sin repartir lo que esta en
+  // cola"), no un error a esconder.
   var capacidadDisponibleEquipoHoy = 0;
   for (var i2 = 0; i2 < tecs.length; i2++) {
     if (!tecs[i2].ausente) capacidadDisponibleEquipoHoy += tecs[i2].disponible;
   }
+  capacidadDisponibleEquipoHoy -= cargaSinAsignar;
 
   return {
     tecs: tecs, capacidadTotal: capacidadTotal, cargaTotal: cargaTotal,
     pctUso: pctUso, semaforo: semaforo, sinHora: sinHora,
     jornadaHoy: jornadaHoy, horasRestantesHoy: horasRestantesHoy, tallerCerradoHoy: tallerCerradoHoy,
     activos: tecs.filter(function(t){ return !t.ausente; }).length,
-    capacidadDisponibleEquipoHoy: capacidadDisponibleEquipoHoy
+    capacidadDisponibleEquipoHoy: capacidadDisponibleEquipoHoy,
+    cargaSinAsignar: cargaSinAsignar, ordenesSinAsignar: ordenesSinAsignar
   };
 }
 
@@ -8311,7 +8360,22 @@ function buildCapacidadContent(nowTs) {
     html += '<div style="background:var(--bg3);border:2px solid var(--ac);border-radius:var(--r);padding:12px 16px;margin-bottom:12px;text-align:center">' +
       '<div style="font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#127919; Capacidad disponible del equipo — HOY</div>' +
       '<div style="font-size:28px;font-weight:800;color:var(--ac)">' + d.capacidadDisponibleEquipoHoy.toFixed(1) + ' hrs</div>' +
-      '<div style="font-size:9px;color:var(--tx3);margin-top:2px">Suma de "Disponibilidad" de cada tecnico activo — el dato clave para planificar el dia</div>' +
+      '<div style="font-size:9px;color:var(--tx3);margin-top:2px">Suma de "Disponibilidad" de cada tecnico activo' + (d.cargaSinAsignar > 0 ? ', ya descontando ' + d.cargaSinAsignar.toFixed(1) + 'h en cola sin tecnico todavia' : '') + ' — el dato clave para planificar el dia</div>' +
+    '</div>';
+  }
+
+  // Ordenes en Espera-asignacion SIN tecnico todavia pero CON tiempo
+  // estimado — pedido de Byron 8 sep 2026: se muestran aparte (no dentro de
+  // la tabla por tecnico, porque no se sabe quien las va a hacer) para que
+  // quede claro de donde sale el descuento de arriba, en vez de que
+  // desaparezca sin explicacion.
+  if (d.ordenesSinAsignar.length) {
+    html += '<div style="background:var(--orbg);border:1px solid var(--orbd);border-radius:var(--r);padding:10px 14px;margin-bottom:12px">' +
+      '<div style="font-size:10px;font-weight:700;color:var(--or);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">&#8987; Esperando asignacion — ' + d.cargaSinAsignar.toFixed(1) + ' hrs (' + d.ordenesSinAsignar.length + ' orden' + (d.ordenesSinAsignar.length === 1 ? '' : 'es') + ')</div>' +
+      '<div style="font-size:11px;color:var(--tx2)">' +
+        d.ordenesSinAsignar.map(function(o2){ return '#' + esc(o2.ot || o2.plate || '?') + (o2.model ? ' ' + esc(o2.model) : '') + ' (' + o2.horas.toFixed(1) + 'h)'; }).join(', ') +
+      '</div>' +
+      '<div style="font-size:9px;color:var(--tx3);margin-top:4px">Ya cuenta contra el semaforo y contra "Capacidad disponible del equipo", aunque todavia no tenga tecnico asignado</div>' +
     '</div>';
   }
 
