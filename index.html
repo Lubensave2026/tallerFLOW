@@ -1586,6 +1586,7 @@ function doLogin(rk) {
   setTimeout(function() { renderBoard(); updateNDot(); }, 2000);
   if (window._ri) clearInterval(window._ri);
   window._ri = setInterval(function() { if (role) { renderBoard(); updateNDot(); } }, 60000);
+  _aplicarPrefillNuevaOrdenDesdeURL();
 }
 
 function logout() {
@@ -4715,6 +4716,30 @@ function closeNO() {
   _noTipoServicio = null;
   if (typeof _setSavingNO === 'function') _setSavingNO(false);
   document.getElementById('m-no').classList.remove('on');
+}
+
+// Prellenado desde link externo (agente que lee Clear Mechanic, 8 sep 2026):
+// el link trae ?nueva=1&placa=...&ot=...&modelo=...&cliente=...&km=...&desc=...
+// (todos los valores deben venir con encodeURIComponent). Al detectarlo —
+// solo si el rol es Jefe/Asesor, los unicos que ven "+ Nueva orden" — se abre
+// el modal YA LLENO, pero el clic final de "Crear orden" lo sigue dando una
+// persona: el agente nunca escribe directo en Firebase, solo arma el link.
+// La URL se limpia justo despues de usarlo para que un refresh (o reabrir el
+// mismo link por error) no vuelva a precargar los mismos datos.
+function _aplicarPrefillNuevaOrdenDesdeURL() {
+  if (typeof URLSearchParams === 'undefined') return;
+  if (role !== 'jefe' && role !== 'asesor') return;
+  var qs;
+  try { qs = new URLSearchParams(window.location.search); } catch(e) { return; }
+  if (qs.get('nueva') !== '1') return;
+  openNO();
+  var mapa = { placa:'f-pl', ot:'f-ot', modelo:'f-mo', cliente:'f-cl', km:'f-km', desc:'f-dc' };
+  for (var k in mapa) {
+    var v = qs.get(k);
+    if (v) { var el = document.getElementById(mapa[k]); if (el) el.value = v; }
+  }
+  try { window.history.replaceState(null, '', window.location.pathname); } catch(e) {}
+  if (typeof toast === 'function') toast('Datos precargados desde Clear Mechanic — revisa antes de crear la orden');
 }
 function addNoRep() {
   var inp = document.getElementById('f-rep-new');
