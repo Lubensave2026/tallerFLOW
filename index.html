@@ -4853,6 +4853,33 @@ function saveNO() {
   var client = document.getElementById('f-cl').value.trim();
   if (!plate || !model || !client) { toast('Placa, vehiculo y cliente son requeridos'); return; }
   var otInput = document.getElementById('f-ot').value.trim();
+
+  // Alerta de posibles duplicados (Byron, 9 sep 2026): antes no habia ningun
+  // aviso si por error se aperturaba de nuevo la MISMA placa que ya tiene una
+  // orden ACTIVA en el tablero, o si el numero de OT ya existia (activa o
+  // archivada). No se bloquea de plano -- se avisa con el detalle exacto de
+  // la orden que choca y se deja confirmar, porque un mismo carro SI puede
+  // legitimamente volver por un caso distinto mientras el anterior sigue
+  // abierto (raro, pero no imposible). Una orden ya CERRADA con la misma
+  // placa no cuenta como choque -- ese es el caso normal de un cliente
+  // recurrente, no un error.
+  var otChoque = otInput ? _buscarOrdenPorOt(otInput) : null;
+  var placaChoque = null;
+  for (var dpi = 0; dpi < orders.length; dpi++) {
+    if (orders[dpi].phase !== 'cer' && String(orders[dpi].plate || '').trim().toUpperCase() === plate.toUpperCase()) {
+      placaChoque = orders[dpi]; break;
+    }
+  }
+  if (otChoque || placaChoque) {
+    var avisosDup = [];
+    if (otChoque) avisosDup.push('El No. de orden "' + otInput + '" ya existe — placa ' + (otChoque.plate || '—') + ', cliente ' + (otChoque.client || '—') + '.');
+    if (placaChoque) {
+      var faseChoque = PHASE_COLORS[placaChoque.phase] ? PHASE_COLORS[placaChoque.phase].label : placaChoque.phase;
+      avisosDup.push('La placa ' + plate + ' ya tiene una orden ACTIVA — OT ' + (placaChoque.ot || '—') + ', fase ' + faseChoque + '.');
+    }
+    if (!confirm(avisosDup.join('\n') + '\n\n¿Seguro que quieres crear esta orden de todas formas?')) { return; }
+  }
+
   var tech = document.getElementById('f-tc').value;
   var prio = document.getElementById('f-pr').value;
   var loc = document.getElementById('f-ub').value;
@@ -5986,6 +6013,20 @@ function setRepOrdenFilter(v) {
 }
 function toggleRepCerradas() { _repIncluirCerradas = !_repIncluirCerradas; buildRepPartsContent(); }
 
+// Vista "TODOS" (5ta tarjeta del menu, Byron 10 sep 2026): SOLO CONSULTA —
+// junta Repuestos Locales + Despacho Bodega de todas las ordenes activas, en
+// una sola tabla agrupada por No. de orden. Importacion se queda aparte a
+// proposito (otro ritmo — llegan en semanas). Marcar pasos/despacho se sigue
+// haciendo en sus propias ventanas; aqui no hay casillas. Filtros propios
+// para no pisar los de las otras vistas.
+var _todosEstadoFilter = 'todos';
+var _todosOrdenFilter = '';
+function setTodosEstadoFilter(v) { _todosEstadoFilter = v; buildRepPartsContent(); }
+function setTodosOrdenFilter(v) {
+  _todosOrdenFilter = (v || '').toString().trim().replace(/^#+/, '');
+  buildRepPartsContent();
+}
+
 var _bodegaOrdenFilter = '';
 function setBodegaOrdenFilter(v) {
   // Se acepta tanto "5255" como "#5255" o con espacios, que es como la gente
@@ -5997,7 +6038,7 @@ function setBodegaOrdenFilter(v) {
 // no redibujar el panel encima de lo que esta tecleando (ver openRepParts).
 function _repPartsBusyTyping() {
   try {
-    var ids = ['bod-ord-inp', 'rep-ord-inp', 'resumen-ot-inp'];
+    var ids = ['bod-ord-inp', 'rep-ord-inp', 'resumen-ot-inp', 'todos-ord-inp'];
     for (var i = 0; i < ids.length; i++) {
       var el = document.getElementById(ids[i]);
       if (el && document.activeElement === el) return true;
@@ -6021,6 +6062,8 @@ function openRepParts() {
   _repEstadoFilter = 'todos';
   _repOrdenFilter = '';
   _repIncluirCerradas = false;
+  _todosEstadoFilter = 'todos';
+  _todosOrdenFilter = '';
   _resumenOtPanel = '';
   buildRepPartsContent();
   document.getElementById('m-repparts').classList.add('on');
@@ -6135,6 +6178,7 @@ function buildRepPartsContent() {
     var nLocal = allRows.filter(function(r){ return r.origen === 'local'; }).length;
     var nImp = allRows.filter(function(r){ return r.origen === 'importacion'; }).length;
     var nBod = bodegaRows.filter(function(r){ return !r.item.despachado; }).length;
+    var nTodos = nLocal + nBod; // "TODOS" = Locales + Bodega (Importacion aparte)
     html += '<div style="max-width:340px;margin:0 auto">' +
       '<div style="font-size:11px;color:var(--tx3);text-transform:uppercase;margin-bottom:12px;font-weight:600;text-align:center">Elige que reporte ver</div>' +
       '<div onclick="repPartsChoose(\'local\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
@@ -6149,6 +6193,12 @@ function buildRepPartsContent() {
         '<span style="font-size:22px">&#128167;</span>' +
         '<div><div style="font-size:14px;font-weight:600">Despacho Bodega</div><div style="font-size:11px;color:var(--tx3)">' + nBod + ' pendiente(s)</div></div>' +
       '</div>' +
+      // "TODOS" (Byron, 10 sep): Locales + Bodega juntos, agrupados por orden.
+      // Importacion NO entra aqui a proposito (llegan en semanas, otro ritmo).
+      '<div onclick="repPartsChoose(\'todos\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd);margin-bottom:10px;cursor:pointer">' +
+        '<span style="font-size:22px">&#128203;</span>' +
+        '<div><div style="font-size:14px;font-weight:600">TODOS</div><div style="font-size:11px;color:var(--tx3)">Locales + Bodega juntos, por orden &middot; ' + nTodos + ' pendiente(s)</div></div>' +
+      '</div>' +
       // Cuarta opcion: consulta por orden, juntando las dos listas anteriores.
       '<div onclick="repPartsChoose(\'resumen\')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--bd2);cursor:pointer">' +
         '<span style="font-size:22px">&#128269;</span>' +
@@ -6162,6 +6212,8 @@ function buildRepPartsContent() {
   if (_repPartsFilter === 'resumen') { buildResumenOrdenPanel(); return; }
 
   if (_repPartsFilter === 'bodega') { buildBodegaPartsTable(bodegaRows); return; }
+
+  if (_repPartsFilter === 'todos') { buildTodosUnificadoTable(); return; }
 
   // A diferencia del menu de arriba (que cuenta solo pendientes), la tabla
   // parte de TODOS los repuestos: los ya instalados dejan de desaparecer y
@@ -6641,6 +6693,184 @@ function downloadBodegaCsv() {
   _downloadCSV(csv, 'tallerflow_despacho_bodega_' + _todayKey() + '.csv');
 }
 
+// ── Vista "TODOS" ───────────────────────────────────────────────────────
+// Repuestos Locales + Despacho Bodega de todas las ordenes ACTIVAS, en una
+// tabla agrupada por No. de orden (una seccion por orden, correlativas).
+// SOLO CONSULTA — sin casillas; marcar pasos/despacho se sigue haciendo en
+// "REPUESTOS Y SUBCONTRATOS" y en la tabla de Despacho Bodega. Importacion
+// NO entra a proposito (Byron, 10 sep 2026: llegan en semanas, otro ritmo).
+// Reusa getAllRepRows / getBodegaRows para no desincronizarse con las
+// vistas individuales.
+function _todosUnificadoRows() {
+  var out = [];
+  var repRows = getAllRepRows(false).filter(function(r){ return r.origen === 'local'; });
+  for (var i = 0; i < repRows.length; i++) {
+    var r = repRows[i];
+    out.push({
+      o: r.o, oid: r.o.id, tipo: 'Repuesto',
+      cantidad: String(r.rep.cantidad || ''), desc: r.rep.desc || '',
+      especificacion: r.rep.especificacion || '', by: r.rep.by || '',
+      done: !!r.done, estadoLabel: r.paso, estadoColor: r.pasoColor,
+      ts: r.rep.ts || 0
+    });
+  }
+  var bodRows = getBodegaRows();
+  for (var j = 0; j < bodRows.length; j++) {
+    var b = bodRows[j], it = b.item;
+    out.push({
+      o: b.o, oid: b.o.id, tipo: 'Bodega',
+      cantidad: String(it.cantidad || ''), desc: it.desc || '',
+      especificacion: it.especificacion || '', by: it.by || '',
+      done: !!it.despachado,
+      estadoLabel: it.despachado ? 'Despachado' : 'Pendiente',
+      estadoColor: it.despachado ? 'var(--gn)' : 'var(--or)',
+      ts: it.voboTs || it.ts || 0
+    });
+  }
+  // Orden principal: No. de orden correlativo; dentro de cada orden, lo mas
+  // antiguo primero.
+  out.sort(function(a, b) {
+    var otA = (a.o.ot || ''), otB = (b.o.ot || '');
+    if (otA !== otB) return otA.localeCompare(otB, undefined, {numeric: true});
+    return (a.ts || 0) - (b.ts || 0);
+  });
+  return out;
+}
+
+function buildTodosUnificadoTable() {
+  var canManage = role === 'jefe' || role === 'partes';
+  var all = _todosUnificadoRows();
+
+  var _ordenes = [], _vistas = {};
+  for (var oi = 0; oi < all.length; oi++) {
+    var ot0 = all[oi].o.ot || '';
+    if (ot0 && !_vistas[ot0]) { _vistas[ot0] = true; _ordenes.push({ot: ot0, model: all[oi].o.model || ''}); }
+  }
+
+  var rowsGlobal = all;
+  var rows = _todosOrdenFilter ? all.filter(function(r){ return (r.o.ot || '') === _todosOrdenFilter; }) : all;
+  var pend = rows.filter(function(r){ return !r.done; }).length;
+
+  var html = '<div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
+    '<button onclick="repPartsBack()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0">&#8592; Volver</button>' +
+    (canManage ? '<span class="no-print" style="display:flex;gap:8px">' +
+      '<button onclick="window.print()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button>' +
+      '<button onclick="downloadTodosCsv()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#8681; CSV</button>' +
+    '</span>' : '') +
+  '</div>';
+
+  html += '<div style="font-size:11px;color:var(--tx3);margin-bottom:10px">Repuestos locales + bodega juntos, por orden. Importacion se consulta aparte. Solo consulta &mdash; para marcar pasos o despacho, usa la ventana que corresponde.</div>';
+
+  html += '<div class="kpi-grid" style="margin-bottom:1rem">' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + pend + '</div><div class="kpi-l">Pendientes' + (_todosOrdenFilter ? ' &middot; OT ' + esc(_todosOrdenFilter) : '') + '</div></div>' +
+    '<div class="kpi"><div class="kpi-n" style="color:var(--tx2)">' + rows.length + '</div><div class="kpi-l">Total' + (_todosOrdenFilter ? ' &middot; OT ' + esc(_todosOrdenFilter) : '') + '</div></div>' +
+  '</div>';
+
+  var _ordOpts = '';
+  for (var oj = 0; oj < _ordenes.length; oj++) {
+    var od = _ordenes[oj];
+    var nOd = rowsGlobal.filter(function(r){ return (r.o.ot || '') === od.ot; }).length;
+    _ordOpts += '<option value="' + esc(od.ot) + '">' + (od.model ? esc(od.model) + ' — ' : '') + nOd + ' item(s)</option>';
+  }
+  html += '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;color:var(--tx3);margin-right:2px">Orden:</span>' +
+    '<input id="todos-ord-inp" list="todos-ord-list" autocomplete="off" value="' + esc(_todosOrdenFilter) + '"' +
+      ' placeholder="Todas (' + rowsGlobal.length + ') — escribe el No. de orden"' +
+      ' onchange="setTodosOrdenFilter(this.value)"' +
+      ' style="font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid ' + (_todosOrdenFilter ? 'var(--ac)' : 'var(--bd)') + ';background:' + (_todosOrdenFilter ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_todosOrdenFilter ? 'var(--ac)' : 'var(--tx)') + ';width:250px;max-width:100%;font-weight:' + (_todosOrdenFilter ? '700' : '400') + ';font-family:var(--mo)">' +
+    '<datalist id="todos-ord-list">' + _ordOpts + '</datalist>' +
+    (_todosOrdenFilter ? '<button onclick="setTodosOrdenFilter(\'\')" title="Ver todas las ordenes" style="background:none;border:none;color:var(--tx3);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1">&#x2715;</button>' : '') +
+  '</div>';
+
+  var _fBtn = function(val, label, count) {
+    var on = (_todosEstadoFilter === val);
+    return '<button onclick="setTodosEstadoFilter(\'' + val + '\')" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;white-space:nowrap;font-weight:' + (on ? '700' : '400') +
+      ';border:1px solid ' + (on ? 'var(--ac)' : 'var(--bd)') + ';background:' + (on ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (on ? 'var(--ac)' : 'var(--tx3)') + '">' + label + ' (' + count + ')</button>';
+  };
+  html += '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;color:var(--tx3);margin-right:2px">Estado:</span>' +
+    _fBtn('todos', 'Todos', rows.length) +
+    _fBtn('pend', 'Pendientes', pend) +
+    _fBtn('desp', 'Despachados', rows.length - pend) +
+  '</div>';
+
+  var rowsAll = rows;
+  if (_todosEstadoFilter === 'pend')      rows = rows.filter(function(r){ return !r.done; });
+  else if (_todosEstadoFilter === 'desp') rows = rows.filter(function(r){ return !!r.done; });
+
+  if (!rows.length) {
+    if (_todosOrdenFilter && !_vistas[_todosOrdenFilter]) {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">La orden <strong style="color:var(--tx2);font-family:var(--mo)">&#35;' + esc(_todosOrdenFilter) + '</strong> no tiene repuestos locales ni bodega aqui.<br><button onclick="setTodosOrdenFilter(\'\')" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Ver todas las ordenes</button></div>';
+    } else if (rowsAll.length) {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">Sin resultados con este filtro. <button onclick="setTodosEstadoFilter(\'todos\')" style="background:none;border:none;color:var(--ac);font-size:13px;text-decoration:underline;cursor:pointer;padding:0">Ver todos los estados</button></div>';
+    } else {
+      html += '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; No hay repuestos locales ni solicitudes de bodega en ordenes activas.</div>';
+    }
+  } else {
+    html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:680px">' +
+      '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Tipo</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Cantidad</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700">Descripcion</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700">Especificacion</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Pedido por</th>' +
+        '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Estado</th>' +
+      '</tr></thead><tbody>';
+    var lastOt = null, zebra = 0;
+    for (var k = 0; k < rows.length; k++) {
+      var r = rows[k];
+      if ((r.o.ot || '') !== lastOt) {
+        lastOt = (r.o.ot || ''); zebra = 0;
+        html += '<tr style="background:var(--bg4)"><td colspan="6" style="padding:8px;font-weight:700;border-bottom:1px solid var(--bd);border-top:2px solid var(--ac)">' +
+          '<span style="font-family:var(--mo);color:var(--ac)">&#35;' + esc(r.o.ot || '—') + '</span> &nbsp; ' +
+          esc(r.o.client || '—') + ' &middot; ' + esc(r.o.model || '—') +
+        '</td></tr>';
+      }
+      var strike = r.done ? ';text-decoration:line-through;color:var(--tx3)' : '';
+      var tipoBadge = r.tipo === 'Bodega'
+        ? '<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;background:#2a1f3d;color:#B794F6;border:1px solid #8B5CF6;white-space:nowrap">&#127981; Bodega</span>'
+        : '<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px solid var(--orbd);white-space:nowrap">&#128230; Repuesto</span>';
+      var rowBg = zebra % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)'; zebra++;
+      html += '<tr style="background:' + rowBg + (r.done ? ';opacity:.6' : '') + ';cursor:pointer" class="todos-row" data-oid="' + r.oid + '">' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + tipoBadge + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)' + strike + '">' + (esc(r.cantidad) || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + (esc(r.desc) || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--tx2)' + strike + '">' + (esc(r.especificacion) || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + (esc(r.by) || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-weight:600;white-space:nowrap;color:' + r.estadoColor + '">' + esc(r.estadoLabel) + '</td>' +
+      '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+
+  html += '<div style="text-align:center;font-size:11px;color:var(--tx3);padding-top:.5rem">' +
+    new Date().toLocaleDateString('es-GT',{weekday:'long',year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'}) +
+  '</div>';
+
+  document.getElementById('repparts-body').innerHTML = html;
+  document.querySelectorAll('.todos-row').forEach(function(row) {
+    row.addEventListener('click', function() {
+      var oid = parseInt(this.getAttribute('data-oid'));
+      closeRepParts();
+      openDrw(oid);
+    });
+  });
+}
+
+function downloadTodosCsv() {
+  var rows = _todosUnificadoRows();
+  if (_todosOrdenFilter) rows = rows.filter(function(r){ return (r.o.ot || '') === _todosOrdenFilter; });
+  if (_todosEstadoFilter === 'pend')      rows = rows.filter(function(r){ return !r.done; });
+  else if (_todosEstadoFilter === 'desp') rows = rows.filter(function(r){ return !!r.done; });
+  if (!rows.length) { toast('No hay filas que exportar con este filtro'); return; }
+  var csv = ['OR#', 'Tipo', 'Cliente', 'Vehiculo', 'Cantidad', 'Descripcion', 'Especificacion', 'Pedido por', 'Estado'].join(CSV_DELIM) + '\n';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    csv += [_csvCell(r.o.ot||''), _csvCell(r.tipo), _csvCell(r.o.client||''), _csvCell(r.o.model||''), _csvCell(r.cantidad||''), _csvCell(r.desc||''), _csvCell(r.especificacion||''), _csvCell(r.by||''), _csvCell(r.estadoLabel)].join(CSV_DELIM) + '\n';
+  }
+  _downloadCSV(csv, 'tallerflow_todos_locales_bodega_' + _todayKey() + '.csv');
+}
+
 /* AVISO PARTES — "Preparar Facturacion": lista permanente para Mario de
    ordenes que ya entraron a Lavado. NO se filtra por marcado listo — el
    check queda visible/tachado en la lista (igual patron que Despacho
@@ -6867,6 +7097,11 @@ function buildAutorizContent() {
           ox.repuestos[ri].vobo = true;
           ox.repuestos[ri].voboTs = Date.now();
           ox.msgs.push({who:who, txt:'&#10003; Vo.Bo. Jefe: "' + esc(ox.repuestos[ri].desc) + '"', ts:Date.now(), type:'system'});
+          // Mismo aviso que ya recibia bodega al dar Vo.Bo. (ver rama de
+          // abajo) -- faltaba aqui, era la unica asimetria entre los 2 tipos
+          // (Byron, 9 sep 2026: Mario/William tienen el mismo boton/campanita
+          // para ambos, pero solo bodega les avisaba).
+          addNotif('Repuesto autorizado en ' + ox.plate + ': ' + ox.repuestos[ri].desc, oid);
         } else {
           if (!ox.bodega || !ox.bodega[ri]) return;
           ox.bodega[ri].vobo = true;
