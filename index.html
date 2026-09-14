@@ -1977,6 +1977,55 @@ function secBox(num, title, innerHtml, key) {
   '</div>';
 }
 
+// Catalogo de Bodega Virtual para el buscador de "Despacho Bodega" (14 sep
+// 2026): endpoint HTTPS publico que expone Bodega Virtual (su propio
+// proyecto/repo, no este) — se actualiza solo del lado de ellos (5 min de
+// cache) en cuanto compran y catalogan un item nuevo, sin que TallerFLOW
+// tenga que tocar codigo ni Byron subir nada. Se evaluo abrir una segunda
+// conexion Firebase directa a su base de datos y Bodega Virtual mismo lo
+// desaconsejo (exponia su estructura interna completa y acoplaba TallerFLOW
+// a su esquema); este endpoint ya resuelve lo mismo con una respuesta chica
+// y estable ({sku, nombre, categoria, um}, nunca el costo). Cubre SOLO
+// Despacho Bodega (materiales/lubricantes de bodega) — Repuestos sigue
+// siendo texto libre, varia demasiado por vehiculo para catalogarse.
+// Deliberadamente NUNCA bloqueante: si la llamada falla, tarda, o el
+// navegador no tiene fetch (entorno de pruebas), el catalogo simplemente
+// queda vacio y el campo de Descripcion sigue funcionando como texto libre
+// exactamente igual que antes de este cambio — nunca se avisa un error al
+// tecnico por esto, no es su problema.
+var CATALOGO_BODEGA_URL = 'https://us-central1-lube-n-save-flow.cloudfunctions.net/catalogoBodega';
+var CATALOGO_BODEGA_TTL_MS = 10 * 60 * 1000; // 10 min — con margen sobre los 5 min de cache del lado de Bodega Virtual
+var _catalogoBodega = { items: null, ts: 0, loading: false };
+
+function _cargarCatalogoBodega() {
+  if (typeof fetch === 'undefined') return;
+  if (_catalogoBodega.loading) return;
+  if (_catalogoBodega.items && (Date.now() - _catalogoBodega.ts) < CATALOGO_BODEGA_TTL_MS) return;
+  _catalogoBodega.loading = true;
+  fetch(CATALOGO_BODEGA_URL).then(function(r) { return r.json(); }).then(function(data) {
+    _catalogoBodega.items = (data && data.articulos) || [];
+    _catalogoBodega.ts = Date.now();
+    _catalogoBodega.loading = false;
+  }).catch(function() {
+    _catalogoBodega.loading = false;
+  });
+}
+
+// Busca en el catalogo YA CARGADO (client-side, sin llamada nueva) por
+// nombre/codigo/categoria — usado por el buscador de "+ Solicitar" en
+// Despacho Bodega. Maximo 8 resultados para no saturar el dropdown en un
+// celular chico.
+function _buscarEnCatalogoBodega(q) {
+  var items = _catalogoBodega.items || [];
+  q = (q || '').trim().toLowerCase();
+  if (!q || !items.length) return [];
+  return items.filter(function(it) {
+    return (it.nombre || '').toLowerCase().indexOf(q) !== -1 ||
+      (it.sku || '').toLowerCase().indexOf(q) !== -1 ||
+      (it.categoria || '').toLowerCase().indexOf(q) !== -1;
+  }).slice(0, 8);
+}
+
 // Plantillas de "Servicio Menor/Intermedio/Mayor" (pedido de los tecnicos,
 // confirmado con Byron 1 sep 2026): listas GENERICAS (sin marca/SKU) para
 // agregar de una vez los repuestos y materiales tipicos de cada nivel, en
@@ -1995,13 +2044,17 @@ var SERVICIO_REPUESTOS_TEMPLATE = {
   mayor: ['Filtro de aceite', 'Empaque tapon aceitera', 'Plomos balance', 'Filtro de aire', 'Bujias', 'Filtro de cabina', 'Filtro de combustible (si aplica)'],
 };
 // Codigo real de bodega por material (confirmado con Byron 14 sep 2026,
-// tabla de codigos mas usados) — se guarda en especificacion al aplicar la
-// plantilla, para que el tecnico/bodega vea de una vez que codigo sacar sin
-// tener que preguntarlo. "Brake cleaner" lleva ademas una etiqueta corta
-// entre parentesis (en vez del texto crudo del catalogo "...DESENGRASANTE")
-// porque si no se confundia visualmente con "Desengrasante de motor".
+// tabla de codigos mas usados). Dos usos del mismo codigo: (1) "etiqueta"
+// (o el propio codigo si no hay etiqueta especial) se guarda en
+// especificacion, para que el tecnico/bodega vea de una vez que codigo sacar
+// sin tener que preguntarlo — "Brake cleaner" lleva una etiqueta corta entre
+// parentesis en vez del texto crudo del catalogo ("...DESENGRASANTE"), que se
+// confundia visualmente con "Desengrasante de motor"; (2) "codigo" (limpio,
+// sin la etiqueta) se guarda en el campo bodega[].codigo — el mismo que lee
+// la funcion de Bodega Virtual (intentarDespachar) para hacer el descuento
+// por coincidencia EXACTA de sku en vez de texto libre.
 var SERVICIO_BODEGA_TEMPLATE = [
-  { desc: 'Brake cleaner', codigo: '969250 (Spray Limp. Frenos)' },
+  { desc: 'Brake cleaner', codigo: '969250', etiqueta: '969250 (Spray Limp. Frenos)' },
   { desc: 'Desengrasante de motor', codigo: '17006' },
   { desc: 'Abrillantador de motor', codigo: 'SM1901' },
   { desc: 'Liquido para chorritos', codigo: '5021977' },
@@ -2081,7 +2134,7 @@ function aplicarPlantillaServicio(id, nivel) {
     o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec, desdeServicioPlantilla: true});
   });
   SERVICIO_BODEGA_TEMPLATE.forEach(function(item) {
-    o.bodega.push({cantidad:'', desc: esc(item.desc), especificacion: esc(item.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
+    o.bodega.push({cantidad:'', desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo), codigo: esc(item.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
   });
   o.tipoServicioAplicado = nivel;
   o.msgs = o.msgs || [];
@@ -3092,7 +3145,10 @@ function openDrw(id) {
       bodegaHtml += '<div style="background:var(--bg3);border:1px solid ' + (bitDone ? 'var(--gnbd)' : 'var(--bd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (bitDone ? 'opacity:.6' : '') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
           '<div style="font-size:12px;font-weight:500' + (bitDone ? ';text-decoration:line-through' : '') + '">' + bitDesc + '</div>' +
-          (role === 'jefe' ? '<button class="btn-bod-del" data-bi="' + bi + '" title="Eliminar solicitud" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1;flex-shrink:0">&#x2715;</button>' : '') +
+          (role === 'jefe' && !bitDone ? '<div style="display:flex;gap:4px;flex-shrink:0">' +
+            '<button class="btn-bod-edit" data-bi="' + bi + '" title="Editar cantidad/especificacion" style="background:none;border:1px solid var(--tx2);color:var(--tx2);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#9998;</button>' +
+            '<button class="btn-bod-del" data-bi="' + bi + '" title="Eliminar solicitud" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' +
+          '</div>' : '') +
         '</div>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' + bitStatus +
           '<span style="font-size:9px;color:var(--tx3)">' + esc(bit.by||'') + ' &middot; ' + msgTs(bit.ts) + '</span>' +
@@ -3113,8 +3169,10 @@ function openDrw(id) {
           '<div style="flex:0 0 80px">' + bodLbl('Cantidad') +
             '<select id="bod-cant" class="cin" style="width:100%">' + bodCantOptions + '</select>' +
           '</div>' +
-          '<div style="flex:1;min-width:140px">' + bodLbl('Descripcion') +
-            '<input id="bod-desc" class="cin" placeholder="ej. aceite, refrigerante, lija..." style="width:100%;border:2px solid var(--ac);background:var(--bg2)">' +
+          '<div style="flex:1;min-width:140px;position:relative">' + bodLbl('Descripcion') +
+            '<input id="bod-desc" class="cin" autocomplete="off" placeholder="Escribe para buscar en el catalogo o describe el insumo..." style="width:100%;border:2px solid var(--ac);background:var(--bg2)">' +
+            '<input type="hidden" id="bod-codigo" value="">' +
+            '<div id="bod-desc-sugg" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);max-height:220px;overflow-y:auto;z-index:60;box-shadow:0 4px 10px rgba(0,0,0,.25)"></div>' +
           '</div>' +
           '<div style="flex:1;min-width:140px">' + bodLbl('Especificacion') +
             '<input id="bod-esp" class="cin" placeholder="ej. 5w30, rosado, 40..." style="width:100%;border:2px solid var(--ac);background:var(--bg2)">' +
@@ -3473,6 +3531,11 @@ function openDrw(id) {
         var ox = null;
         for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
         if (!ox || !ox.bodega || !ox.bodega[bi3]) return;
+        // Una vez Despachado, Bodega Virtual ya desconto el inventario con
+        // estos datos (14 sep 2026) — ya no se puede eliminar (el boton
+        // tampoco se muestra, esto es la misma verificacion por si el rol
+        // cambio entre el render y el click, mismo patron ya usado en Vo.Bo.).
+        if (ox.bodega[bi3].despachado) { toast('Ya fue despachado — no se puede eliminar'); return; }
         var bDescDel = (ox.bodega[bi3].cantidad || '') + ' ' + (ox.bodega[bi3].desc || '') + (ox.bodega[bi3].especificacion ? ' — ' + ox.bodega[bi3].especificacion : '');
         if (!confirm('¿Eliminar la solicitud "' + bDescDel + '"? Esta accion no se puede deshacer.')) return;
         ox.bodega.splice(bi3, 1);
@@ -3483,21 +3546,63 @@ function openDrw(id) {
       });
     })(bodDelBtns[bdi]);
   }
+  var bodEditBtns = body.querySelectorAll('.btn-bod-edit');
+  for (var bei = 0; bei < bodEditBtns.length; bei++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede editar solicitudes de bodega'); return; }
+        var bi4 = parseInt(this.getAttribute('data-bi'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.bodega || !ox.bodega[bi4]) return;
+        var item = ox.bodega[bi4];
+        // Mismo candado que Eliminar: ya Despachado, Bodega Virtual ya
+        // desconto el inventario con estos datos — editarlos despues
+        // dejaria el registro de ellos desactualizado sin que nadie se
+        // entere (14 sep 2026).
+        if (item.despachado) { toast('Ya fue despachado — no se puede editar'); return; }
+        var cantInput = prompt('Cantidad para "' + (item.desc || '') + '":', item.cantidad || '');
+        if (cantInput === null) return;
+        var espInput = prompt('Especificacion para "' + (item.desc || '') + '" (opcional):', item.especificacion || '');
+        if (espInput === null) return;
+        var cantTrim = cantInput.trim();
+        var cantNum = parseFloat(cantTrim);
+        if (cantTrim && (isNaN(cantNum) || cantNum <= 0)) { toast('Ingresa una cantidad valida'); return; }
+        var espTrim = espInput.trim();
+        var who = ROLES[role] ? ROLES[role].label : role;
+        var antes = (item.cantidad || '') + ' ' + (item.desc || '') + (item.especificacion ? ' — ' + item.especificacion : '');
+        item.cantidad = esc(cantTrim);
+        item.especificacion = esc(espTrim);
+        var despues = (item.cantidad || '') + ' ' + (item.desc || '') + (item.especificacion ? ' — ' + item.especificacion : '');
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'&#9998; Solicitud de bodega editada: "' + esc(antes) + '" &rarr; "' + esc(despues) + '"', ts:Date.now(), type:'system'});
+        save(); toast('Solicitud actualizada'); openDrw(id);
+      });
+    })(bodEditBtns[bei]);
+  }
   var addBodBtn = document.getElementById('btn-add-bod');
   if (addBodBtn) {
     addBodBtn.addEventListener('click', function() {
       var cantInp = document.getElementById('bod-cant');
       var descInp = document.getElementById('bod-desc');
       var espInp = document.getElementById('bod-esp');
+      var codigoInp = document.getElementById('bod-codigo');
       var cant = cantInp ? cantInp.value.trim() : '';
       var descB = descInp ? descInp.value.trim() : '';
       var esp = espInp ? espInp.value.trim() : '';
+      var codigoB = codigoInp ? codigoInp.value.trim() : '';
       if (!descB) { toast('Escribe la descripcion del insumo'); return; }
       var ox = null;
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (!ox) return;
       ox.bodega = ox.bodega || [];
-      ox.bodega.push({cantidad:esc(cant), desc:esc(descB), especificacion:esc(esp), by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), vobo:false, despachado:false});
+      var nuevoBod = {cantidad:esc(cant), desc:esc(descB), especificacion:esc(esp), by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), vobo:false, despachado:false};
+      // codigo solo se guarda cuando viene de una seleccion real del
+      // catalogo (ver buscador abajo) — con texto libre se deja SIN el
+      // campo, para que Bodega Virtual siga su match por texto de siempre
+      // (que ya maneja el caso "falta identificar" del lado de ellos).
+      if (codigoB) nuevoBod.codigo = esc(codigoB);
+      ox.bodega.push(nuevoBod);
       ox.msgs = ox.msgs || [];
       var bDescNew = (cant ? cant + ' ' : '') + descB + (esp ? ' — ' + esp : '');
       ox.msgs.push({who:ROLES[role]?ROLES[role].label:role, txt:'&#128230; Solicitud a bodega: ' + esc(bDescNew) + ' — requiere Vo.Bo. del Jefe', ts:Date.now(), type:'system'});
@@ -3506,6 +3611,46 @@ function openDrw(id) {
     });
     var bodDescInp = document.getElementById('bod-desc');
     if (bodDescInp) bodDescInp.addEventListener('keydown', function(e){ if(e.key==='Enter') addBodBtn.click(); });
+
+    // Buscador de catalogo de Bodega Virtual (14 sep 2026): mientras se
+    // escribe en Descripcion, sugiere articulos del catalogo ya cargado
+    // (nombre/sku/categoria); elegir uno llena Descripcion con el nombre del
+    // catalogo y guarda su sku en el input oculto bod-codigo (leido arriba
+    // al enviar). Si no hay catalogo cargado (sin internet, Bodega Virtual
+    // caida, o pruebas sin fetch) simplemente no aparecen sugerencias — el
+    // campo sigue funcionando como texto libre de siempre, nunca bloqueante.
+    var bodSugg = document.getElementById('bod-desc-sugg');
+    var bodCodigoInp = document.getElementById('bod-codigo');
+    if (bodDescInp && bodSugg && bodCodigoInp) {
+      _cargarCatalogoBodega();
+      var renderBodSugg = function() {
+        var matches = _buscarEnCatalogoBodega(bodDescInp.value);
+        if (!matches.length) { bodSugg.style.display = 'none'; bodSugg.innerHTML = ''; return; }
+        var html = matches.map(function(it) {
+          return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '" style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
+            '<div style="font-weight:600">' + esc(it.nombre || '') + '</div>' +
+            '<div style="font-size:10px;color:var(--tx3)">' + esc(it.sku || '') + (it.categoria ? ' &middot; ' + esc(it.categoria) : '') + '</div>' +
+          '</div>';
+        }).join('') +
+          '<div class="bod-sugg-otro" style="padding:7px 10px;font-size:11px;color:var(--tx2);font-style:italic;cursor:pointer">&#10005; No esta en la lista / usar texto libre</div>';
+        bodSugg.innerHTML = html;
+        bodSugg.style.display = 'block';
+      };
+      bodDescInp.addEventListener('input', function() {
+        if (bodCodigoInp) bodCodigoInp.value = ''; // cualquier edicion manual invalida la seleccion anterior
+        renderBodSugg();
+      });
+      bodDescInp.addEventListener('focus', renderBodSugg);
+      bodDescInp.addEventListener('blur', function() { setTimeout(function() { bodSugg.style.display = 'none'; }, 150); });
+      bodSugg.addEventListener('click', function(e) {
+        var itemEl = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
+        if (itemEl) {
+          bodDescInp.value = itemEl.getAttribute('data-nombre') || '';
+          if (bodCodigoInp) bodCodigoInp.value = itemEl.getAttribute('data-sku') || '';
+        }
+        bodSugg.style.display = 'none'; bodSugg.innerHTML = '';
+      });
+    }
   }
 
   /* trabajos realizados events */
@@ -5086,22 +5231,39 @@ function openMap() {
   // espacio (queda de solo lectura para ellos).
   var readOnlyMap = (role !== 'jefe');
 
+  // Cada espacio ocupado distingue "Trabajando" (fase ab, el tecnico esta
+  // realmente operando ahi en este momento) de "Parqueado" (ocupa el
+  // espacio fisico pero esta en otra fase — Espera-asignacion, Prueba,
+  // Lavado) — pedido de Byron 14 sep 2026, derivado directo de la fase de
+  // la orden, sin campo nuevo que mantener.
   var occ = {};
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.space && ['aa','ab','prb','lav'].indexOf(o.phase) >= 0) {
-      occ[o.space] = {tech:o.tech, plate:o.plate, id:o.id};
+      occ[o.space] = {tech:o.tech, plate:o.plate, id:o.id, trabajando: o.phase === 'ab'};
     }
   }
 
-  var spTypes = {
-    '1':'normal','2':'normal','3':'alin','4':'elev','5':'elev',
-    '6':'normal','7':'normal','8':'normal','9':'normal','10':'elev','11':'elev'
-  };
-  var spLabels = {
-    '1':'1','2':'2','3':'3\nAlin.','4':'4\nElev.','5':'5\nElev.',
-    '6':'6','7':'7','8':'8','9':'9','10':'10\nElev.','11':'11\nElev.'
-  };
+  // Distribucion real del taller (foto de Byron, 14 sep 2026) — reemplaza
+  // la rejilla abstracta de 11 espacios que habia antes. 36 espacios en
+  // total; Alineadora y Elevadores quedan en los mismos numeros que ya
+  // tenian confirmados (3=Alineadora, 4/5 y 10/11=Elevador) — el resto son
+  // espacios normales de parqueo/trabajo. Parqueo de motos, Comedor, rutas
+  // de evacuacion y area verde son solo referencia visual del taller, no
+  // son espacios asignables a una orden — por eso ni siquiera entran a este
+  // mapa (que solo asigna vehiculos).
+  var spTypes = {};
+  var spLabels = {};
+  for (var spn = 1; spn <= 36; spn++) {
+    var spnS = String(spn);
+    spTypes[spnS] = 'normal';
+    spLabels[spnS] = spnS;
+  }
+  spTypes['3'] = 'alin'; spLabels['3'] = '3\nAlin.';
+  spTypes['4'] = 'elev'; spLabels['4'] = '4\nElev.';
+  spTypes['5'] = 'elev'; spLabels['5'] = '5\nElev.';
+  spTypes['10'] = 'elev'; spLabels['10'] = '10\nElev.';
+  spTypes['11'] = 'elev'; spLabels['11'] = '11\nElev.';
 
   function makeSlot(sp) {
     var tipo = spTypes[sp] || 'normal';
@@ -5121,7 +5283,8 @@ function openMap() {
     div.style.cssText = 'width:60px;height:82px;border-radius:6px;border:1.5px solid '+bc+';background:'+bg+';display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3px;cursor:'+cur+';text-align:center;transition:all .15s';
     var inner = '';
     if (taken) {
-      inner = '<div style="font-size:13px">' + (isMine ? '&#128994;' : '&#128992;') + '</div>';
+      var estadoTxt = taken.trabajando ? 'Trab.' : 'Parq.';
+      inner = '<div style="font-size:11px;white-space:nowrap">' + (isMine ? '&#128994;' : '&#128992;') + ' <span style="font-size:8px;font-weight:700;vertical-align:middle">' + estadoTxt + '</span></div>';
       inner += '<div style="font-size:14px;font-weight:700;font-family:var(--mo);color:'+tc2+'">' + lparts[0] + '</div>';
       if (lparts[1]) inner += '<div style="font-size:8px;color:'+tc2+';opacity:.8">' + lparts[1] + '</div>';
       inner += '<div style="font-size:8px;color:var(--tx2);margin-top:2px;overflow:hidden;white-space:nowrap;width:56px;text-overflow:ellipsis">' + esc(taken.tech.split(' ')[0]) + '</div>';
@@ -5145,28 +5308,34 @@ function openMap() {
 
   var leg = document.createElement('div');
   leg.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1rem;font-size:11px;color:var(--tx3)';
-  leg.innerHTML = '<span>&#128994; Mi espacio</span><span>&#128992; Ocupado</span><span style="color:#D4A017">&#9881; Alineadora</span><span style="color:#3D7EFF">&#128295; Elevador</span><span style="opacity:.5">Libre</span>';
+  leg.innerHTML = '<span>&#128994;/&#128992; Trab. = Trabajando</span><span>&#128994;/&#128992; Parq. = Parqueado</span><span>(verde = mio, naranja = de otro)</span><span style="color:#D4A017">&#9881; Alineadora</span><span style="color:#3D7EFF">&#128295; Elevador</span><span style="opacity:.5">Libre</span>';
   mapDiv.appendChild(leg);
 
-  var rowALbl = document.createElement('div');
-  rowALbl.style.cssText = 'font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:6px';
-  rowALbl.textContent = 'Fila A — Espacios 1 al 7';
-  mapDiv.appendChild(rowALbl);
+  // Distribucion real del taller — 36 espacios en 5 filas (ver comentario
+  // arriba de spTypes). Los grupos siguen el orden fisico que confirmo
+  // Byron: A y B son las filas de siempre (con Alineadora/Elevadores); C es
+  // la fila 15-19 mas la ampliacion nueva 20-24; D es la fila que antes
+  // eran los espacios "20 al 27" (se corrio +5 con la ampliacion); E es la
+  // columna que antes eran los espacios "31/30/29/28" (se renumeraron al
+  // final, 33 al 36).
+  var MAP_ROWS = [
+    { label: 'Fila A — Espacios 1 al 7', spaces: ['1','2','3','4','5','6','7'] },
+    { label: 'Fila B — Espacios 8 al 14', spaces: ['8','9','10','11','12','13','14'] },
+    { label: 'Fila C — Espacios 15 al 24', spaces: ['15','16','17','18','19','20','21','22','23','24'] },
+    { label: 'Fila D — Espacios 25 al 32', spaces: ['25','26','27','28','29','30','31','32'] },
+    { label: 'Fila E — Espacios 33 al 36', spaces: ['33','34','35','36'] },
+  ];
+  MAP_ROWS.forEach(function(rowDef) {
+    var rowLbl = document.createElement('div');
+    rowLbl.style.cssText = 'font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:6px';
+    rowLbl.textContent = rowDef.label;
+    mapDiv.appendChild(rowLbl);
 
-  var rowA = document.createElement('div');
-  rowA.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1.25rem';
-  ['1','2','3','4','5','6','7'].forEach(function(sp) { rowA.appendChild(makeSlot(sp)); });
-  mapDiv.appendChild(rowA);
-
-  var rowBLbl = document.createElement('div');
-  rowBLbl.style.cssText = 'font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:6px';
-  rowBLbl.textContent = 'Fila B — Espacios 8 al 11';
-  mapDiv.appendChild(rowBLbl);
-
-  var rowB = document.createElement('div');
-  rowB.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem';
-  ['8','9','10','11'].forEach(function(sp) { rowB.appendChild(makeSlot(sp)); });
-  mapDiv.appendChild(rowB);
+    var rowDiv = document.createElement('div');
+    rowDiv.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1.25rem';
+    rowDef.spaces.forEach(function(sp) { rowDiv.appendChild(makeSlot(sp)); });
+    mapDiv.appendChild(rowDiv);
+  });
 
   var note = document.createElement('div');
   note.style.cssText = 'font-size:11px;color:var(--tx3);padding:8px;background:var(--bg3);border-radius:var(--rs);border:1px solid var(--bd)';
