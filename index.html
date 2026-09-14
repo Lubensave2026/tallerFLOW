@@ -1994,7 +1994,21 @@ var SERVICIO_REPUESTOS_TEMPLATE = {
   intermedio: ['Filtro de aceite', 'Empaque tapon aceitera', 'Plomos balance', 'Filtro de aire'],
   mayor: ['Filtro de aceite', 'Empaque tapon aceitera', 'Plomos balance', 'Filtro de aire', 'Bujias', 'Filtro de cabina', 'Filtro de combustible (si aplica)'],
 };
-var SERVICIO_BODEGA_TEMPLATE = ['Brake cleaner', 'Desengrasante de motor', 'Abrillantador de motor', 'Liquido para chorritos', 'Lija', 'Wippe', 'Materiales auxiliares'];
+// Codigo real de bodega por material (confirmado con Byron 14 sep 2026,
+// tabla de codigos mas usados) — se guarda en especificacion al aplicar la
+// plantilla, para que el tecnico/bodega vea de una vez que codigo sacar sin
+// tener que preguntarlo. "Brake cleaner" lleva ademas una etiqueta corta
+// entre parentesis (en vez del texto crudo del catalogo "...DESENGRASANTE")
+// porque si no se confundia visualmente con "Desengrasante de motor".
+var SERVICIO_BODEGA_TEMPLATE = [
+  { desc: 'Brake cleaner', codigo: '969250 (Spray Limp. Frenos)' },
+  { desc: 'Desengrasante de motor', codigo: '17006' },
+  { desc: 'Abrillantador de motor', codigo: 'SM1901' },
+  { desc: 'Liquido para chorritos', codigo: '5021977' },
+  { desc: 'Lija', codigo: 'LIJ01' },
+  { desc: 'Wippe', codigo: 'WIPE02' },
+  { desc: 'Materiales auxiliares', codigo: 'MATVAR' },
+];
 var SERVICIO_TEMPLATE_LABELS = { menor: 'Menor', intermedio: 'Intermedio', mayor: 'Mayor' };
 
 // Aplica la plantilla del nivel elegido: agrega los repuestos genericos a
@@ -2066,8 +2080,8 @@ function aplicarPlantillaServicio(id, nivel) {
   itemsNuevos.forEach(function(desc) {
     o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec, desdeServicioPlantilla: true});
   });
-  SERVICIO_BODEGA_TEMPLATE.forEach(function(desc) {
-    o.bodega.push({cantidad:'', desc: esc(desc), especificacion:'', by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
+  SERVICIO_BODEGA_TEMPLATE.forEach(function(item) {
+    o.bodega.push({cantidad:'', desc: esc(item.desc), especificacion: esc(item.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
   });
   o.tipoServicioAplicado = nivel;
   o.msgs = o.msgs || [];
