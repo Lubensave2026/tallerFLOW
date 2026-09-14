@@ -5231,15 +5231,21 @@ function openMap() {
   // espacio (queda de solo lectura para ellos).
   var readOnlyMap = (role !== 'jefe');
 
-  // Cada espacio ocupado distingue "Trabajando" (fase ab, el tecnico esta
-  // realmente operando ahi en este momento) de "Parqueado" (ocupa el
-  // espacio fisico pero esta en otra fase — Espera-asignacion, Prueba,
-  // Lavado) — pedido de Byron 14 sep 2026, derivado directo de la fase de
-  // la orden, sin campo nuevo que mantener.
+  // Cualquier orden activa (cualquier fase menos Cerrada) puede tener un
+  // espacio asignado y ocuparlo en el mapa — el carro sigue fisicamente en
+  // el taller sin importar en que parte del flujo este (Detenido, Esp. de
+  // repuestos, etc. incluidos). Antes solo se marcaba ocupado en 4 fases
+  // puntuales, lo que dejaba espacios "asignados" pero mostrandose como
+  // libres — mismo reporte de Byron (14 sep 2026) que tambien corrigio
+  // mapPick() para poder asignar esas ordenes desde el inicio. Cada espacio
+  // ocupado distingue "Trabajando" (fase ab, el tecnico esta realmente
+  // operando ahi en este momento) de "Parqueado" (ocupa el espacio fisico
+  // pero esta en cualquier otra fase), derivado directo de la fase de la
+  // orden, sin campo nuevo que mantener.
   var occ = {};
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
-    if (o.space && ['aa','ab','prb','lav'].indexOf(o.phase) >= 0) {
+    if (o.space && o.phase !== 'cer') {
       occ[o.space] = {tech:o.tech, plate:o.plate, id:o.id, trabajando: o.phase === 'ab'};
     }
   }
@@ -5355,10 +5361,18 @@ function closeMap() { document.getElementById('m-map').classList.remove('on'); }
 function mapPick(sp) {
   var r = role ? ROLES[role] : null;
   var myOrders = [];
+  // Cualquier orden activa (cualquier fase menos Cerrada) tiene un lugar
+  // fisico real en el taller, sin importar en que parte del flujo de
+  // trabajo este — antes solo se podia asignar espacio a ordenes en
+  // Trabajando/Espera-asignacion, y Byron reporto que le faltaban opciones
+  // al querer asignar un carro que estaba, por ejemplo, Detenido o Esp. de
+  // repuestos (14 sep 2026). Mismo criterio ya usado para "ordenesActivas"
+  // en Capacidad del taller (ver _capacidadCalc), para no tener 2 reglas
+  // distintas de "que cuenta como activo".
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
-    if (['aa','ab'].indexOf(o.phase) >= 0) {
-      if (r && r.tec ? o.tech === r.tn : role === 'jefe') myOrders.push(o);
+    if (o.phase !== 'cer') {
+      if (r && r.tec ? (o.tech === r.tn || o.tech2 === r.tn) : role === 'jefe') myOrders.push(o);
     }
   }
   if (!myOrders.length) { toast('Sin ordenes activas para asignar'); return; }
@@ -8785,7 +8799,7 @@ function _capacidadCalc(nowTs) {
     var capacidadReal = ausente ? 0 : (jornadaHoy * pct / 100);
     var tec = {
       nombre: nombre, ausente: ausente, pct: pct, sinHistorial: sinHistorial,
-      capacidadReal: capacidadReal, carga: 0, ordenes: []
+      capacidadReal: capacidadReal, carga: 0, ordenes: [], ordenesActivas: []
     };
     tecs.push(tec);
     if (!ausente) capacidadTotal += capacidadReal;
@@ -8837,6 +8851,32 @@ function _capacidadCalc(nowTs) {
       tec.carga += horasPorTec;
       tec.ordenes.push({plate: o.plate, ot: o.ot, model: o.model, horas: horasPorTec, pendiente: pendiente, fase: o.phase});
       cargaTotal += horasPorTec;
+    }
+  }
+
+  // Lista COMPLETA de ordenes activas asignadas a cada tecnico, en
+  // CUALQUIER fase menos Cerrada — pedido de Byron 14 sep 2026: poder ver
+  // de un vistazo, en esta misma pantalla, todo lo que tiene cada tecnico
+  // (Trabajando, Esp. repuestos, Detenido, Listo p/entrega, etc.) sin tener
+  // que salirse a revisar el tablero mientras planifica el dia. Loop
+  // COMPLETAMENTE APARTE del de arriba a proposito: no toca ni reusa
+  // tec.ordenes/tec.carga (esos siguen contando SOLO ab/aa, la regla de
+  // negocio ya acordada para capacidad) — esto es solo para mostrar, nunca
+  // entra a ningun calculo de capacidad/semaforo.
+  for (var i4 = 0; i4 < orders.length; i4++) {
+    var o4 = orders[i4];
+    if (o4.phase === 'cer') continue;
+    var asignados4 = [o4.tech, o4.tech2].filter(function(n){ return n && porNombre[n]; });
+    if (!asignados4.length) continue;
+    var horasYaTrabajadas4 = _sumPhaseHours(o4, 'ab');
+    if (o4.phase === 'ab' && o4.timestamps && o4.timestamps.ab) {
+      horasYaTrabajadas4 += _minutosFase('ab', o4.timestamps.ab, hoy.getTime()) / 60;
+    }
+    var horasRestantes4 = o4.hrsEstimado ? Math.max(0, o4.hrsEstimado - horasYaTrabajadas4) : null;
+    for (var j4 = 0; j4 < asignados4.length; j4++) {
+      porNombre[asignados4[j4]].ordenesActivas.push({
+        ot: o4.ot, plate: o4.plate, model: o4.model, fase: o4.phase, horasRestantes: horasRestantes4
+      });
     }
   }
 
@@ -8997,6 +9037,22 @@ function buildCapacidadContent(nowTs) {
     semMsg +
   '</div>';
 
+  // Fila compacta con TODAS las ordenes activas de un tecnico (cualquier
+  // fase menos Cerrada) — pedido de Byron 14 sep 2026, para poder
+  // planificar el dia sin salirse a revisar el tablero. Se muestra como una
+  // 2da fila aparte (no mezclada con "Carga asignada", que a proposito solo
+  // cuenta ab/aa) para no confundir cual numero es el que cuenta para la
+  // capacidad.
+  function ordenesActivasRow(t) {
+    if (!t.ordenesActivas.length) return '';
+    var items = t.ordenesActivas.map(function(o2) {
+      var faseLbl = PHASE_COLORS[o2.fase] ? PHASE_COLORS[o2.fase].label : o2.fase;
+      var horasTxt = (o2.horasRestantes !== null && o2.horasRestantes > 0) ? ' &middot; ' + o2.horasRestantes.toFixed(1) + 'h restantes' : '';
+      return '<span style="white-space:nowrap">#' + esc(o2.ot || '?') + ' ' + esc(o2.model || '') + ' &mdash; ' + faseLbl + horasTxt + '</span>';
+    }).join(' &nbsp;|&nbsp; ');
+    return '<tr style="border-bottom:1px solid var(--bd)"><td colspan="3" style="padding:2px 8px 8px 8px;font-size:9px;color:var(--tx2);background:var(--bg3)">' + items + '</td></tr>';
+  }
+
   html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">' +
     '<thead><tr style="background:#000000;color:#FFD700;font-weight:700">' +
       '<th style="padding:6px 8px;text-align:left">Tecnico</th>' +
@@ -9007,6 +9063,7 @@ function buildCapacidadContent(nowTs) {
     var t = d.tecs[i];
     if (t.ausente) {
       html += '<tr style="border-bottom:1px solid var(--bd);opacity:.5"><td style="padding:6px 8px">' + esc(t.nombre) + '</td><td colspan="2" style="padding:6px 8px;text-align:center;color:var(--tx3)">Ausente hoy</td></tr>';
+      html += ordenesActivasRow(t);
       continue;
     }
     var disp = t.disponible;
@@ -9030,6 +9087,7 @@ function buildCapacidadContent(nowTs) {
       '<td style="padding:6px 8px;text-align:right;font-family:var(--mo)">' + t.carga.toFixed(1) + ' hrs' + cargaDetalle + '</td>' +
       '<td style="padding:6px 8px;text-align:right;font-family:var(--mo);font-weight:700;color:' + dispColor + '">' + dispTxt + '</td>' +
     '</tr>';
+    html += ordenesActivasRow(t);
   }
   html += '</tbody></table>';
 
