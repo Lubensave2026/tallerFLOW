@@ -27,6 +27,12 @@
 *{scrollbar-width:auto;scrollbar-color:#3A4060 #181B24}
 :root{
   --bg:#0F1117;--bg2:#181B24;--bg3:#1E2230;--bg4:#252A3A;
+  /* Espacio vacio de cada columna del tablero (16 sep 2026, pedido de
+     Byron): gris claro con matiz calido, eco del rayo dorado del logo Lube
+     N Save, para contrastar contra el espacio ocupado por fichas. Variable
+     PROPIA (no reusa --bg2, que se usa en otros lugares del layout) para no
+     afectar nada mas al cambiar este tono. */
+  --lane-empty:#D6CBAE;
   --bd:#2E3447;--bd2:#3A4060;
   --tx:#E8EAF0;--tx2:#CDD3E6;--tx3:#A6ADC7;
   --ac:#3D7EFF;--ac2:#1A4FCC;
@@ -108,7 +114,7 @@ button{cursor:pointer}
 .lane-hdr{border-radius:var(--r) var(--r) 0 0;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;user-select:none;cursor:default}
 .lt{font-size:10px;font-weight:600;letter-spacing:.3px;text-transform:uppercase}
 .lc{font-size:10px;padding:1px 7px;border-radius:10px;font-family:var(--mo)}
-.lane-body{border-radius:0 0 var(--r) var(--r);border:1px solid var(--bd);border-top:none;background:var(--bg2);flex:1;min-height:0;overflow-y:auto;padding:6px;padding-bottom:16px;display:flex;flex-direction:column;gap:5px}
+.lane-body{border-radius:0 0 var(--r) var(--r);border:1px solid var(--bd);border-top:none;background:var(--lane-empty);flex:1;min-height:0;overflow-y:auto;padding:6px;padding-bottom:16px;display:flex;flex-direction:column;gap:5px}
 
 /* CARD */
 .card{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:9px 10px;cursor:pointer;transition:border-color .15s,transform .1s;position:relative}
