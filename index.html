@@ -2053,6 +2053,11 @@ var SERVICIO_REPUESTOS_TEMPLATE = {
 // sin la etiqueta) se guarda en el campo bodega[].codigo — el mismo que lee
 // la funcion de Bodega Virtual (intentarDespachar) para hacer el descuento
 // por coincidencia EXACTA de sku en vez de texto libre.
+// "Materiales auxiliares" SALIO de esta lista (16 sep 2026, ver
+// SERVICIO_REPUESTOS_FIJOS abajo) — Byron aclaro que no es un material real
+// de bodega, es un cobro fijo para compensar el car wash del vehiculo, y
+// Despacho Bodega esta conectado a Bodega Virtual (descuenta inventario
+// real) — no debia estar ahi nunca.
 var SERVICIO_BODEGA_TEMPLATE = [
   { desc: 'Brake cleaner', codigo: '969250', etiqueta: '969250 (Spray Limp. Frenos)' },
   { desc: 'Desengrasante de motor', codigo: '17006' },
@@ -2060,7 +2065,42 @@ var SERVICIO_BODEGA_TEMPLATE = [
   { desc: 'Liquido para chorritos', codigo: '5021977' },
   { desc: 'Lija', codigo: 'LIJ01' },
   { desc: 'Wippe', codigo: 'WIPE02' },
-  { desc: 'Materiales auxiliares', codigo: 'MATVAR' },
+];
+// Materiales de bodega SOLO para Servicio Mayor (16 sep 2026, pedido de
+// Byron) — a diferencia de SERVICIO_BODEGA_TEMPLATE (igual en los 3
+// niveles), estos SI varian por nivel: solo van en Mayor, y por lo tanto SI
+// entran al diff aQuitar/aAgregar al cambiar de nivel (igual que ya hacen
+// los repuestos por nivel — ver _bodegaDeNivel mas abajo). "Refrigerante"
+// queda a proposito SIN codigo (generico, texto libre): varia por vehiculo
+// (color/tipo — Byron confirmo que hay varios en el catalogo real) y se
+// prefirio dejar que Bodega Virtual lo resuelva con su propio sistema de
+// alias (el mismo que ya usa para cualquier solicitud de texto libre) en
+// vez de fijar un color que no siempre va a aplicar.
+var SERVICIO_BODEGA_MAYOR_EXTRA = [
+  { desc: 'Liquido de frenos', codigo: 'A031729.' },
+  { desc: 'Refrigerante' },
+];
+// Lista completa de materiales de bodega para un nivel dado — la base
+// (SERVICIO_BODEGA_TEMPLATE, igual en los 3) mas los extras de Mayor
+// cuando aplica. Centralizado aqui para que aplicarPlantillaServicio use la
+// MISMA lista tanto al aplicar por primera vez como al diffear un cambio de
+// nivel, sin repetir la logica.
+function _bodegaDeNivel(nivel) {
+  return SERVICIO_BODEGA_TEMPLATE.concat(nivel === 'mayor' ? SERVICIO_BODEGA_MAYOR_EXTRA : []);
+}
+// Repuestos "fijos" que se agregan IGUAL en los 3 niveles (no varian por
+// nivel, nunca entran al diff de aQuitar/aAgregar al cambiar de nivel) —
+// mismo patron que ya tenia SERVICIO_BODEGA_TEMPLATE, pero en repuestos[]
+// en vez de bodega[]. Hoy solo "Materiales auxiliares": es un COBRO
+// (compensa el car wash), no un material real — va a Repuestos y
+// Subcontratos a proposito porque esa seccion, a diferencia de Despacho
+// Bodega, esta completamente fuera de la integracion con Bodega Virtual
+// (decision ya acordada desde antes: repuestos comprados afuera nunca
+// tocan su inventario), asi que nunca dispara un descuento que no
+// corresponde. especificacion aclara que no es inventario, para quien lo
+// vea en Repuestos y Subcontratos no se confunda con una pieza real.
+var SERVICIO_REPUESTOS_FIJOS = [
+  { desc: 'Materiales auxiliares', especificacion: 'Cobro fijo — compensa car wash, no es inventario de bodega' },
 ];
 var SERVICIO_TEMPLATE_LABELS = { menor: 'Menor', intermedio: 'Intermedio', mayor: 'Mayor' };
 
@@ -2102,45 +2142,71 @@ function aplicarPlantillaServicio(id, nivel) {
     // se quita solo lo que YA NO aplica al nivel nuevo y se agrega solo lo
     // que falta; lo que se repite en ambos niveles se deja intacto, para no
     // perder Vo.Bo./Mensajero/Partes/Instalado ya avanzado en un repuesto
-    // que sigue aplicando de todas formas. Los materiales de bodega NUNCA
-    // cambian entre niveles (misma lista los 3), asi que no se tocan aqui.
+    // que sigue aplicando de todas formas. Los materiales de bodega de
+    // SERVICIO_BODEGA_TEMPLATE nunca cambian entre niveles, pero desde el 16
+    // sep 2026 los de SERVICIO_BODEGA_MAYOR_EXTRA (Liquido de frenos,
+    // Refrigerante) SI son exclusivos de Mayor — se diffean igual que los
+    // repuestos (ver _bodegaDeNivel).
     var itemsViejos = SERVICIO_REPUESTOS_TEMPLATE[nivelViejo] || [];
     var aQuitar = itemsViejos.filter(function(d) { return itemsNuevos.indexOf(d) === -1; });
     var aAgregar = itemsNuevos.filter(function(d) { return itemsViejos.indexOf(d) === -1; });
     var entradasAQuitar = o.repuestos.filter(function(rp) { return rp.desdeServicioPlantilla && aQuitar.indexOf(rp.desc) !== -1; });
     var conAvance = entradasAQuitar.filter(function(rp) { return rp.ck1 || rp.ck2 || rp.ck3; });
+
+    var itemsViejosBod = _bodegaDeNivel(nivelViejo);
+    var itemsNuevosBod = _bodegaDeNivel(nivel);
+    var aQuitarBod = itemsViejosBod.filter(function(it) { return !itemsNuevosBod.some(function(it2){ return it2.desc === it.desc; }); });
+    var aAgregarBod = itemsNuevosBod.filter(function(it) { return !itemsViejosBod.some(function(it2){ return it2.desc === it.desc; }); });
+    var entradasAQuitarBod = o.bodega.filter(function(bd) { return bd.desdeServicioPlantilla && aQuitarBod.some(function(it){ return it.desc === bd.desc; }); });
+    var conAvanceBod = entradasAQuitarBod.filter(function(bd) { return bd.vobo || bd.despachado; });
+
     var msgConfirm = 'Ya aplicaste la plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivelViejo] + '. ¿Cambiar a Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + '?\n\n' +
-      'Se van a quitar ' + entradasAQuitar.length + ' repuesto(s) que ya no aplican y agregar ' + aAgregar.length + ' nuevo(s). Los que se repiten en los dos niveles se quedan igual.';
-    if (conAvance.length) {
-      msgConfirm += '\n\n⚠ ' + conAvance.length + ' de los que se van a quitar ya tienen avance (Vo.Bo./Mensajero/Partes/Instalado): ' + conAvance.map(function(rp){ return rp.desc; }).join(', ');
+      'Se van a quitar ' + entradasAQuitar.length + ' repuesto(s) y ' + entradasAQuitarBod.length + ' material(es) de bodega que ya no aplican, y agregar ' + aAgregar.length + ' repuesto(s) y ' + aAgregarBod.length + ' material(es) nuevo(s). Lo que se repite en los dos niveles se queda igual.';
+    var conAvanceTodo = conAvance.concat(conAvanceBod);
+    if (conAvanceTodo.length) {
+      msgConfirm += '\n\n⚠ ' + conAvanceTodo.length + ' de los que se van a quitar ya tienen avance (Vo.Bo./Mensajero/Partes/Instalado/Despachado): ' + conAvanceTodo.map(function(x){ return x.desc; }).join(', ');
     }
     if (!confirm(msgConfirm)) return;
     o.repuestos = o.repuestos.filter(function(rp) { return !(rp.desdeServicioPlantilla && aQuitar.indexOf(rp.desc) !== -1); });
     aAgregar.forEach(function(desc) {
       o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec, desdeServicioPlantilla: true});
     });
+    o.bodega = o.bodega.filter(function(bd) { return !(bd.desdeServicioPlantilla && aQuitarBod.some(function(it){ return it.desc === bd.desc; })); });
+    aAgregarBod.forEach(function(item) {
+      var nuevoBod = {cantidad:'', desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo || ''), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
+      if (item.codigo) nuevoBod.codigo = esc(item.codigo);
+      o.bodega.push(nuevoBod);
+    });
     o.tipoServicioAplicado = nivel;
     o.msgs = o.msgs || [];
-    o.msgs.push({who:who, txt:'&#9889; Plantilla de servicio cambiada: ' + SERVICIO_TEMPLATE_LABELS[nivelViejo] + ' → ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' (' + entradasAQuitar.length + ' quitado(s), ' + aAgregar.length + ' agregado(s))', ts:Date.now(), type:'system'});
+    o.msgs.push({who:who, txt:'&#9889; Plantilla de servicio cambiada: ' + SERVICIO_TEMPLATE_LABELS[nivelViejo] + ' → ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' (' + entradasAQuitar.length + '+' + entradasAQuitarBod.length + ' quitado(s), ' + aAgregar.length + '+' + aAgregarBod.length + ' agregado(s))', ts:Date.now(), type:'system'});
     save();
-    toast('Cambiado a Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ': ' + entradasAQuitar.length + ' quitados, ' + aAgregar.length + ' agregados');
+    toast('Cambiado a Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ': ' + (entradasAQuitar.length + entradasAQuitarBod.length) + ' quitados, ' + (aAgregar.length + aAgregarBod.length) + ' agregados');
     openDrw(id);
     return;
   }
 
   // Primera vez que se aplica una plantilla a esta orden: se agrega todo
-  // (repuestos + materiales de bodega), igual que antes.
+  // (repuestos + fijos + materiales de bodega), igual que antes.
   itemsNuevos.forEach(function(desc) {
     o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec, desdeServicioPlantilla: true});
   });
-  SERVICIO_BODEGA_TEMPLATE.forEach(function(item) {
-    o.bodega.push({cantidad:'', desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo), codigo: esc(item.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
+  SERVICIO_REPUESTOS_FIJOS.forEach(function(item) {
+    var fijo = {desc: esc(item.desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec, desdeServicioPlantilla: true};
+    if (item.especificacion) fijo.especificacion = esc(item.especificacion);
+    o.repuestos.push(fijo);
+  });
+  var bodegaDeEsteNivel = _bodegaDeNivel(nivel);
+  bodegaDeEsteNivel.forEach(function(item) {
+    var nuevoBod = {cantidad:'', desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo || ''), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
+    if (item.codigo) nuevoBod.codigo = esc(item.codigo);
+    o.bodega.push(nuevoBod);
   });
   o.tipoServicioAplicado = nivel;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'&#9889; Plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + itemsNuevos.length + ' repuesto(s) + ' + SERVICIO_BODEGA_TEMPLATE.length + ' material(es) de bodega' + (addedByTec ? ' — repuestos requieren Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
+  o.msgs.push({who:who, txt:'&#9889; Plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + (itemsNuevos.length + SERVICIO_REPUESTOS_FIJOS.length) + ' repuesto(s) + ' + bodegaDeEsteNivel.length + ' material(es) de bodega' + (addedByTec ? ' — repuestos requieren Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
   save();
-  toast('Plantilla ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + itemsNuevos.length + ' repuestos + ' + SERVICIO_BODEGA_TEMPLATE.length + ' materiales de bodega');
+  toast('Plantilla ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + (itemsNuevos.length + SERVICIO_REPUESTOS_FIJOS.length) + ' repuestos + ' + bodegaDeEsteNivel.length + ' materiales de bodega');
   openDrw(id);
 }
 
@@ -6861,6 +6927,17 @@ function buildBodegaPartsTable(rows) {
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === oid2) { ox2 = orders[i]; break; } }
       if (!ox2 || !ox2.bodega || !ox2.bodega[idx2]) return;
       var newVal = this.checked;
+      // Confirmacion SOLO al marcar (no al desmarcar) — desde que Bodega
+      // Virtual quedo conectado (14 sep 2026), marcar Despachado ya no es
+      // solo un estado interno: dispara de inmediato un descuento REAL de
+      // su inventario, y desmarcarlo despues NO lo revierte solo (queda
+      // "requiere revision" del lado de ellos). Caso real que lo disparo:
+      // Byron marco por error unos items que todavia no se habian
+      // despachado fisicamente (16 sep 2026).
+      if (newVal && !confirm('¿Ya se entrego FISICAMENTE este material? Esto descuenta el inventario real en Bodega Virtual de inmediato — desmarcarlo despues NO revierte el descuento solo, queda pendiente de corregir a mano del otro lado.')) {
+        this.checked = false;
+        return;
+      }
       ox2.bodega[idx2].despachado = newVal;
       if (newVal) ox2.bodega[idx2].despachadoTs = Date.now(); else delete ox2.bodega[idx2].despachadoTs;
       var who = ROLES[role] ? ROLES[role].label : role;
