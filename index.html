@@ -8950,7 +8950,21 @@ function _capacidadCalc(nowTs) {
   };
 }
 
+// Que tecnico tiene desplegada su "cola" completa (todas sus ordenes
+// activas) en Capacidad del taller — pedido de Byron 16 sep 2026: la
+// primera version mostraba TODO de una vez (carga + cola completa) y se
+// sentia saturado, con letra muy chica y sin distincion visual entre datos.
+// Colapsado por defecto, se reinicia cada vez que se abre el reporte (mismo
+// patron que _jefeShowProdCols y el resto de toggles de este reporte).
+var _capExpandedTec = {};
+// Recuerda el ultimo nowTs usado para poder re-renderizar igual (con la
+// misma hora de referencia) cuando se hace click en "Ver cola" — en uso
+// real siempre es null/undefined (usa la hora real), esto es solo para que
+// las pruebas con hora fija sigan siendo deterministas tras un toggle.
+var _capLastNowTs = null;
+
 function openCapacidad() {
+  _capExpandedTec = {};
   buildCapacidadContent();
   document.getElementById('m-cap').classList.add('on');
 }
@@ -8958,7 +8972,13 @@ function closeCapacidad() {
   document.getElementById('m-cap').classList.remove('on');
 }
 
+function _toggleCapTec(nombre) {
+  _capExpandedTec[nombre] = !_capExpandedTec[nombre];
+  buildCapacidadContent(_capLastNowTs);
+}
+
 function buildCapacidadContent(nowTs) {
+  _capLastNowTs = nowTs;
   var d = _capacidadCalc(nowTs);
   var html = '';
 
@@ -9037,20 +9057,25 @@ function buildCapacidadContent(nowTs) {
     semMsg +
   '</div>';
 
-  // Fila compacta con TODAS las ordenes activas de un tecnico (cualquier
-  // fase menos Cerrada) — pedido de Byron 14 sep 2026, para poder
-  // planificar el dia sin salirse a revisar el tablero. Se muestra como una
-  // 2da fila aparte (no mezclada con "Carga asignada", que a proposito solo
-  // cuenta ab/aa) para no confundir cual numero es el que cuenta para la
-  // capacidad.
+  // "Cola" completa de un tecnico (TODAS sus ordenes activas, cualquier
+  // fase menos Cerrada) — pedido de Byron 14 sep 2026, ajustado 16 sep tras
+  // ver que mostrarla siempre saturaba la vista. Ahora colapsada por
+  // defecto (_capExpandedTec) y con un renglon POR ORDEN (no todo en una
+  // sola linea separada por "|"), cada una con una etiqueta de color segun
+  // su fase (mismos colores que ya usa el tablero via PHASE_COLORS) para
+  // que se distinga de un vistazo cual es cual, en vez de ser puro texto
+  // chico sin jerarquia.
   function ordenesActivasRow(t) {
-    if (!t.ordenesActivas.length) return '';
+    if (!t.ordenesActivas.length || !_capExpandedTec[t.nombre]) return '';
     var items = t.ordenesActivas.map(function(o2) {
-      var faseLbl = PHASE_COLORS[o2.fase] ? PHASE_COLORS[o2.fase].label : o2.fase;
+      var faseInfo = PHASE_COLORS[o2.fase] || {bg:'#333', color:'#fff', label:o2.fase};
       var horasTxt = (o2.horasRestantes !== null && o2.horasRestantes > 0) ? ' &middot; ' + o2.horasRestantes.toFixed(1) + 'h restantes' : '';
-      return '<span style="white-space:nowrap">#' + esc(o2.ot || '?') + ' ' + esc(o2.model || '') + ' &mdash; ' + faseLbl + horasTxt + '</span>';
-    }).join(' &nbsp;|&nbsp; ');
-    return '<tr style="border-bottom:1px solid var(--bd)"><td colspan="3" style="padding:2px 8px 8px 8px;font-size:9px;color:var(--tx2);background:var(--bg3)">' + items + '</td></tr>';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0">' +
+        '<span style="font-size:8px;font-weight:700;padding:2px 7px;border-radius:8px;background:' + faseInfo.bg + ';color:' + faseInfo.color + ';white-space:nowrap;flex-shrink:0">' + faseInfo.label + '</span>' +
+        '<span style="font-size:11px;color:var(--tx2)">#' + esc(o2.ot || '?') + (o2.model ? ' ' + esc(o2.model) : '') + horasTxt + '</span>' +
+      '</div>';
+    }).join('');
+    return '<tr style="border-bottom:1px solid var(--bd)"><td colspan="3" style="padding:4px 8px 10px 8px;background:var(--bg3)">' + items + '</td></tr>';
   }
 
   html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">' +
@@ -9059,10 +9084,21 @@ function buildCapacidadContent(nowTs) {
       '<th style="padding:6px 8px;text-align:right">Carga asignada</th>' +
       '<th style="padding:6px 8px;text-align:right">Disponibilidad (hasta el cierre)</th>' +
     '</tr></thead><tbody>';
+  // Boton "Ver cola (N)" / "Ocultar cola" — unico punto de entrada al
+  // detalle completo (ordenesActivasRow). Se muestra igual para tecnicos
+  // ausentes (pueden tener algo pendiente de reasignar) y activos.
+  function verColaBtn(t) {
+    if (!t.ordenesActivas.length) return '';
+    var abierto = !!_capExpandedTec[t.nombre];
+    return '<div onclick="_toggleCapTec(\'' + t.nombre + '\')" style="font-size:9px;color:var(--ac);cursor:pointer;margin-top:2px;font-weight:700">' +
+      (abierto ? '&#9650; Ocultar cola' : '&#9660; Ver cola (' + t.ordenesActivas.length + ')') +
+    '</div>';
+  }
+
   for (var i = 0; i < d.tecs.length; i++) {
     var t = d.tecs[i];
     if (t.ausente) {
-      html += '<tr style="border-bottom:1px solid var(--bd);opacity:.5"><td style="padding:6px 8px">' + esc(t.nombre) + '</td><td colspan="2" style="padding:6px 8px;text-align:center;color:var(--tx3)">Ausente hoy</td></tr>';
+      html += '<tr style="border-bottom:1px solid var(--bd);opacity:.5"><td style="padding:6px 8px">' + esc(t.nombre) + verColaBtn(t) + '</td><td colspan="2" style="padding:6px 8px;text-align:center;color:var(--tx3)">Ausente hoy</td></tr>';
       html += ordenesActivasRow(t);
       continue;
     }
@@ -9071,20 +9107,22 @@ function buildCapacidadContent(nowTs) {
     var dispColor = disp >= 0 ? 'var(--gn)' : 'var(--rd)';
     var badgePend = t.ordenes.some(function(o2){ return o2.pendiente; })
       ? ' <span title="Alguna orden asignada tiene un repuesto pendiente" style="color:var(--or)">&#9888;</span>' : '';
-    // Lista de que ordenes componen la carga — sin esto, un numero > 0 no
-    // se podia verificar a simple vista contra el tablero (pregunta real de
-    // Byron: "por que a Gerson le sigue apareciendo carga si no tiene nada
-    // asignado" — la respuesta esta en o.tech/o.tech2 de alguna orden en
-    // aa/ab, pero antes no habia forma de verlo desde aqui mismo).
-    var cargaDetalle = t.ordenes.length
-      ? '<div style="font-size:9px;color:var(--tx3);margin-top:2px">' +
-          t.ordenes.map(function(o2){ return '#' + esc(o2.ot || '?') + (o2.model ? ' ' + esc(o2.model) : '') + ' (' + o2.horas.toFixed(1) + 'h)'; }).join(', ') +
-        '</div>'
+    // Vista principal compacta (pedido de Byron 16 sep 2026, tras ver que la
+    // version anterior — TODA la carga listada aqui mismo — se sentia
+    // saturada): solo el vehiculo que esta EN PROCESO ahora mismo (fase ab)
+    // y cuanto le falta a ESE — no la lista completa (eso vive en "Ver
+    // cola", plegado por defecto). Un tecnico solo trabaja una orden a la
+    // vez en la practica, asi que el primer match ya alcanza.
+    var enProceso = t.ordenes.filter(function(o2){ return o2.fase === 'ab'; })[0];
+    var enProcesoHtml = enProceso
+      ? '<div style="font-size:9px;color:var(--tx3);margin-top:2px">&#128295; #' + esc(enProceso.ot || '?') + (enProceso.model ? ' ' + esc(enProceso.model) : '') + ' &middot; ' + enProceso.horas.toFixed(1) + 'h restantes</div>'
       : '';
     html += '<tr style="border-bottom:1px solid var(--bd)">' +
       '<td style="padding:6px 8px">' + esc(t.nombre) + badgePend +
-        '<div style="font-size:9px;color:var(--tx3)">' + (t.sinHistorial ? 'Sin cierres este mes — se asume 100%' : t.pct + '% productividad real este mes') + '</div></td>' +
-      '<td style="padding:6px 8px;text-align:right;font-family:var(--mo)">' + t.carga.toFixed(1) + ' hrs' + cargaDetalle + '</td>' +
+        '<div style="font-size:9px;color:var(--tx3)">' + (t.sinHistorial ? 'Sin cierres este mes — se asume 100%' : t.pct + '% productividad real este mes') + '</div>' +
+        verColaBtn(t) +
+      '</td>' +
+      '<td style="padding:6px 8px;text-align:right;font-family:var(--mo)">' + t.carga.toFixed(1) + ' hrs' + enProcesoHtml + '</td>' +
       '<td style="padding:6px 8px;text-align:right;font-family:var(--mo);font-weight:700;color:' + dispColor + '">' + dispTxt + '</td>' +
     '</tr>';
     html += ordenesActivasRow(t);
