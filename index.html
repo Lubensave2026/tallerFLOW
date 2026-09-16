@@ -418,7 +418,7 @@ button{cursor:pointer}
     <div class="lg-sec-t">Tecnicos</div>
     <div class="lg-grid">
       <button class="lg-btn" onclick="goPin('tec_gerson')"><span class="ico">🔩</span>Gerson<span class="sub">Rodas</span></button>
-      <button class="lg-btn" onclick="goPin('tec_dany')"><span class="ico">🔩</span>Dany<span class="sub">Acalon</span></button>
+      <button class="lg-btn" onclick="goPin('tec_dany')"><span class="ico">🔩</span>Kevin<span class="sub">Sulecio</span></button>
       <button class="lg-btn" onclick="goPin('tec_henry')"><span class="ico">🔩</span>Henry<span class="sub">Barillas</span></button>
       <button class="lg-btn" onclick="goPin('tec_gabriel')"><span class="ico">🔩</span>Gabriel<span class="sub">Rodas</span></button>
       <button class="lg-btn" onclick="goPin('tec_pablo')"><span class="ico">🔩</span>Pablo<span class="sub">Jolon</span></button>
@@ -1070,7 +1070,12 @@ function initFirebase() {
 var PINS = {
   jefe:'225181514', asesor:'1893118', partes:'13118915',
   lavador:'23912135', mensajero:'23912129',
-  tec_gerson:'75181915', tec_dany:'411425', tec_henry:'85141825',
+  // tec_dany: usuario reasignado de Dany Acalon (baja) a Kevin Sulecio
+  // (nuevo ingreso), 16 sep 2026 — mismo patron que tec_luisc/Wilmer: se
+  // conserva la LLAVE del rol (tec_dany) tal cual, solo cambian PIN/label/tn.
+  // Ojo: este Kevin Sulecio NO es el mismo Kevin que antes estuvo en
+  // bodega — nombre nuevo, sin relacion con ese.
+  tec_gerson:'75181915', tec_dany:'11522919', tec_henry:'85141825',
   // tec_luisc: usuario reasignado de Luis Caceres (transferido a Aguilar
   // Batres) a Wilmer, 2 sep 2026 — mismo PIN que ya usa como Lavador, para
   // que solo tenga que recordar un numero aunque tenga 2 usuarios distintos
@@ -1085,7 +1090,7 @@ var ROLES = {
   lavador:    {label:'Wilmer - Lavador',         ico:'💧',  tec:false, lanes:['lav']},
   mensajero:  {label:'William - Mensajero',      ico:'🛵',  tec:false, lanes:['er']},
   tec_gerson: {label:'Gerson Rodas',             ico:'🔩',  tec:true,  tn:'Gerson Rodas',  lanes:['aa','ab','prb','er']},
-  tec_dany:   {label:'Dany Acalon',              ico:'🔩',  tec:true,  tn:'Dany Acalon',   lanes:['aa','ab','prb','er']},
+  tec_dany:   {label:'Kevin Sulecio',            ico:'🔩',  tec:true,  tn:'Kevin Sulecio', lanes:['aa','ab','prb','er']},
   tec_henry:  {label:'Henry Barillas',           ico:'🔩',  tec:true,  tn:'Henry Barillas',lanes:['aa','ab','prb','er']},
   tec_gabriel:{label:'Gabriel Rodas',            ico:'🔩',  tec:true,  tn:'Gabriel Rodas', lanes:['aa','ab','prb','er']},
   tec_pablo:  {label:'Pablo Jolon',              ico:'🔩',  tec:true,  tn:'Pablo Jolon',   lanes:['aa','ab','prb','er']},
@@ -1106,7 +1111,12 @@ var ROLES = {
 // no aparece para esa persona hasta llenarlo aqui.
 var WA_PHONES = {
   jefe:'', asesor:'50254137857', partes:'', mensajero:'50248428251', lavador:'50246925588',
+  // 'Dany Acalon' se deja (dato historico, ya no inicia sesion con ese
+  // nombre) — 'Kevin Sulecio' es su reemplazo, numero pendiente de que
+  // Byron lo pase (vacio = el boton de recordatorio simplemente no aparece
+  // para el, igual que cualquier otro sin numero todavia).
   'Gerson Rodas':'50255542764', 'Dany Acalon':'50236557803', 'Henry Barillas':'50250275414',
+  'Kevin Sulecio':'',
   // 'Wilmer' aqui es su lado tecnico (o.tech='Wilmer') — mismo numero que
   // ya tiene arriba como 'lavador', se repite porque este mapa busca por
   // NOMBRE de tecnico, no por rol.
@@ -1163,7 +1173,7 @@ var LANES = [
 // lugares (asignacion en la ficha, panel Editar, Nueva Orden, filtro del
 // tablero y filtro del reporte), asi que agregar o quitar a alguien obligaba
 // a acordarse de los 5.
-var TEC_NAMES = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','Pablo Jolon','Wilmer'];
+var TEC_NAMES = ['Gerson Rodas','Kevin Sulecio','Henry Barillas','Gabriel Rodas','Pablo Jolon','Wilmer'];
 
 // A quien se le puede ASIGNAR una orden. Ademas de los tecnicos incluye
 // "T. Externo", para las ordenes que no trabaja nadie de la casa sino un
@@ -1175,6 +1185,19 @@ var TEC_NAMES = ['Gerson Rodas','Dany Acalon','Henry Barillas','Gabriel Rodas','
 // siguen usando TEC_NAMES.
 var TEC_EXTERNO = 'T. Externo';
 var TEC_ASIGNABLES = TEC_NAMES.concat([TEC_EXTERNO]);
+
+// Tecnicos que YA NO trabajan aqui pero cuyo historial de productividad
+// Byron todavia quiere poder consultar (pedido 16 sep 2026, caso Dany
+// Acalon -> Kevin Sulecio: el historial de ordenes cerradas de Dany se
+// conserva en los datos, pero al salir de TEC_NAMES ya no aparecia en el
+// selector de "Ver cerradas de un tecnico"). Separado de TEC_NAMES/
+// TEC_ASIGNABLES a proposito: NO deben ofrecerse como asignables a trabajo
+// nuevo (Asistencia de hoy, Capacidad del taller, selectores de tecnico al
+// crear/editar una orden) — solo aparecen como opcion de CONSULTA en el
+// filtro de tecnico del Reporte General (ver esa seccion), que ya usa
+// _calcTecHorasCerradasEnMes/calcTecHoras — ambas funciones puramente por
+// nombre de texto, sin depender de que el nombre siga en TEC_NAMES.
+var TEC_NAMES_HISTORICOS = ['Dany Acalon'];
 
 // Rellena un <select> del documento con los tecnicos asignables, conservando
 // su primera opcion (el "Sin asignar" / "Todos los tecnicos" que ya trae).
@@ -5950,6 +5973,13 @@ function buildRepContent() {
     '<select id="rep-fil-tec" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
       '<option value="">Todos los tecnicos</option>' +
       TEC_ASIGNABLES.map(function(t){ return '<option>' + t + '</option>'; }).join('') +
+      // Tecnicos de baja (ver TEC_NAMES_HISTORICOS) — solo para poder
+      // elegirlos aqui y usar "Ver cerradas de un tecnico" sobre su
+      // historial ya cerrado; agrupados aparte para no confundirlos con el
+      // roster activo de arriba.
+      (role === 'jefe' && TEC_NAMES_HISTORICOS.length
+        ? '<optgroup label="Ya no trabajan aqui">' + TEC_NAMES_HISTORICOS.map(function(t){ return '<option>' + esc(t) + '</option>'; }).join('') + '</optgroup>'
+        : '') +
     '</select>') +
     '<select id="rep-fil-phase" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
       '<option value="">Todos los estatus</option>' +
@@ -6208,7 +6238,7 @@ function buildRepContent() {
       {label:'Mario — Asesor partes', sigId:'partes', tn:null, countReps2:true},
       {label:'William — Mensajero', sigId:'mensajero', tn:null, countReps:true},
       {label:'Gerson Rodas', sigId:'tecnico', tn:'Gerson Rodas'},
-      {label:'Dany Acalon', sigId:'tecnico', tn:'Dany Acalon'},
+      {label:'Kevin Sulecio', sigId:'tecnico', tn:'Kevin Sulecio'},
       {label:'Henry Barillas', sigId:'tecnico', tn:'Henry Barillas'},
       {label:'Gabriel Rodas', sigId:'tecnico', tn:'Gabriel Rodas'},
       {label:'Pablo Jolon', sigId:'tecnico', tn:'Pablo Jolon'},
