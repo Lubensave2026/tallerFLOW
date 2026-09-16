@@ -2014,7 +2014,15 @@ function _cargarCatalogoBodega() {
 // Busca en el catalogo YA CARGADO (client-side, sin llamada nueva) por
 // nombre/codigo/categoria — usado por el buscador de "+ Solicitar" en
 // Despacho Bodega. Maximo 8 resultados para no saturar el dropdown en un
-// celular chico.
+// celular chico. Ordenado por largo de nombre ascendente (16 sep 2026,
+// pedido de Byron): cuando un mismo producto tiene una version generica y
+// varias variantes especificas (ej. "REFRIGERANTE" vs "REFRIGERANTE AZUL
+// ARTIC (GALON)" / "...ROSADO ARTIC..."), el nombre generico casi siempre
+// es el mas corto (sin el calificativo agregado) — asi sale primero en vez
+// de que el orden crudo del catalogo sugiera sin querer una variante
+// especifica (ej. un color) antes que la version sin definir, cuando lo
+// correcto varia por vehiculo y lo debe elegir el tecnico, no adivinarlo el
+// orden de la lista.
 function _buscarEnCatalogoBodega(q) {
   var items = _catalogoBodega.items || [];
   q = (q || '').trim().toLowerCase();
@@ -2023,6 +2031,8 @@ function _buscarEnCatalogoBodega(q) {
     return (it.nombre || '').toLowerCase().indexOf(q) !== -1 ||
       (it.sku || '').toLowerCase().indexOf(q) !== -1 ||
       (it.categoria || '').toLowerCase().indexOf(q) !== -1;
+  }).sort(function(a, b) {
+    return (a.nombre || '').length - (b.nombre || '').length;
   }).slice(0, 8);
 }
 
@@ -3693,7 +3703,20 @@ function openDrw(id) {
         var matches = _buscarEnCatalogoBodega(bodDescInp.value);
         if (!matches.length) { bodSugg.style.display = 'none'; bodSugg.innerHTML = ''; return; }
         var html = matches.map(function(it) {
-          return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '" style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
+          // Si este nombre es "generico" respecto a otra coincidencia en la
+          // MISMA busqueda (ej. "REFRIGERANTE" siendo prefijo de
+          // "REFRIGERANTE AZUL ARTIC (GALON)"), no se le asigna codigo al
+          // elegirlo — pedido de Byron 16 sep 2026: elegir el generico no
+          // debe fijar el codigo de UNA variante especifica al azar (el
+          // color real lo define Mario al despachar, no el orden del
+          // buscador); queda como texto libre y Bodega Virtual lo resuelve
+          // por su propio sistema de alias, igual que antes de este cambio.
+          var esGenericoDeVariantes = (it.nombre || '') && matches.some(function(otro) {
+            if (otro === it) return false;
+            var n1 = (it.nombre || '').toLowerCase(), n2 = (otro.nombre || '').toLowerCase();
+            return n2.indexOf(n1) === 0 && n2 !== n1;
+          });
+          return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '"' + (esGenericoDeVariantes ? ' data-sincodigo="1"' : '') + ' style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
             '<div style="font-weight:600">' + esc(it.nombre || '') + '</div>' +
             '<div style="font-size:10px;color:var(--tx3)">' + esc(it.sku || '') + (it.categoria ? ' &middot; ' + esc(it.categoria) : '') + '</div>' +
           '</div>';
@@ -3701,6 +3724,15 @@ function openDrw(id) {
           '<div class="bod-sugg-otro" style="padding:7px 10px;font-size:11px;color:var(--tx2);font-style:italic;cursor:pointer">&#10005; No esta en la lista / usar texto libre</div>';
         bodSugg.innerHTML = html;
         bodSugg.style.display = 'block';
+        // El dropdown es position:absolute, asi que no cuenta para el alto
+        // scrolleable del contenedor padre — si el campo esta cerca del
+        // fondo de la pantalla (caso real, 16 sep 2026: el formulario de
+        // "+ Solicitar" suele quedar hasta abajo del todo), el dropdown se
+        // corta contra el borde de la pantalla sin forma de bajar para
+        // verlo completo. scrollIntoView fuerza al contenedor con scroll
+        // (el cuerpo del drawer) a desplazarse lo necesario para que quede
+        // visible, aunque el dropdown en si no aporte altura al flujo.
+        if (bodSugg.scrollIntoView) bodSugg.scrollIntoView({block: 'nearest'});
       };
       bodDescInp.addEventListener('input', function() {
         if (bodCodigoInp) bodCodigoInp.value = ''; // cualquier edicion manual invalida la seleccion anterior
@@ -3712,7 +3744,7 @@ function openDrw(id) {
         var itemEl = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
         if (itemEl) {
           bodDescInp.value = itemEl.getAttribute('data-nombre') || '';
-          if (bodCodigoInp) bodCodigoInp.value = itemEl.getAttribute('data-sku') || '';
+          if (bodCodigoInp) bodCodigoInp.value = itemEl.getAttribute('data-sincodigo') === '1' ? '' : (itemEl.getAttribute('data-sku') || '');
         }
         bodSugg.style.display = 'none'; bodSugg.innerHTML = '';
       });
