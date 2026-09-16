@@ -8958,7 +8958,12 @@ function _capacidadCalc(nowTs) {
     for (var j = 0; j < asignados.length; j++) {
       var tec = porNombre[asignados[j]];
       tec.carga += horasPorTec;
-      tec.ordenes.push({plate: o.plate, ot: o.ot, model: o.model, horas: horasPorTec, pendiente: pendiente, fase: o.phase});
+      // esPrincipal distingue tech (principal) de tech2 (apoyo) -- pedido
+      // de Byron 16 sep 2026: caso real, Henry aparecia "en proceso" en una
+      // orden donde el era tech2 (apoyo de Pablo Jolon) en vez de la orden
+      // donde el mismo era el tecnico principal — ver el filtro de
+      // enProceso en buildCapacidadContent, que ahora prefiere principal.
+      tec.ordenes.push({plate: o.plate, ot: o.ot, model: o.model, horas: horasPorTec, pendiente: pendiente, fase: o.phase, esPrincipal: o.tech === asignados[j]});
       cargaTotal += horasPorTec;
     }
   }
@@ -9220,9 +9225,17 @@ function buildCapacidadContent(nowTs) {
     // version anterior — TODA la carga listada aqui mismo — se sentia
     // saturada): solo el vehiculo que esta EN PROCESO ahora mismo (fase ab)
     // y cuanto le falta a ESE — no la lista completa (eso vive en "Ver
-    // cola", plegado por defecto). Un tecnico solo trabaja una orden a la
-    // vez en la practica, asi que el primer match ya alcanza.
-    var enProceso = t.ordenes.filter(function(o2){ return o2.fase === 'ab'; })[0];
+    // cola", plegado por defecto).
+    // BUG REAL (16 sep 2026, mismo dia): con 2 ordenes en 'ab' a la vez (una
+    // como tecnico principal, otra como apoyo/tech2 de otro tecnico), se
+    // mostraba la primera que aparecia en el arreglo sin importar cual —
+    // caso real: a Henry le salia la Mercedes-Benz donde el era tech2 de
+    // Pablo Jolon, en vez de la Kia Sorento donde Henry es el principal.
+    // Ahora se prefiere SIEMPRE la orden donde el tecnico es principal
+    // (esPrincipal); si no tiene ninguna asi, cae al primer match que haya
+    // (ej. si solo tiene ordenes como apoyo).
+    var enProcesoCandidatas = t.ordenes.filter(function(o2){ return o2.fase === 'ab'; });
+    var enProceso = enProcesoCandidatas.filter(function(o2){ return o2.esPrincipal; })[0] || enProcesoCandidatas[0];
     var enProcesoHtml = enProceso
       ? '<div style="font-size:9px;color:var(--tx3);margin-top:2px">&#128295; #' + esc(enProceso.ot || '?') + (enProceso.model ? ' ' + esc(enProceso.model) : '') + ' &middot; ' + enProceso.horas.toFixed(1) + 'h restantes</div>'
       : '';
