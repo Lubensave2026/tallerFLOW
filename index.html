@@ -2078,10 +2078,14 @@ function _buscarEnCatalogoBodega(q) {
 // sigue pidiendo a mano como siempre. Los materiales de bodega no varian
 // por nivel (misma tabla). "Filtro de combustible" queda marcado "si
 // aplica" en el texto mismo — no todos los vehiculos lo llevan.
+// "Plomos balance" SALIO de aqui (17 sep 2026, ver SERVICIO_BODEGA_INTERMEDIO_EXTRA
+// abajo) — contra el Excel real de Byron ("PLANTILLA SERVICIOS Y DESPACHOS"),
+// tiene codigo real de bodega (WF08), asi que debia estar en Despacho Bodega
+// como los demas materiales con codigo, no como repuesto generico sin codigo.
 var SERVICIO_REPUESTOS_TEMPLATE = {
   menor: ['Filtro de aceite', 'Empaque tapon aceitera'],
-  intermedio: ['Filtro de aceite', 'Empaque tapon aceitera', 'Plomos balance', 'Filtro de aire'],
-  mayor: ['Filtro de aceite', 'Empaque tapon aceitera', 'Plomos balance', 'Filtro de aire', 'Bujias', 'Filtro de cabina', 'Filtro de combustible (si aplica)'],
+  intermedio: ['Filtro de aceite', 'Empaque tapon aceitera', 'Filtro de aire'],
+  mayor: ['Filtro de aceite', 'Empaque tapon aceitera', 'Filtro de aire', 'Bujias', 'Filtro de cabina', 'Filtro de combustible (si aplica)'],
 };
 // Codigo real de bodega por material (confirmado con Byron 14 sep 2026,
 // tabla de codigos mas usados). Dos usos del mismo codigo: (1) "etiqueta"
@@ -2098,13 +2102,26 @@ var SERVICIO_REPUESTOS_TEMPLATE = {
 // de bodega, es un cobro fijo para compensar el car wash del vehiculo, y
 // Despacho Bodega esta conectado a Bodega Virtual (descuenta inventario
 // real) — no debia estar ahi nunca.
+// "Abrillantador de motor" corregido a 'SM1901.' CON el punto final (17 sep
+// 2026) — confirmado contra el Excel real de Byron ("PLANTILLA SERVICIOS Y
+// DESPACHOS", 2 hojas) y contra el endpoint real de Bodega Virtual: el sku
+// real SIEMPRE lleva el punto. Sin el punto, el descuento por coincidencia
+// EXACTA de codigo fallaba silenciosamente.
 var SERVICIO_BODEGA_TEMPLATE = [
   { desc: 'Brake cleaner', codigo: '969250', etiqueta: '969250 (Spray Limp. Frenos)' },
   { desc: 'Desengrasante de motor', codigo: '17006' },
-  { desc: 'Abrillantador de motor', codigo: 'SM1901' },
+  { desc: 'Abrillantador de motor', codigo: 'SM1901.' },
   { desc: 'Liquido para chorritos', codigo: '5021977' },
   { desc: 'Lija', codigo: 'LIJ01' },
   { desc: 'Wippe', codigo: 'WIPE02' },
+];
+// Materiales de bodega para Intermedio Y Mayor (17 sep 2026, pedido de
+// Byron, ver Excel real) — "Plomos balance" (WF08) se movio aqui desde
+// repuestos, con cantidad sugerida (24, del mismo Excel). Igual que
+// SERVICIO_BODEGA_MAYOR_EXTRA, SI entra al diff aQuitar/aAgregar al cambiar
+// de nivel (ver _bodegaDeNivel).
+var SERVICIO_BODEGA_INTERMEDIO_EXTRA = [
+  { desc: 'Plomos balance', codigo: 'WF08', cantidad: 24 },
 ];
 // Materiales de bodega SOLO para Servicio Mayor (16 sep 2026, pedido de
 // Byron) — a diferencia de SERVICIO_BODEGA_TEMPLATE (igual en los 3
@@ -2120,13 +2137,48 @@ var SERVICIO_BODEGA_MAYOR_EXTRA = [
   { desc: 'Liquido de frenos', codigo: 'A031729.' },
   { desc: 'Refrigerante' },
 ];
-// Lista completa de materiales de bodega para un nivel dado — la base
-// (SERVICIO_BODEGA_TEMPLATE, igual en los 3) mas los extras de Mayor
+// Aceites condicionales de Servicio Mayor (17 sep 2026, pedido de Byron,
+// contra el Excel real: "17102 — se despacha cuando el vehiculo sea
+// mecanico" / "881791 — se despacha cuando el vehiculo trae catarina") — a
+// diferencia de todo lo demas de la plantilla, estos NO se agregan solos:
+// dependen de una caracteristica real del vehiculo en frente del tecnico,
+// asi que se pregunta una vez por cada uno al entrar a Mayor (ver
+// _preguntarAceitesCondicionalesMayor). El aceite de motor sigue FUERA a
+// proposito, como siempre — varia demasiado (viscosidad/cantidad) para
+// siquiera preguntarlo con un si/no.
+var SERVICIO_BODEGA_MAYOR_CONDICIONAL = [
+  { desc: 'Aceite de caja (mecanica)', codigo: '17102', cantidad: 3,
+    pregunta: '¿El vehiculo es de caja MECANICA (no automatica)?\n\nSi contestas que si, se va a agregar el aceite de caja (17102) a Despacho Bodega.' },
+  { desc: 'Aceite de diferencial', codigo: '881791', cantidad: 3,
+    pregunta: '¿El vehiculo usa diferencial trasero o doble traccion (4x4)?\n\nSi contestas que si, se va a agregar el aceite de diferencial (881791) a Despacho Bodega.' },
+];
+// Lista completa de materiales de bodega FIJOS (no condicionales) para un
+// nivel dado — la base (igual en los 3) mas los extras de Intermedio/Mayor
 // cuando aplica. Centralizado aqui para que aplicarPlantillaServicio use la
 // MISMA lista tanto al aplicar por primera vez como al diffear un cambio de
-// nivel, sin repetir la logica.
+// nivel, sin repetir la logica. Los CONDICIONALES (arriba) van aparte —
+// nunca entran aqui, porque no dependen del nivel sino de una respuesta.
 function _bodegaDeNivel(nivel) {
-  return SERVICIO_BODEGA_TEMPLATE.concat(nivel === 'mayor' ? SERVICIO_BODEGA_MAYOR_EXTRA : []);
+  var lista = SERVICIO_BODEGA_TEMPLATE.slice();
+  if (nivel === 'intermedio' || nivel === 'mayor') lista = lista.concat(SERVICIO_BODEGA_INTERMEDIO_EXTRA);
+  if (nivel === 'mayor') lista = lista.concat(SERVICIO_BODEGA_MAYOR_EXTRA);
+  return lista;
+}
+// Pregunta, una vez por cada aceite condicional (ver arriba), si aplica a
+// este vehiculo — solo al entrar a Mayor. Si ya esta agregado desde antes
+// (ej. el tecnico bajo de nivel y volvio a subir a Mayor sin haberlo
+// quitado a mano), no se vuelve a preguntar. Cada "si" queda igual de
+// marcado (desdeServicioPlantilla) que el resto de la plantilla, asi que
+// "Quitar plantilla completa" y el candado de Despachado ya lo cubren solos.
+function _preguntarAceitesCondicionalesMayor(o, who) {
+  SERVICIO_BODEGA_MAYOR_CONDICIONAL.forEach(function(item) {
+    var yaEsta = o.bodega.some(function(bd) { return bd.desc === item.desc && bd.desdeServicioPlantilla; });
+    if (yaEsta) return;
+    if (!confirm(item.pregunta)) return;
+    o.bodega.push({cantidad: String(item.cantidad), desc: esc(item.desc), especificacion: esc(item.codigo), codigo: esc(item.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
+    o.msgs = o.msgs || [];
+    o.msgs.push({who:who, txt:'&#9889; ' + esc(item.desc) + ' (' + esc(item.codigo) + ') agregado a Despacho Bodega — confirmado con el tecnico al aplicar Mayor', ts:Date.now(), type:'system'});
+  });
 }
 // Repuestos "fijos" que se agregan IGUAL en los 3 niveles (no varian por
 // nivel, nunca entran al diff de aQuitar/aAgregar al cambiar de nivel) —
@@ -2183,10 +2235,13 @@ function aplicarPlantillaServicio(id, nivel) {
     // que falta; lo que se repite en ambos niveles se deja intacto, para no
     // perder Vo.Bo./Mensajero/Partes/Instalado ya avanzado en un repuesto
     // que sigue aplicando de todas formas. Los materiales de bodega de
-    // SERVICIO_BODEGA_TEMPLATE nunca cambian entre niveles, pero desde el 16
-    // sep 2026 los de SERVICIO_BODEGA_MAYOR_EXTRA (Liquido de frenos,
-    // Refrigerante) SI son exclusivos de Mayor — se diffean igual que los
-    // repuestos (ver _bodegaDeNivel).
+    // SERVICIO_BODEGA_TEMPLATE nunca cambian entre niveles, pero los de
+    // SERVICIO_BODEGA_INTERMEDIO_EXTRA/MAYOR_EXTRA SI son exclusivos de su
+    // nivel — se diffean igual que los repuestos (ver _bodegaDeNivel). Los
+    // aceites CONDICIONALES (ver SERVICIO_BODEGA_MAYOR_CONDICIONAL) no
+    // entran a _bodegaDeNivel (no dependen del nivel sino de una respuesta),
+    // asi que se manejan aparte: se quitan al SALIR de Mayor si estaban, y
+    // se vuelve a preguntar al ENTRAR a Mayor.
     var itemsViejos = SERVICIO_REPUESTOS_TEMPLATE[nivelViejo] || [];
     var aQuitar = itemsViejos.filter(function(d) { return itemsNuevos.indexOf(d) === -1; });
     var aAgregar = itemsNuevos.filter(function(d) { return itemsViejos.indexOf(d) === -1; });
@@ -2195,9 +2250,14 @@ function aplicarPlantillaServicio(id, nivel) {
 
     var itemsViejosBod = _bodegaDeNivel(nivelViejo);
     var itemsNuevosBod = _bodegaDeNivel(nivel);
-    var aQuitarBod = itemsViejosBod.filter(function(it) { return !itemsNuevosBod.some(function(it2){ return it2.desc === it.desc; }); });
+    var aQuitarBodDescs = itemsViejosBod.filter(function(it) { return !itemsNuevosBod.some(function(it2){ return it2.desc === it.desc; }); }).map(function(it){ return it.desc; });
     var aAgregarBod = itemsNuevosBod.filter(function(it) { return !itemsViejosBod.some(function(it2){ return it2.desc === it.desc; }); });
-    var entradasAQuitarBod = o.bodega.filter(function(bd) { return bd.desdeServicioPlantilla && aQuitarBod.some(function(it){ return it.desc === bd.desc; }); });
+    // Al SALIR de Mayor, los aceites condicionales (si se habian agregado)
+    // tambien se quitan — ya no aplican, aunque no vengan de _bodegaDeNivel.
+    if (nivel !== 'mayor') {
+      aQuitarBodDescs = aQuitarBodDescs.concat(SERVICIO_BODEGA_MAYOR_CONDICIONAL.map(function(it){ return it.desc; }));
+    }
+    var entradasAQuitarBod = o.bodega.filter(function(bd) { return bd.desdeServicioPlantilla && aQuitarBodDescs.indexOf(bd.desc) !== -1; });
     var conAvanceBod = entradasAQuitarBod.filter(function(bd) { return bd.vobo || bd.despachado; });
 
     var msgConfirm = 'Ya aplicaste la plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivelViejo] + '. ¿Cambiar a Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + '?\n\n' +
@@ -2211,15 +2271,16 @@ function aplicarPlantillaServicio(id, nivel) {
     aAgregar.forEach(function(desc) {
       o.repuestos.push({desc: esc(desc), ck1:false, ck2:false, ck3:false, by: who, ts: Date.now(), origen: 'local', addedByTec: addedByTec, desdeServicioPlantilla: true});
     });
-    o.bodega = o.bodega.filter(function(bd) { return !(bd.desdeServicioPlantilla && aQuitarBod.some(function(it){ return it.desc === bd.desc; })); });
+    o.bodega = o.bodega.filter(function(bd) { return !(bd.desdeServicioPlantilla && aQuitarBodDescs.indexOf(bd.desc) !== -1); });
     aAgregarBod.forEach(function(item) {
-      var nuevoBod = {cantidad:'', desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo || ''), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
+      var nuevoBod = {cantidad: (item.cantidad != null ? String(item.cantidad) : ''), desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo || ''), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
       if (item.codigo) nuevoBod.codigo = esc(item.codigo);
       o.bodega.push(nuevoBod);
     });
     o.tipoServicioAplicado = nivel;
     o.msgs = o.msgs || [];
     o.msgs.push({who:who, txt:'&#9889; Plantilla de servicio cambiada: ' + SERVICIO_TEMPLATE_LABELS[nivelViejo] + ' → ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' (' + entradasAQuitar.length + '+' + entradasAQuitarBod.length + ' quitado(s), ' + aAgregar.length + '+' + aAgregarBod.length + ' agregado(s))', ts:Date.now(), type:'system'});
+    if (nivel === 'mayor') _preguntarAceitesCondicionalesMayor(o, who);
     save();
     toast('Cambiado a Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ': ' + (entradasAQuitar.length + entradasAQuitarBod.length) + ' quitados, ' + (aAgregar.length + aAgregarBod.length) + ' agregados');
     openDrw(id);
@@ -2238,13 +2299,14 @@ function aplicarPlantillaServicio(id, nivel) {
   });
   var bodegaDeEsteNivel = _bodegaDeNivel(nivel);
   bodegaDeEsteNivel.forEach(function(item) {
-    var nuevoBod = {cantidad:'', desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo || ''), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
+    var nuevoBod = {cantidad: (item.cantidad != null ? String(item.cantidad) : ''), desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo || ''), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
     if (item.codigo) nuevoBod.codigo = esc(item.codigo);
     o.bodega.push(nuevoBod);
   });
   o.tipoServicioAplicado = nivel;
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt:'&#9889; Plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + (itemsNuevos.length + SERVICIO_REPUESTOS_FIJOS.length) + ' repuesto(s) + ' + bodegaDeEsteNivel.length + ' material(es) de bodega' + (addedByTec ? ' — repuestos requieren Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
+  if (nivel === 'mayor') _preguntarAceitesCondicionalesMayor(o, who);
   save();
   toast('Plantilla ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + (itemsNuevos.length + SERVICIO_REPUESTOS_FIJOS.length) + ' repuestos + ' + bodegaDeEsteNivel.length + ' materiales de bodega');
   openDrw(id);
@@ -5778,11 +5840,32 @@ function buildRepContent() {
     // promedio se diluye y deja de reflejar que tan lento es ESE paso
     // cuando de verdad ocurre (confirmado con Byron: eso es lo que quiere
     // ver, no el promedio contra todas las cerradas del mes).
+    //
+    // AMPLIACION 17 sep 2026 (pedido de Byron): antes solo entraban las
+    // cerradas del mes, asi que una orden que llevaba VARIOS DIAS metida en
+    // Presupuesto ahora mismo (justo el caso que le preocupaba) no sumaba
+    // nada al promedio hasta que cerrara — el numero salia mas bajo de lo
+    // real. Ahora tambien se suman las ACTIVAS que ya pasaron por
+    // Presupuesto, SIN corte de mes (igual que "Activas"/"Repuestos
+    // pendientes"/"Productividad en proceso" mas arriba: una orden activa es
+    // un estado en vivo, no tiene el punto de corte de "cuando cerro"). Si
+    // la activa esta AHORA MISMO en 'pa' o 'pb', se le suma ademas el tiempo
+    // transcurrido en vivo (_minutosFase), porque ese tramo todavia no quedo
+    // registrado en phaseLog (eso solo se escribe cuando la orden SALE de la
+    // fase).
     var presupSumHoras = 0, presupCount = 0;
     for (var psi = 0; psi < reprocesosOrders.length; psi++) {
       var po = reprocesosOrders[psi];
-      if (po.phase !== 'cer' || !_eventInCurrentMonth(po.timestamps && po.timestamps.cer)) continue;
-      var presupHoras = _sumPhaseHours(po, 'pa') + _sumPhaseHours(po, 'pb');
+      var presupHoras;
+      if (po.phase === 'cer') {
+        if (!_eventInCurrentMonth(po.timestamps && po.timestamps.cer)) continue;
+        presupHoras = _sumPhaseHours(po, 'pa') + _sumPhaseHours(po, 'pb');
+      } else {
+        presupHoras = _sumPhaseHours(po, 'pa') + _sumPhaseHours(po, 'pb');
+        if ((po.phase === 'pa' || po.phase === 'pb') && po.timestamps && po.timestamps[po.phase]) {
+          presupHoras += _minutosFase(po.phase, po.timestamps[po.phase], Date.now()) / 60;
+        }
+      }
       if (presupHoras > 0) { presupSumHoras += presupHoras; presupCount++; }
     }
     var presupPromedioHoras = presupCount ? (presupSumHoras / presupCount) : null;
