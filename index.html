@@ -530,7 +530,7 @@ button{cursor:pointer}
         <select class="fi" id="f-pr"><option value="normal">Normal</option><option value="urgente">Urgente</option><option value="vip">VIP</option><option value="garantia">Garantia</option><option value="interna">Interna</option><option value="endpint">End. y Pint.</option></select></div>
     </div>
     <div class="fr2">
-      <div class="fg"><label class="fl">Ubicacion</label>
+      <div class="fg"><label class="fl">Sucursal</label>
         <select class="fi" id="f-ub"><option>AGUILARB</option><option>FRAIJNES</option><option>Z10</option></select></div>
       <div class="fg"><label class="fl">Espacio</label>
         <select class="fi" id="f-sp">
@@ -2517,8 +2517,7 @@ function openDrw(id) {
   var canEdit = (role === 'jefe');
   if (canEdit) {
     html += '<div class="sec">' +
-      '<div class="sec-l" style="display:flex;justify-content:space-between;align-items:center">' +
-        '<span>Informacion</span>' +
+      '<div class="sec-l" style="display:flex;justify-content:flex-end;align-items:center">' +
         '<button id="btn-edit-order" class="btn-s" style="font-size:10px;padding:4px 10px">&#9999; Editar</button>' +
       '</div>' +
       '<div id="edit-order-form" style="display:none;margin-bottom:8px">' +
@@ -2562,7 +2561,7 @@ function openDrw(id) {
           '</select></div>'
         : '') +
         (role === 'jefe' ?
-          '<div class="fg" style="margin-bottom:6px"><label class="fl">Ubicacion (taller)</label><select class="fi" id="e-loc">' +
+          '<div class="fg" style="margin-bottom:6px"><label class="fl">Sucursal (taller)</label><select class="fi" id="e-loc">' +
             '<option value="AGUILARB"' + (o.loc === 'AGUILARB' ? ' selected' : '') + '>AGUILARB</option>' +
             '<option value="FRAIJNES"' + (o.loc === 'FRAIJNES' ? ' selected' : '') + '>FRAIJNES</option>' +
             '<option value="Z10"' + (o.loc === 'Z10' ? ' selected' : '') + '>Z10</option>' +
@@ -2637,9 +2636,9 @@ function openDrw(id) {
         '<button id="btn-cm-link" data-oid="' + id + '" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (o.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>' +
       '</span></div>'
     : '';
-  html += '<div class="sec"><div class="sec-l">Informacion</div>' +
+  html += '<div class="sec">' +
     '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
-    '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc || '—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Sucursal</span><span>' + esc(o.loc || '—') + '</span></div>' +
     (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + esc(o.detMotivo) + '</span></div>' : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
     cmRowHtml +
@@ -2924,6 +2923,15 @@ function openDrw(id) {
       '<span style="font-size:12px;font-weight:600;color:var(--tx2)">' + fmtFullDate(o.cat) + '</span>' +
     '</div>';
   }
+  // Linea de tiempo (18 sep 2026): boton para alternar entre la vista de
+  // siempre (agrupada por etapa) y una vista cronologica con hora real de
+  // inicio/fin de cada tramo — pedido por Byron. Ambas vistas leen
+  // exactamente los mismos datos (o.phaseLog), asi que no hay nada que
+  // duplicar ni mantener sincronizado por separado.
+  if (o.phaseLog && o.phaseLog.length) {
+    phaseLogHtml += '<button id="btn-toggle-linea-tiempo" class="btn-s" style="width:100%;margin-bottom:8px;font-size:11px;padding:6px" onclick="toggleLineaTiempo(this)">&#128337; Ver linea de tiempo</button>';
+  }
+  phaseLogHtml += '<div id="bitacora-vista-etapa" style="display:block">';
   if (o.phaseLog && o.phaseLog.length) {
     // Filter phases by role
     var visiblePhases = null; // null = all
@@ -2989,6 +2997,8 @@ function openDrw(id) {
   } else {
     phaseLogHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Aun no hay movimientos de fase registrados.</div>';
   }
+  phaseLogHtml += '</div>' +
+    '<div id="bitacora-vista-tiempo" style="display:none">' + _buildLineaTiempoHtml(o, role) + '</div>';
   // Tiempo especifico EN RUTA (desde "Marcar salida a ruta" hasta que el
   // Jefe firma) — dato aparte del total de la fase Prueba/Insp.Final, que
   // sigue mostrandose igual arriba sin cambios. Se muestra en cuanto queda
@@ -4063,7 +4073,7 @@ function openDrw(id) {
       if (eTotalEl && eMoEl && (ox.montoTotal||0) !== newTotal) changes.push('Montos actualizados');
       if (eTech1El && (ox.tech||'') !== (newTech1||'')) changes.push('Tecnico: ' + esc(ox.tech||'Sin asignar') + ' -> ' + esc(newTech1||'Sin asignar'));
       if (ePrioEl && (ox.prio||'normal') !== newPrio) changes.push('Prioridad: ' + (PRIO_LABELS[ox.prio]||'Normal') + ' -> ' + (PRIO_LABELS[newPrio]||'Normal'));
-      if (eLocEl && (ox.loc||'') !== newLoc) changes.push('Ubicacion: ' + esc(ox.loc||'—') + ' -> ' + esc(newLoc));
+      if (eLocEl && (ox.loc||'') !== newLoc) changes.push('Sucursal: ' + esc(ox.loc||'—') + ' -> ' + esc(newLoc));
       if (eKmEl && (ox.km!=null?ox.km:null) !== newKm) changes.push('Kilometraje: ' + (ox.km!=null ? ox.km.toLocaleString('es-GT') : '—') + ' -> ' + (newKm!=null ? newKm.toLocaleString('es-GT') : '—'));
       ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
       ox.numFisico = newNum; ox.colorFisico = newColor;
@@ -9541,6 +9551,90 @@ var PHASE_COLORS = {
   'det': {bg:'#1a0a0a',color:'#FF4444',label:'DETENIDO'},
 };
 
+// Linea de tiempo de una orden (18 sep 2026, pedido por Byron): la MISMA
+// data de o.phaseLog (bitacora agrupada por etapa, ver arriba en openDrw)
+// pero en orden cronologico con hora real de inicio/fin de cada tramo, en
+// vez de sumada por tipo de etapa. No agrega ningun dato nuevo — reusa
+// exactamente el from/to que advance() ya guarda en cada cambio de fase —
+// asi que tambien funciona con ordenes viejas que ya tienen bitacora, no
+// solo con las que se abran de ahora en adelante.
+function _buildLineaTiempoHtml(o, role) {
+  var visiblePhases = null; // null = todas (jefe, asesor, partes)
+  if (role === 'mensajero') visiblePhases = ['er'];
+  else if (role === 'lavador') visiblePhases = ['lav'];
+  else if (ROLES[role] && ROLES[role].tec) visiblePhases = ['aa','ab','er','ea','det','ext','prb','lav'];
+
+  var fmtHora = function(ts) { return new Date(ts).toLocaleTimeString('es-GT', {hour:'2-digit', minute:'2-digit', hour12:false}); };
+  var fmtFecha = function(ts) { return new Date(ts).toLocaleDateString('es-GT', {day:'2-digit', month:'2-digit'}); };
+  var fila = function(ts, borderColor, innerHtml) {
+    return {ts: ts, html: '<div style="display:flex;align-items:center;gap:8px;padding:6px 0 6px 10px;border-left:3px solid ' + borderColor + ';margin-bottom:2px">' + innerHtml + '</div>'};
+  };
+  var rows = [];
+
+  if (o.cat) {
+    rows.push(fila(o.cat, 'var(--bd2)',
+      '<span style="font-size:10px;color:var(--tx3);white-space:nowrap">' + fmtFecha(o.cat) + ' ' + fmtHora(o.cat) + '</span>' +
+      '<span style="font-size:11px;color:var(--tx2)">&#128198; Apertura de la orden</span>'));
+  }
+
+  var log = (o.phaseLog || []).filter(function(pl) { return !visiblePhases || visiblePhases.indexOf(pl.phase) >= 0; });
+  for (var i = 0; i < log.length; i++) {
+    var pl = log[i];
+    var pc = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[pl.phase]) ? PHASE_COLORS[pl.phase] : {bg:'#333', color:'#fff', label:pl.phase};
+    var badgeLabel = pl.subphase ? esc(pl.label) : pc.label;
+    var dur = (pl.minutes||0) < 60 ? Math.round(pl.minutes||0) + ' min' : ((pl.minutes||0)/60).toFixed(1) + ' h.h.';
+    rows.push(fila(pl.from, pc.bg,
+      '<span style="font-size:10px;color:var(--tx3);white-space:nowrap">' + fmtFecha(pl.from) + ' ' + fmtHora(pl.from) + ' &ndash; ' + fmtHora(pl.to) + '</span>' +
+      '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:1px 7px;border-radius:8px;font-size:9px;font-weight:600;white-space:nowrap">' + badgeLabel + '</span>' +
+      (pl.motivo ? '<span style="font-size:10px;color:var(--rd)">&#128683; ' + esc(pl.motivo) + '</span>' : '') +
+      '<span style="flex:1"></span>' +
+      '<span style="font-size:10px;color:var(--or);white-space:nowrap;font-weight:600">&#9201; ' + dur + '</span>'));
+  }
+
+  // Fase actual, si la orden sigue activa: ese tramo aun no esta en
+  // o.phaseLog (solo se guarda ahi cuando la orden SALE de la fase).
+  if (o.phase !== 'cer' && o.timestamps && o.timestamps[o.phase] && (!visiblePhases || visiblePhases.indexOf(o.phase) >= 0)) {
+    var pcNow = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[o.phase]) ? PHASE_COLORS[o.phase] : {bg:'#333', color:'#fff', label:o.phase};
+    var fromNow = o.timestamps[o.phase];
+    rows.push(fila(fromNow, pcNow.bg,
+      '<span style="font-size:10px;color:var(--tx3);white-space:nowrap">' + fmtFecha(fromNow) + ' ' + fmtHora(fromNow) + ' &ndash; en curso</span>' +
+      '<span style="background:' + pcNow.bg + ';color:' + pcNow.color + ';padding:1px 7px;border-radius:8px;font-size:9px;font-weight:600;white-space:nowrap">' + pcNow.label + '</span>'));
+  }
+
+  // Tiempo en ruta: o.rutaMinutos es un TOTAL acumulado (puede incluir mas
+  // de una salida en la misma orden, ver o.rutaSalidaTs en advance()), no
+  // hay un from/to individual por cada viaje — se muestra como un tramo
+  // aparte usando la ultima salida conocida como referencia de hora.
+  if (o.rutaMinutos !== undefined && o.rutaMinutos !== null && o.rutaSalidaTs && (!visiblePhases || visiblePhases.indexOf('prb') >= 0)) {
+    var rutaDur = o.rutaMinutos < 60 ? Math.round(o.rutaMinutos) + ' min' : (o.rutaMinutos/60).toFixed(1) + ' h';
+    rows.push(fila(o.rutaSalidaTs, '#F9A825',
+      '<span style="font-size:10px;color:var(--tx3);white-space:nowrap">' + fmtFecha(o.rutaSalidaTs) + ' ' + fmtHora(o.rutaSalidaTs) + '</span>' +
+      '<span style="background:#F9A825;color:#000;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:600;white-space:nowrap">EN RUTA</span>' +
+      '<span style="flex:1"></span>' +
+      '<span style="font-size:10px;color:#F9A825;white-space:nowrap;font-weight:600">&#9201; ' + rutaDur + '</span>'));
+  }
+
+  if (o.timestamps && o.timestamps.cer) {
+    rows.push(fila(o.timestamps.cer, 'var(--gnbd)',
+      '<span style="font-size:10px;color:var(--tx3);white-space:nowrap">' + fmtFecha(o.timestamps.cer) + ' ' + fmtHora(o.timestamps.cer) + '</span>' +
+      '<span style="font-size:11px;color:var(--gn)">&#9989; Cierre de la orden</span>'));
+  }
+
+  if (!rows.length) return '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Aun no hay movimientos de fase registrados.</div>';
+
+  rows.sort(function(a, b) { return a.ts - b.ts; });
+  return rows.map(function(r) { return r.html; }).join('');
+}
+
+function toggleLineaTiempo(btn) {
+  var vistaEtapa = document.getElementById('bitacora-vista-etapa');
+  var vistaTiempo = document.getElementById('bitacora-vista-tiempo');
+  if (!vistaEtapa || !vistaTiempo) return;
+  var mostrarTiempo = vistaTiempo.style.display === 'none';
+  vistaEtapa.style.display = mostrarTiempo ? 'none' : 'block';
+  vistaTiempo.style.display = mostrarTiempo ? 'block' : 'none';
+  if (btn) btn.innerHTML = mostrarTiempo ? '&#128202; Ver por etapa' : '&#128337; Ver linea de tiempo';
+}
 
 
 
@@ -10255,7 +10349,7 @@ function openHistDetail(o) {
     '<div class="irow"><span class="ik">Fecha de entrega</span><span>' + fechaEntregaDetail + '</span></div>' +
     (esSegundoCierre ? '<div class="irow"><span class="ik" style="font-size:10px;color:var(--tx3)">&#8618; Cierre adicional (informativo)</span><span style="font-size:10px;color:var(--tx3)">' + fechaSegundoCierreDetail + '</span></div>' : '') +
     '<div class="irow"><span class="ik">&#128202; % Productividad</span><span style="color:' + pctProdHistColor + ';font-weight:700">' + (pctProdHistDetail !== null ? pctProdHistDetail + '%' : '—') + '</span></div>' +
-    '<div class="irow"><span class="ik">Ubicacion</span><span>' + esc(o.loc||'—') + '</span></div>' +
+    '<div class="irow"><span class="ik">Sucursal</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor' || role === 'partes') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
