@@ -17,14 +17,6 @@
 <script defer src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-check-compat.js"></script>
 <style>
-/* Scrollbars mas anchas y visibles (Chrome/Edge/Safari) — mejora usabilidad
-   en computadora sin afectar layout ni funcionalidad */
-::-webkit-scrollbar{width:14px;height:14px}
-::-webkit-scrollbar-track{background:#181B24}
-::-webkit-scrollbar-thumb{background:#3A4060;border-radius:8px;border:3px solid #181B24}
-::-webkit-scrollbar-thumb:hover{background:#3D7EFF}
-/* Firefox */
-*{scrollbar-width:auto;scrollbar-color:#3A4060 #181B24}
 :root{
   --bg:#0F1117;--bg2:#181B24;--bg3:#1E2230;--bg4:#252A3A;
   /* Espacio vacio de cada columna del tablero (16 sep 2026, pedido de
@@ -32,7 +24,7 @@
      N Save, para contrastar contra el espacio ocupado por fichas. Variable
      PROPIA (no reusa --bg2, que se usa en otros lugares del layout) para no
      afectar nada mas al cambiar este tono. */
-  --lane-empty:#D6CBAE;
+  --lane-empty:#C9C7BE;
   --bd:#2E3447;--bd2:#3A4060;
   --tx:#E8EAF0;--tx2:#CDD3E6;--tx3:#A6ADC7;
   --ac:#3D7EFF;--ac2:#1A4FCC;
@@ -293,11 +285,16 @@ button{cursor:pointer}
 .t-det{background:#1a0a0a;color:#FF4444;border:1px solid #8B0000;font-weight:700}
 
 .brand-logo{display:inline-block}.brand-logo[src=""]{display:none}
+/* Barra mas visible (16 sep 2026, pedido de Byron: "se pierden un poco") —
+   antes el thumb (--bd2, #3A4060) quedaba muy cerca en tono del track
+   (--bg2), casi sin contraste entre ambos aunque el fondo alrededor
+   cambiara de color. Ahora el thumb usa un gris mas claro, bien diferenciado
+   del track oscuro sin importar que haya detras. */
 ::-webkit-scrollbar{width:11px;height:11px}
 ::-webkit-scrollbar-track{background:var(--bg2)}
-::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:6px;border:2px solid var(--bg2)}
+::-webkit-scrollbar-thumb{background:#7A85AC;border-radius:6px;border:2px solid var(--bg2)}
 ::-webkit-scrollbar-thumb:hover{background:var(--ac)}
-*{scrollbar-width:auto;scrollbar-color:var(--bd2) var(--bg2)}
+*{scrollbar-width:auto;scrollbar-color:#7A85AC var(--bg2)}
 @media(min-width:600px){
   .drw,.modal{max-width:480px;left:50%;right:auto;border-radius:var(--r) var(--r) 0 0}
   .drw{transform:translateX(-50%) translateY(100%)}
@@ -1843,7 +1840,11 @@ function renderBoard() {
       // Technicians: hide empty lanes entirely (too many lanes otherwise)
       if (r2 && r2.tec) { continue; }
       var emp = document.createElement('div');
-      emp.style.cssText = 'font-size:11px;color:var(--tx3);text-align:center;padding:12px 0';
+      // Color oscuro fijo, no var(--tx3) (16 sep 2026, pedido de Byron): ese
+      // gris claro esta pensado para fondos oscuros, y desde que el espacio
+      // vacio de la columna (--lane-empty) es claro, el texto casi
+      // desaparecia por falta de contraste.
+      emp.style.cssText = 'font-size:11px;color:#231F1A;text-align:center;padding:12px 0';
       emp.textContent = 'Sin ordenes';
       body.appendChild(emp);
     } else {
