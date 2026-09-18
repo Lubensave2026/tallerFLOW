@@ -2053,17 +2053,60 @@ function _cargarCatalogoBodega() {
 // especifica (ej. un color) antes que la version sin definir, cuando lo
 // correcto varia por vehiculo y lo debe elegir el tecnico, no adivinarlo el
 // orden de la lista.
+// Antes exigia la frase completa como UN solo substring pegado — un
+// tecnico escribiendo una frase natural ("filtro de aceite", "aceite de
+// motor") no encontraba nada si el catalogo real no trae las palabras en
+// ese orden exacto (ej. "FILTRO DE ACEITE PH4967 TYT" SI calzaba por
+// casualidad, pero "filtro aceite" sin el "de" en medio NO). Sin
+// sugerencias, el tecnico terminaba escribiendo todo como texto libre sin
+// codigo — y ahi es cuando Bodega Virtual tiene que adivinar por su cuenta
+// (caso real reportado por Byron 18 sep 2026: "aceite de motor" + "15W40"
+// en Especificacion, sin elegir del catalogo, hizo que Bodega Virtual lo
+// emparejara con un aceite de OTRA viscosidad). Ahora se prueba en 3 pasos,
+// cada vez mas permisivo, sin perder precision cuando la busqueda simple ya
+// funcionaba:
+//   1) igual que antes: la frase completa tal cual, como un solo substring
+//      (cubre pegar un SKU o escribir un nombre casi exacto).
+//   2) si trae mas de una palabra: TODAS deben aparecer en alguna parte del
+//      nombre/sku/categoria, no necesariamente pegadas ni en ese orden.
+//   3) si aun asi no hay nada: se relaja a CUALQUIER palabra de mas de 3
+//      letras (se ignoran conectores cortos como "de"/"para") — asi al
+//      menos aparecen las variantes reales relacionadas (ej. los aceites)
+//      para que el tecnico elija la correcta a mano, en vez de quedarse
+//      sin ninguna sugerencia.
 function _buscarEnCatalogoBodega(q) {
   var items = _catalogoBodega.items || [];
   q = (q || '').trim().toLowerCase();
   if (!q || !items.length) return [];
-  return items.filter(function(it) {
-    return (it.nombre || '').toLowerCase().indexOf(q) !== -1 ||
-      (it.sku || '').toLowerCase().indexOf(q) !== -1 ||
-      (it.categoria || '').toLowerCase().indexOf(q) !== -1;
-  }).sort(function(a, b) {
-    return (a.nombre || '').length - (b.nombre || '').length;
-  }).slice(0, 8);
+  var ordenarYRecortar = function(arr) {
+    return arr.slice().sort(function(a, b) {
+      return (a.nombre || '').length - (b.nombre || '').length;
+    }).slice(0, 8);
+  };
+  var textoDe = function(it) {
+    return ((it.nombre || '') + ' ' + (it.sku || '') + ' ' + (it.categoria || '')).toLowerCase();
+  };
+  var exactos = items.filter(function(it) { return textoDe(it).indexOf(q) !== -1; });
+  if (exactos.length) return ordenarYRecortar(exactos);
+
+  var palabras = q.split(/\s+/).filter(Boolean);
+  if (palabras.length > 1) {
+    var todas = items.filter(function(it) {
+      var texto = textoDe(it);
+      return palabras.every(function(p) { return texto.indexOf(p) !== -1; });
+    });
+    if (todas.length) return ordenarYRecortar(todas);
+  }
+
+  var significativas = palabras.filter(function(p) { return p.length > 3; });
+  if (significativas.length) {
+    var alguna = items.filter(function(it) {
+      var texto = textoDe(it);
+      return significativas.some(function(p) { return texto.indexOf(p) !== -1; });
+    });
+    return ordenarYRecortar(alguna);
+  }
+  return [];
 }
 
 // Plantillas de "Servicio Menor/Intermedio/Mayor" (pedido de los tecnicos,
@@ -2175,7 +2218,7 @@ function _preguntarAceitesCondicionalesMayor(o, who) {
     var yaEsta = o.bodega.some(function(bd) { return bd.desc === item.desc && bd.desdeServicioPlantilla; });
     if (yaEsta) return;
     if (!confirm(item.pregunta)) return;
-    o.bodega.push({cantidad: String(item.cantidad), desc: esc(item.desc), especificacion: esc(item.codigo), codigo: esc(item.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
+    o.bodega.push({cantidad: String(item.cantidad), desc: esc(item.desc), codigo: esc(item.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
     o.msgs = o.msgs || [];
     o.msgs.push({who:who, txt:'&#9889; ' + esc(item.desc) + ' (' + esc(item.codigo) + ') agregado a Despacho Bodega — confirmado con el tecnico al aplicar Mayor', ts:Date.now(), type:'system'});
   });
@@ -2273,8 +2316,9 @@ function aplicarPlantillaServicio(id, nivel) {
     });
     o.bodega = o.bodega.filter(function(bd) { return !(bd.desdeServicioPlantilla && aQuitarBodDescs.indexOf(bd.desc) !== -1); });
     aAgregarBod.forEach(function(item) {
-      var nuevoBod = {cantidad: (item.cantidad != null ? String(item.cantidad) : ''), desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo || ''), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
+      var nuevoBod = {cantidad: (item.cantidad != null ? String(item.cantidad) : ''), desc: esc(item.desc), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
       if (item.codigo) nuevoBod.codigo = esc(item.codigo);
+      if (item.etiqueta) nuevoBod.etiqueta = esc(item.etiqueta);
       o.bodega.push(nuevoBod);
     });
     o.tipoServicioAplicado = nivel;
@@ -2299,8 +2343,9 @@ function aplicarPlantillaServicio(id, nivel) {
   });
   var bodegaDeEsteNivel = _bodegaDeNivel(nivel);
   bodegaDeEsteNivel.forEach(function(item) {
-    var nuevoBod = {cantidad: (item.cantidad != null ? String(item.cantidad) : ''), desc: esc(item.desc), especificacion: esc(item.etiqueta || item.codigo || ''), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
+    var nuevoBod = {cantidad: (item.cantidad != null ? String(item.cantidad) : ''), desc: esc(item.desc), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true};
     if (item.codigo) nuevoBod.codigo = esc(item.codigo);
+    if (item.etiqueta) nuevoBod.etiqueta = esc(item.etiqueta);
     o.bodega.push(nuevoBod);
   });
   o.tipoServicioAplicado = nivel;
@@ -3320,6 +3365,17 @@ function openDrw(id) {
     for (var bi = 0; bi < bodegaList.length; bi++) {
       var bit = bodegaList[bi];
       var bitDesc = esc(bit.cantidad || '') + ' ' + esc(bit.desc || '') + (bit.especificacion ? ' — ' + esc(bit.especificacion) : '');
+      // Codigo (o etiqueta, si trae una nota legible aparte, ej. "969250
+      // (Spray Limp. Frenos)") en su PROPIA etiqueta visual — nunca mezclado
+      // con Especificacion, que queda solo para detalle libre genuino
+      // (viscosidad, color, etc.). Pedido por Byron y confirmado por Bodega
+      // Virtual (18 sep 2026): antes el codigo de los materiales de la
+      // Plantilla se duplicaba dentro de Especificacion para que se viera
+      // facil, pero eso mezclaba 2 tipos de dato distintos en la misma
+      // casilla.
+      var bitCodigoBadge = (bit.etiqueta || bit.codigo)
+        ? ' <span style="font-family:var(--mo);font-size:9px;color:var(--tx2);background:var(--bg4);padding:1px 6px;border-radius:6px;border:1px solid var(--bd);white-space:nowrap">' + esc(bit.etiqueta || bit.codigo) + '</span>'
+        : '';
       var bitDone = bit.despachado;
       var bitStatus = bitDone
         ? '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Despachado</span>'
@@ -3330,7 +3386,7 @@ function openDrw(id) {
             : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Pendiente Vo.Bo. Jefe</span>'));
       bodegaHtml += '<div style="background:var(--bg3);border:1px solid ' + (bitDone ? 'var(--gnbd)' : 'var(--bd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (bitDone ? 'opacity:.6' : '') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
-          '<div style="font-size:12px;font-weight:500' + (bitDone ? ';text-decoration:line-through' : '') + '">' + bitDesc + '</div>' +
+          '<div style="font-size:12px;font-weight:500' + (bitDone ? ';text-decoration:line-through' : '') + '">' + bitDesc + bitCodigoBadge + '</div>' +
           (role === 'jefe' && !bitDone ? '<div style="display:flex;gap:4px;flex-shrink:0">' +
             '<button class="btn-bod-edit" data-bi="' + bi + '" title="Editar cantidad/especificacion" style="background:none;border:1px solid var(--tx2);color:var(--tx2);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#9998;</button>' +
             '<button class="btn-bod-del" data-bi="' + bi + '" title="Eliminar solicitud" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' +
@@ -7063,7 +7119,13 @@ function buildBodegaPartsTable(rows) {
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.client||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(row.o.model||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.cantidad||'—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.desc||'—') + '</td>' +
+        // Codigo (o etiqueta) en su propia etiqueta visual, junto a la
+        // Descripcion — nunca mezclado con Especificacion (pedido de Byron
+        // y de Bodega Virtual, 18 sep 2026: antes el codigo de los
+        // materiales de la Plantilla se duplicaba dentro de esa columna).
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.desc||'—') +
+          ((it.etiqueta || it.codigo) ? ' <span style="font-family:var(--mo);font-size:9px;color:var(--tx2);background:var(--bg4);padding:1px 6px;border-radius:6px;border:1px solid var(--bd);white-space:nowrap">' + esc(it.etiqueta || it.codigo) + '</span>' : '') +
+        '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.especificacion||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + esc(it.by||'—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-weight:600;white-space:nowrap;color:' + (it.despachado ? 'var(--gn)' : 'var(--or)') + '">' + (it.despachado ? 'Despachado' : 'Pendiente') + '</td>' +
@@ -7164,7 +7226,7 @@ function _todosUnificadoRows() {
     out.push({
       o: b.o, oid: b.o.id, tipo: 'Bodega',
       cantidad: String(it.cantidad || ''), desc: it.desc || '',
-      especificacion: it.especificacion || '', by: it.by || '',
+      especificacion: it.especificacion || '', codigoBadge: it.etiqueta || it.codigo || '', by: it.by || '',
       done: !!it.despachado,
       estadoLabel: it.despachado ? 'Despachado' : 'Pendiente',
       estadoColor: it.despachado ? 'var(--gn)' : 'var(--or)',
@@ -7278,7 +7340,9 @@ function buildTodosUnificadoTable() {
       html += '<tr style="background:' + rowBg + (r.done ? ';opacity:.6' : '') + ';cursor:pointer" class="todos-row" data-oid="' + r.oid + '">' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + tipoBadge + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)' + strike + '">' + (esc(r.cantidad) || '—') + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + (esc(r.desc) || '—') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + (esc(r.desc) || '—') +
+          (r.codigoBadge ? ' <span style="font-family:var(--mo);font-size:9px;color:var(--tx2);background:var(--bg4);padding:1px 6px;border-radius:6px;border:1px solid var(--bd);white-space:nowrap">' + esc(r.codigoBadge) + '</span>' : '') +
+        '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--tx2)' + strike + '">' + (esc(r.especificacion) || '—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + strike + '">' + (esc(r.by) || '—') + '</td>' +
         '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-weight:600;white-space:nowrap;color:' + r.estadoColor + '">' + esc(r.estadoLabel) + '</td>' +
