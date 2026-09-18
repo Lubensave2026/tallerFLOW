@@ -2928,8 +2928,16 @@ function openDrw(id) {
   // inicio/fin de cada tramo — pedido por Byron. Ambas vistas leen
   // exactamente los mismos datos (o.phaseLog), asi que no hay nada que
   // duplicar ni mantener sincronizado por separado.
+  // Imprimir/Exportar (18 sep 2026, mismo dia): solo la vista que este
+  // ACTIVA en pantalla en ese momento (etapa o linea de tiempo), con un
+  // encabezado (OT/placa/vehiculo/cliente/tecnico) — no la orden completa,
+  // que ya se imprime aparte con el boton de la campanita de arriba. Mismo
+  // rol permitido que ese otro boton (Jefe/Asesor).
   if (o.phaseLog && o.phaseLog.length) {
-    phaseLogHtml += '<button id="btn-toggle-linea-tiempo" class="btn-s" style="width:100%;margin-bottom:8px;font-size:11px;padding:6px" onclick="toggleLineaTiempo(this)">&#128337; Ver linea de tiempo</button>';
+    phaseLogHtml += '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+      '<button id="btn-toggle-linea-tiempo" class="btn-s" style="flex:1;font-size:11px;padding:6px" onclick="toggleLineaTiempo(this)">&#128337; Ver linea de tiempo</button>' +
+      ((role === 'jefe' || role === 'asesor') ? '<button id="btn-imprimir-bitacora" class="btn-s" style="flex:1;font-size:11px;padding:6px" onclick="imprimirBitacora(' + id + ')">&#128424; Imprimir/Exportar</button>' : '') +
+    '</div>';
   }
   phaseLogHtml += '<div id="bitacora-vista-etapa" style="display:block">';
   if (o.phaseLog && o.phaseLog.length) {
@@ -9634,6 +9642,63 @@ function toggleLineaTiempo(btn) {
   vistaEtapa.style.display = mostrarTiempo ? 'none' : 'block';
   vistaTiempo.style.display = mostrarTiempo ? 'block' : 'none';
   if (btn) btn.innerHTML = mostrarTiempo ? '&#128202; Ver por etapa' : '&#128337; Ver linea de tiempo';
+}
+
+// Encabezado + contenido de la Bitacora (o Linea de tiempo), para
+// imprimir/exportar SOLO esa seccion — no la orden completa (eso ya lo
+// tiene el boton de la campanita, ver printOrderReport). Mismo encabezado
+// (OT/placa/fase/vehiculo/cliente/tecnico) que ya usa el resumen enfocado
+// de "Preparar Facturacion" (_buildFocusedResumenHtml), para mantener el
+// mismo lenguaje visual entre los distintos "resumenes enfocados" de la app.
+function _buildBitacoraStandaloneHtml(o, tituloVista, vistaHtml) {
+  var pcS = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[o.phase]) ? PHASE_COLORS[o.phase] : {bg:'#333', color:'#fff', label:o.phase};
+  return '<div style="background:var(--bg3);border:1px solid var(--bd2);border-radius:var(--r);padding:12px 14px;margin-bottom:14px">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
+        '<span style="font-size:17px;font-weight:800;font-family:var(--mo);color:var(--ac)">&#35;' + esc(o.ot || '—') + '</span>' +
+        '<span style="font-size:15px;font-weight:700;font-family:var(--mo)">' + esc(o.plate || '—') + '</span>' +
+        '<span style="background:' + pcS.bg + ';color:' + pcS.color + ';padding:2px 9px;border-radius:10px;font-size:10px;font-weight:600;margin-left:auto">' + pcS.label + '</span>' +
+      '</div>' +
+      '<div style="font-size:13px;color:var(--tx);font-weight:600">' + esc(o.model || '—') + '</div>' +
+      '<div style="font-size:11px;color:var(--tx2);margin-top:2px">' + esc(o.client || '—') +
+        ' &middot; &#128295; ' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</div>' +
+    '</div>' +
+    '<div class="sec-l" style="margin-bottom:8px">' + esc(tituloVista) + '</div>' +
+    vistaHtml;
+}
+
+// Imprimir/Exportar SOLO la seccion 04 Bitacora del drawer — pedido por
+// Byron (18 sep 2026), justo despues de la Linea de tiempo. Toma la vista
+// que este ACTIVA en pantalla en ese momento (etapa o linea de tiempo, ya
+// renderizada en el drawer) tal cual, sin volver a construirla — asi el
+// PDF/impreso sale identico a lo que se ve en pantalla y no hay 2 copias
+// de la misma logica de render que mantener sincronizadas. Reusa el mismo
+// mecanismo de impresion ya probado con "Preparar Facturacion"/"Orden de
+// Trabajo" (ver generarOrdenTrabajoFormal): reemplaza #hist-detail-body con
+// un HTML aparte y abre el modal #m-hist-detail, que ya esta exento de la
+// regla que oculta el resto de modales al imprimir (ver @media print).
+function imprimirBitacora(id) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) { toast('Orden no encontrada'); return; }
+  var vistaTiempoEl = document.getElementById('bitacora-vista-tiempo');
+  var vistaEtapaEl = document.getElementById('bitacora-vista-etapa');
+  var mostrandoTiempo = !!(vistaTiempoEl && vistaTiempoEl.style.display !== 'none');
+  var vistaHtml = mostrandoTiempo
+    ? (vistaTiempoEl ? vistaTiempoEl.innerHTML : '')
+    : (vistaEtapaEl ? vistaEtapaEl.innerHTML : '');
+  var tituloVista = mostrandoTiempo ? 'Linea de tiempo' : 'Bitacora';
+  closeDrw();
+  var titleEl = document.getElementById('hist-detail-title');
+  if (titleEl) titleEl.innerHTML = '<span style="font-family:var(--mo);font-weight:700">' + esc(o.plate) + '</span> &mdash; ' + esc(o.ot) +
+    '<span style="margin-left:auto;display:flex;gap:6px">' +
+    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="window.print()">&#128424; Imprimir</button>' +
+    '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeHistDetail()">&#x2715;</button></span>';
+  var bodyEl = document.getElementById('hist-detail-body');
+  if (bodyEl) bodyEl.innerHTML = _buildBitacoraStandaloneHtml(o, tituloVista, vistaHtml);
+  document.getElementById('m-hist-detail').classList.remove('print-restringido');
+  var printOnlyElBit = document.getElementById('hist-detail-print-only');
+  if (printOnlyElBit) printOnlyElBit.innerHTML = '';
+  document.getElementById('m-hist-detail').classList.add('on');
 }
 
 
