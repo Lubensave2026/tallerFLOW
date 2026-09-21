@@ -515,7 +515,7 @@ button{cursor:pointer}
   <div class="modal">
     <div class="modal-t">Nueva orden <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeNO()">✕</button></div>
     <div class="fr2">
-      <div class="fg"><label class="fl">Placa *</label><input class="fi" id="f-pl" placeholder="P-123ABC"></div>
+      <div class="fg"><label class="fl">Placa *</label><input class="fi" id="f-pl" placeholder="P-123ABC" onblur="_autocompletarDesdePlaca()"></div>
       <div class="fg"><label class="fl">No. OT</label><input class="fi" id="f-ot" placeholder="OT-4350"></div>
     </div>
     <div class="fg"><label class="fl">Vehiculo *</label><input class="fi" id="f-mo" placeholder="Toyota Hilux 2020"></div>
@@ -531,7 +531,7 @@ button{cursor:pointer}
     </div>
     <div class="fr2">
       <div class="fg"><label class="fl">Sucursal</label>
-        <select class="fi" id="f-ub"><option>AGUILARB</option><option>FRAIJNES</option><option>Z10</option></select></div>
+        <select class="fi" id="f-ub"><option>AGUILARB</option><option>FRAIJNES</option><option selected>Z10</option></select></div>
       <div class="fg"><label class="fl">Espacio</label>
         <select class="fi" id="f-sp">
           <option value="">Sin asignar</option>
@@ -5143,6 +5143,52 @@ var _noRepDraft = []; // repuestos capturados en el modal de Nueva Orden, antes 
 // tecnicos, 1 sep 2026: unificar sin amarrar, porque lo pedido por el
 // cliente y lo realmente trabajado son dos hechos que pueden no coincidir).
 var _noTipoServicio = null;
+// Autocompletar Vehiculo/Cliente desde la placa en "Nueva orden" (Byron, 21
+// sep 2026): al escribir la placa y salir del campo, si ese mismo carro ya
+// tuvo una orden antes, se jala su Vehiculo/Cliente en vez de escribirlos a
+// mano de nuevo. Busca primero en `orders` (activas + cerradas recientes, ya
+// en memoria — mismo arreglo que usa saveNO() para detectar duplicados) y,
+// si no hay nada ahi, en `archived` (ordenes viejas, se cargan bajo demanda
+// con refreshArchived — no viajan siempre en memoria). Se queda con la
+// coincidencia MAS RECIENTE por fecha de creacion (`cat`), y solo llena los
+// campos si los 2 siguen vacios: si el usuario ya escribio algo a mano (ej.
+// el carro cambio de dueno), nunca se le pisa lo que escribio.
+function _buscarUltimaOrdenPorPlaca(placaNorm, lista) {
+  var mejor = null;
+  for (var i = 0; i < lista.length; i++) {
+    var o = lista[i];
+    if (!o || !o.plate) continue;
+    if (String(o.plate).trim().toUpperCase() !== placaNorm) continue;
+    if (!mejor || (o.cat || 0) > (mejor.cat || 0)) mejor = o;
+  }
+  return mejor;
+}
+function _aplicarAutocompletadoPlaca(o, moEl, clEl) {
+  if (o.model)  moEl.value = o.model;
+  if (o.client) clEl.value = o.client;
+  if (typeof toast === 'function') toast('Vehiculo/Cliente autocompletados de una orden anterior — revisa antes de crear');
+}
+function _autocompletarDesdePlaca() {
+  var plEl = document.getElementById('f-pl');
+  var moEl = document.getElementById('f-mo');
+  var clEl = document.getElementById('f-cl');
+  if (!plEl || !moEl || !clEl) return;
+  var placaNorm = plEl.value.trim().toUpperCase();
+  if (!placaNorm) return;
+  if (moEl.value.trim() || clEl.value.trim()) return;
+  var match = _buscarUltimaOrdenPorPlaca(placaNorm, orders);
+  if (match) { _aplicarAutocompletadoPlaca(match, moEl, clEl); return; }
+  // No aparecio entre las activas/recientes -- se busca tambien en el
+  // historial archivado. Carga bajo demanda (no bloquea el formulario); si
+  // el usuario ya siguio escribiendo para cuando responde, no se toca nada.
+  if (typeof refreshArchived !== 'function') return;
+  refreshArchived(function() {
+    if (moEl.value.trim() || clEl.value.trim()) return;
+    if (plEl.value.trim().toUpperCase() !== placaNorm) return;
+    var matchArch = _buscarUltimaOrdenPorPlaca(placaNorm, archived || []);
+    if (matchArch) _aplicarAutocompletadoPlaca(matchArch, moEl, clEl);
+  });
+}
 function openNO() {
   _noRepDraft = [];
   _noTipoServicio = null;
@@ -5150,6 +5196,13 @@ function openNO() {
   // Boton siempre habilitado al abrir: si un intento anterior quedo a medias
   // (se corto la conexion), no debe heredarse el estado "Creando..."
   if (typeof _setSavingNO === 'function') _setSavingNO(false);
+  // Sucursal siempre arranca en Z10 (Byron, 21 sep 2026): casi todas las
+  // ordenes son de Z10 y se le olvidaba cambiarla desde Aguilar Batres cada
+  // vez. Se resetea aqui (no solo con el "selected" del HTML) para que
+  // tambien vuelva a Z10 si una orden anterior en la misma sesion se dejo en
+  // otra sucursal.
+  var ubEl = document.getElementById('f-ub');
+  if (ubEl) ubEl.value = 'Z10';
   document.getElementById('m-no').classList.add('on');
 }
 function closeNO() {
