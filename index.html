@@ -2232,10 +2232,11 @@ function _preguntarAceitesCondicionalesMayor(o, who) {
 // Bodega, esta completamente fuera de la integracion con Bodega Virtual
 // (decision ya acordada desde antes: repuestos comprados afuera nunca
 // tocan su inventario), asi que nunca dispara un descuento que no
-// corresponde. especificacion aclara que no es inventario, para quien lo
-// vea en Repuestos y Subcontratos no se confunda con una pieza real.
+// corresponde. Sin especificacion (Byron, 22 sep 2026: la leyenda que
+// aclaraba esto se veia de mas en la lista) — el desc "Materiales
+// auxiliares" ya deja claro de que se trata.
 var SERVICIO_REPUESTOS_FIJOS = [
-  { desc: 'Materiales auxiliares', especificacion: 'Cobro fijo — compensa car wash, no es inventario de bodega' },
+  { desc: 'Materiales auxiliares' },
 ];
 var SERVICIO_TEMPLATE_LABELS = { menor: 'Menor', intermedio: 'Intermedio', mayor: 'Mayor' };
 
@@ -10787,9 +10788,51 @@ function openHistDetail(o) {
     html += '</div></div>';
   }
 
+  // Eliminar del historial (Jefe, 22 sep 2026 — Byron encontro 2 ordenes de
+  // PRUEBA archivadas con el mismo No. OT "55555", que arruinaban la nueva
+  // sugerencia automatica de correlativo en "Nueva orden"; no habia forma de
+  // borrarlas porque "Eliminar esta orden" (ficha en vivo) solo alcanza
+  // ordenes que siguen en el tablero). Solo aparece para ordenes YA
+  // archivadas (o._arch) -- una cerrada que sigue en el tablero ya se puede
+  // borrar desde su propia ficha en vivo, no hace falta duplicar el boton
+  // aqui para ese caso.
+  if (role === 'jefe' && o._arch) {
+    html += '<div class="sec">' +
+      '<button id="btn-del-hist" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;font-weight:600;cursor:pointer">&#128465; Eliminar del historial</button>' +
+      '<div style="font-size:10px;color:var(--tx3);margin-top:5px">Para corregir errores de captura, como una orden de prueba. Borra la orden por completo, para todo el equipo, y no se puede deshacer.</div>' +
+    '</div>';
+  }
+
   html += '<div style="text-align:center;padding:1rem 0;font-size:11px;color:var(--tx3)">&#128274; Vista de solo lectura — no se pueden realizar cambios</div>';
 
   document.getElementById('hist-detail-body').innerHTML = html;
+  var delHistBtn = document.getElementById('btn-del-hist');
+  if (delHistBtn) {
+    delHistBtn.addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar del historial'); return; }
+      // Misma confirmacion nombrando la orden concreta que "Eliminar esta
+      // orden" en la ficha en vivo, para no borrar otra por equivocacion.
+      if (!confirm(
+        'ELIMINAR DEL HISTORIAL\n\n' +
+        'Placa: ' + o.plate + '\n' +
+        'No. OT: ' + o.ot + '\n' +
+        'Cliente: ' + (o.client || '—') + '\n\n' +
+        'Se borra para TODO el equipo, permanentemente. Esta accion NO se puede deshacer.\n\n' +
+        '¿Continuar?'
+      )) return;
+      var idxArch = archived.indexOf(o);
+      if (idxArch !== -1) archived.splice(idxArch, 1);
+      if (fbReady && db) {
+        db.ref('taller/historial/' + o.id).remove().catch(function(e) {
+          console.log('Error al eliminar del historial:', e);
+        });
+      }
+      closeHistDetail();
+      var srchEl = document.getElementById('hist-srch');
+      renderHist(srchEl ? srchEl.value : '');
+      toast('Orden ' + o.plate + ' eliminada del historial');
+    });
+  }
   // Scroll chat to bottom
   var cb = document.querySelector('#hist-detail-body .chat-box');
   if (cb) cb.scrollTop = cb.scrollHeight;
