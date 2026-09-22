@@ -516,7 +516,7 @@ button{cursor:pointer}
     <div class="modal-t">Nueva orden <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeNO()">✕</button></div>
     <div class="fr2">
       <div class="fg"><label class="fl">Placa *</label><input class="fi" id="f-pl" placeholder="P-123ABC" onblur="_autocompletarDesdePlaca()"></div>
-      <div class="fg"><label class="fl">No. OT</label><input class="fi" id="f-ot" placeholder="OT-4350"></div>
+      <div class="fg"><label class="fl">No. OT</label><input class="fi" id="f-ot" placeholder="OT-4350" onblur="_validarOtDuplicado()"></div>
     </div>
     <div class="fg"><label class="fl">Vehiculo *</label><input class="fi" id="f-mo" placeholder="Toyota Hilux 2020"></div>
     <div class="fg"><label class="fl">Cliente *</label><input class="fi" id="f-cl" placeholder="Nombre completo"></div>
@@ -5189,6 +5189,68 @@ function _autocompletarDesdePlaca() {
     if (matchArch) _aplicarAutocompletadoPlaca(matchArch, moEl, clEl);
   });
 }
+// Sugerir el siguiente No. OT correlativo en "Nueva orden" (Byron, 22 sep
+// 2026): antes el campo quedaba en blanco y habia que ir a ver a mano cual
+// fue la ultima orden para saber que numero seguia. Solo cuentan los OT
+// puramente numericos (los que trae texto, ej. "OT-4350" del respaldo viejo,
+// se ignoran para este calculo -- no son parte de la numeracion real en
+// papel). Byron pidio que el maximo se busque en activas Y en
+// cerradas/historial, no solo en las activas: la orden con el numero mas
+// alto pudo haberse archivado ya.
+function _maxOtNumerico(lista) {
+  var max = 0;
+  for (var i = 0; i < (lista || []).length; i++) {
+    var ot = lista[i] && lista[i].ot;
+    if (ot === undefined || ot === null) continue;
+    var s = String(ot).trim().replace(/^#+/, '');
+    if (!/^\d+$/.test(s)) continue;
+    var n = parseInt(s, 10);
+    if (n > max) max = n;
+  }
+  return max;
+}
+function _sugerirSiguienteOt() {
+  var el = document.getElementById('f-ot');
+  if (!el) return;
+  el.style.borderColor = '';
+  var maxActivas = _maxOtNumerico(orders);
+  var maxTotal = maxActivas;
+  var sugerido = maxTotal > 0 ? String(maxTotal + 1) : '';
+  el.value = sugerido;
+  if (typeof refreshArchived !== 'function') return;
+  // El historial puede no estar cargado (o estar desactualizado) en esta
+  // sesion -- se refresca en segundo plano y solo se ajusta la sugerencia si
+  // aparece un numero mas alto Y el usuario no ha tocado el campo mientras
+  // tanto (si ya escribio otra cosa, se respeta lo que haya puesto).
+  refreshArchived(function() {
+    var elNow = document.getElementById('f-ot');
+    if (!elNow || elNow.value !== sugerido) return;
+    var maxTotal2 = Math.max(maxActivas, _maxOtNumerico(archived));
+    if (maxTotal2 > maxTotal) {
+      var sugerido2 = String(maxTotal2 + 1);
+      elNow.value = sugerido2;
+    }
+  });
+}
+// Bloqueador de No. OT duplicado, en vivo (Byron, 22 sep 2026): antes solo
+// se avisaba (con opcion de seguir de todas formas) hasta el momento de
+// guardar. Ahora, al salir del campo, si ese numero ya existe (activa o
+// archivada) se marca en rojo y se avisa de inmediato -- el bloqueo real que
+// impide guardar sigue estando en saveNO(), esto es solo para que Byron se
+// entere antes de llenar el resto del formulario.
+function _validarOtDuplicado() {
+  var el = document.getElementById('f-ot');
+  if (!el) return;
+  var val = el.value.trim();
+  if (!val) { el.style.borderColor = ''; return; }
+  var choque = _buscarOrdenPorOt(val);
+  if (choque) {
+    el.style.borderColor = 'var(--rd)';
+    if (typeof toast === 'function') toast('El No. de orden "' + val + '" ya existe (placa ' + (choque.plate || '—') + ') — usa otro numero');
+  } else {
+    el.style.borderColor = '';
+  }
+}
 function openNO() {
   _noRepDraft = [];
   _noTipoServicio = null;
@@ -5203,6 +5265,7 @@ function openNO() {
   // otra sucursal.
   var ubEl = document.getElementById('f-ub');
   if (ubEl) ubEl.value = 'Z10';
+  _sugerirSiguienteOt();
   document.getElementById('m-no').classList.add('on');
 }
 function closeNO() {
@@ -5330,30 +5393,28 @@ function saveNO() {
   if (!plate || !model || !client) { toast('Placa, vehiculo y cliente son requeridos'); return; }
   var otInput = document.getElementById('f-ot').value.trim();
 
-  // Alerta de posibles duplicados (Byron, 9 sep 2026): antes no habia ningun
-  // aviso si por error se aperturaba de nuevo la MISMA placa que ya tiene una
-  // orden ACTIVA en el tablero, o si el numero de OT ya existia (activa o
-  // archivada). No se bloquea de plano -- se avisa con el detalle exacto de
-  // la orden que choca y se deja confirmar, porque un mismo carro SI puede
-  // legitimamente volver por un caso distinto mientras el anterior sigue
-  // abierto (raro, pero no imposible). Una orden ya CERRADA con la misma
-  // placa no cuenta como choque -- ese es el caso normal de un cliente
-  // recurrente, no un error.
+  // Chequeo de duplicados. La placa (Byron, 9 sep 2026) solo AVISA y deja
+  // confirmar -- un mismo carro SI puede legitimamente volver por un caso
+  // distinto mientras el anterior sigue abierto (raro, pero no imposible).
+  // Una orden ya CERRADA con la misma placa no cuenta como choque -- ese es
+  // el caso normal de un cliente recurrente, no un error.
+  // El No. de OT (Byron, 22 sep 2026) en cambio se BLOQUEA de plano, sin
+  // opcion de continuar: dos ordenes nunca deberian compartir el mismo
+  // numero de papeleria fisica, a diferencia de la placa.
   var otChoque = otInput ? _buscarOrdenPorOt(otInput) : null;
+  if (otChoque) {
+    alert('El No. de orden "' + otInput + '" ya existe — placa ' + (otChoque.plate || '—') + ', cliente ' + (otChoque.client || '—') + '.\n\nCambia el numero de orden antes de guardar; cada OT debe ser unico.');
+    return;
+  }
   var placaChoque = null;
   for (var dpi = 0; dpi < orders.length; dpi++) {
     if (orders[dpi].phase !== 'cer' && String(orders[dpi].plate || '').trim().toUpperCase() === plate.toUpperCase()) {
       placaChoque = orders[dpi]; break;
     }
   }
-  if (otChoque || placaChoque) {
-    var avisosDup = [];
-    if (otChoque) avisosDup.push('El No. de orden "' + otInput + '" ya existe — placa ' + (otChoque.plate || '—') + ', cliente ' + (otChoque.client || '—') + '.');
-    if (placaChoque) {
-      var faseChoque = PHASE_COLORS[placaChoque.phase] ? PHASE_COLORS[placaChoque.phase].label : placaChoque.phase;
-      avisosDup.push('La placa ' + plate + ' ya tiene una orden ACTIVA — OT ' + (placaChoque.ot || '—') + ', fase ' + faseChoque + '.');
-    }
-    if (!confirm(avisosDup.join('\n') + '\n\n¿Seguro que quieres crear esta orden de todas formas?')) { return; }
+  if (placaChoque) {
+    var faseChoque = PHASE_COLORS[placaChoque.phase] ? PHASE_COLORS[placaChoque.phase].label : placaChoque.phase;
+    if (!confirm('La placa ' + plate + ' ya tiene una orden ACTIVA — OT ' + (placaChoque.ot || '—') + ', fase ' + faseChoque + '.\n\n¿Seguro que quieres crear esta orden de todas formas?')) { return; }
   }
 
   var tech = document.getElementById('f-tc').value;
