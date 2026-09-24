@@ -7935,10 +7935,14 @@ function _buildRepuestosCompactoPrintHtml(o) {
     if (rp.ck3) estadoRep = 'Ya ingresado (instalado)';
     else if (rp.ck1 && rp.ck2) estadoRep = 'Ya ingresado (pendiente instalar)';
     else estadoRep = 'Pendiente ingreso';
-    filas.push({cant: rp.cantidad || '', art: rp.desc || '', esp: rp.especificacion || '', estado: estadoRep});
+    // Se resalta SOLO lo que todavia falta CONSEGUIR (pedido de Byron, 24
+    // sep 2026, mismo dia) -- "Ya ingresado (pendiente instalar)" ya no
+    // depende de comprar/traer nada, solo de que el tecnico lo instale, asi
+    // que no se marca igual que lo que de verdad hay que perseguir.
+    filas.push({cant: rp.cantidad || '', art: rp.desc || '', esp: rp.especificacion || '', estado: estadoRep, faltaConseguir: estadoRep === 'Pendiente ingreso'});
   });
   (o.bodega || []).forEach(function(bit) {
-    filas.push({cant: bit.cantidad || '', art: bit.desc || '', esp: bit.especificacion || '', estado: bit.despachado ? 'Despachado' : 'Pendiente'});
+    filas.push({cant: bit.cantidad || '', art: bit.desc || '', esp: bit.especificacion || '', estado: bit.despachado ? 'Despachado' : 'Pendiente', faltaConseguir: !bit.despachado});
   });
   if (!filas.length) return '';
   var html = '<div class="solo-impresion" style="margin-top:10px">' +
@@ -7954,7 +7958,12 @@ function _buildRepuestosCompactoPrintHtml(o) {
         '<th style="text-align:left;border-bottom:1px solid #999;padding:4px 6px">Estado</th>' +
       '</tr></thead><tbody>';
   filas.forEach(function(f) {
-    html += '<tr>' +
+    // Fondo claro + negrita en toda la fila (no solo la celda Estado) para
+    // que salte a la vista de un vistazo en la hoja impresa -- un color
+    // solido (no var(--xx)) porque aun en una impresora blanco y negro se
+    // ve como un gris claro, a diferencia de dejarlo solo en negrita.
+    var rowStyle = f.faltaConseguir ? ' style="background:#fff3cd;font-weight:700"' : '';
+    html += '<tr' + rowStyle + '>' +
       '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.cant) + '</td>' +
       '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.art) + '</td>' +
       '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.esp) + '</td>' +
