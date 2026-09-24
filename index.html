@@ -7922,11 +7922,23 @@ function buildAvisoLavContent() {
 // DOM), igual que el resto de _build*Html de esta seccion.
 function _buildRepuestosCompactoPrintHtml(o) {
   var filas = [];
+  // Repuestos: 3 estados (pedido de Byron, 24 sep 2026, caso real de la
+  // OT-5301) — el binario Despachado/Pendiente escondia que un repuesto ya
+  // habia llegado (Mensajero Y Partes ya lo confirmaron, ck1+ck2) pero el
+  // tecnico todavia no lo instalaba (ck3) porque el resto del juego seguia
+  // sin llegar; se veia "Pendiente" igual que uno que ni siquiera habia
+  // salido del proveedor. Bodega se queda IGUAL que antes (Despachado/
+  // Pendiente) a proposito: no tiene ese mismo ciclo Mensajero->Partes-
+  // >Instalado, es un solo paso de despacho desde la propia bodega.
   (o.repuestos || []).forEach(function(rp) {
-    filas.push({cant: rp.cantidad || '', art: rp.desc || '', esp: rp.especificacion || '', done: !!rp.ck3});
+    var estadoRep;
+    if (rp.ck3) estadoRep = 'Ya ingresado (instalado)';
+    else if (rp.ck1 && rp.ck2) estadoRep = 'Ya ingresado (pendiente instalar)';
+    else estadoRep = 'Pendiente ingreso';
+    filas.push({cant: rp.cantidad || '', art: rp.desc || '', esp: rp.especificacion || '', estado: estadoRep});
   });
   (o.bodega || []).forEach(function(bit) {
-    filas.push({cant: bit.cantidad || '', art: bit.desc || '', esp: bit.especificacion || '', done: !!bit.despachado});
+    filas.push({cant: bit.cantidad || '', art: bit.desc || '', esp: bit.especificacion || '', estado: bit.despachado ? 'Despachado' : 'Pendiente'});
   });
   if (!filas.length) return '';
   var html = '<div class="solo-impresion" style="margin-top:10px">' +
@@ -7946,7 +7958,7 @@ function _buildRepuestosCompactoPrintHtml(o) {
       '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.cant) + '</td>' +
       '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.art) + '</td>' +
       '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.esp) + '</td>' +
-      '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + (f.done ? 'Despachado' : 'Pendiente') + '</td>' +
+      '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + f.estado + '</td>' +
     '</tr>';
   });
   html += '</tbody></table></div>';
