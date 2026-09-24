@@ -316,6 +316,10 @@ button{cursor:pointer}
    REPUESTOS Y SUBCONTRATOS y en Despacho — a diferencia de las insignias
    quietas de Presupuestos pendientes y Preparar Facturacion. */
 .badge-alerta { animation:pulse-badge 1.4s ease-in-out infinite }
+/* Inverso de .no-print: oculto en pantalla, visible SOLO al imprimir (ver
+   la tabla compacta de _buildRepuestosCompactoPrintHtml). La regla que lo
+   muestra vive dentro de @media print, junto a .no-print. */
+.solo-impresion { display:none; }
 
 /* Impresion del reporte de una orden (Historial -> Ver detalle -> Imprimir).
    Redefine las variables de color a una paleta clara/legible en papel —
@@ -365,6 +369,7 @@ button{cursor:pointer}
   #m-hist-detail.on.print-restringido #hist-detail-body { display:none !important; }
   #m-hist-detail.on.print-restringido #hist-detail-print-only { display:block !important; }
   .no-print { display:none !important; }
+  .solo-impresion { display:block !important; }
   :root {
     --bg:#fff; --bg2:#fff; --bg3:#f2f2f2; --bg4:#e8e8e8;
     --tx:#111; --tx2:#333; --tx3:#666;
@@ -6690,6 +6695,7 @@ function openRepParts() {
   _todosEstadoFilter = 'todos';
   _todosOrdenFilter = '';
   _resumenOtPanel = '';
+  _resumenVista = 'todo';
   buildRepPartsContent();
   document.getElementById('m-repparts').classList.add('on');
   // El refresco automatico se pospone mientras alguien esta escribiendo en
@@ -7060,7 +7066,7 @@ function _buildResumenOrdenHtml(ot) {
       'No se encontro la orden <strong style="color:var(--tx2);font-family:var(--mo)">&#35;' + esc(q) + '</strong>.<br>' +
       '<span style="font-size:11px">Revisa el numero. Si es una orden archivada, abre primero &#128193; Historial para cargarla.</span></div>';
   }
-  return _buildFocusedResumenHtml(o, {conBotonFicha: true});
+  return _buildFocusedResumenHtml(o, {conBotonFicha: true, vista: _resumenVista});
 }
 
 // Desde el resumen se puede saltar a la ficha completa. Cierra los paneles
@@ -7077,6 +7083,12 @@ function abrirFichaDesdeResumen(id) {
 // el menu de reportes, ni al reves.
 var _resumenOtPanel = '';
 var _resumenOtAvisoLav = '';
+// Vista dentro de "Resumen de una orden": 'todo' (como siempre) |
+// 'mano_obra' | 'repuestos' — separa Trabajos realizados de
+// Repuestos+Bodega (pedido de Byron, 24 sep 2026). Aparte de
+// _resumenOtPanel para que cambiar de vista no borre la orden consultada.
+var _resumenVista = 'todo';
+function setResumenVista(v) { _resumenVista = v; buildResumenOrdenPanel(); }
 
 function setResumenOt(v) {
   _resumenOtPanel = (v || '').toString().trim().replace(/^#+/, '');
@@ -7105,6 +7117,17 @@ function buildResumenOrdenPanel() {
     '<span class="no-print"><button onclick="window.print()" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button></span>' +
   '</div>';
   html += _resumenBuscadorHtml('resumen-ot-inp', _resumenOtPanel, 'setResumenOt');
+  var _resVistaBtn = function(val, label) {
+    var on = (_resumenVista === val);
+    return '<button onclick="setResumenVista(\'' + val + '\')" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;white-space:nowrap;font-weight:' + (on ? '700' : '400') +
+      ';border:1px solid ' + (on ? 'var(--ac)' : 'var(--bd)') + ';background:' + (on ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (on ? 'var(--ac)' : 'var(--tx3)') + '">' + label + '</button>';
+  };
+  html += '<div class="no-print" style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;color:var(--tx3);margin-right:2px">Vista:</span>' +
+    _resVistaBtn('todo', 'Todo') +
+    _resVistaBtn('mano_obra', 'Solo mano de obra') +
+    _resVistaBtn('repuestos', 'Solo repuestos') +
+  '</div>';
   html += _buildResumenOrdenHtml(_resumenOtPanel);
   document.getElementById('repparts-body').innerHTML = html;
 }
@@ -7886,6 +7909,50 @@ function buildAvisoLavContent() {
   });
 }
 
+// Tabla compacta SOLO para imprimir la vista "Repuestos" del resumen de
+// orden (pedido de Byron, 24 sep 2026): cantidad/articulo/especificacion/
+// estado en columnas angostas, en vez de las tarjetas de pantalla, para que
+// la hoja impresa quepa mas junta y sirva para ir marcando fisicamente en
+// bodega/repuestos. Combina repuestos[] y bodega[] en una sola tabla, igual
+// que la vista "Repuestos" combina ambas listas en pantalla. El estado se
+// simplifica a "Despachado"/"Pendiente" (2 valores, tal como lo pidio) aunque
+// en pantalla repuestos[] muestre estados mas finos (Confirmado por
+// Mensajero/Partes, etc.) — esto es a proposito, es un resumen para
+// imprimir, no reemplaza la vista detallada. Funcion pura (sin tocar el
+// DOM), igual que el resto de _build*Html de esta seccion.
+function _buildRepuestosCompactoPrintHtml(o) {
+  var filas = [];
+  (o.repuestos || []).forEach(function(rp) {
+    filas.push({cant: rp.cantidad || '', art: rp.desc || '', esp: rp.especificacion || '', done: !!rp.ck3});
+  });
+  (o.bodega || []).forEach(function(bit) {
+    filas.push({cant: bit.cantidad || '', art: bit.desc || '', esp: bit.especificacion || '', done: !!bit.despachado});
+  });
+  if (!filas.length) return '';
+  var html = '<div class="solo-impresion" style="margin-top:10px">' +
+    '<div style="font-size:12px;margin-bottom:8px">' +
+      '<strong>' + esc(o.client || '—') + '</strong> &middot; ' + esc(o.model || '—') + ' &middot; ' + esc(o.plate || '—') +
+      ' &middot; Tec. ' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2) : '') +
+    '</div>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+      '<thead><tr>' +
+        '<th style="text-align:left;border-bottom:1px solid #999;padding:4px 6px">Cant.</th>' +
+        '<th style="text-align:left;border-bottom:1px solid #999;padding:4px 6px">Articulo</th>' +
+        '<th style="text-align:left;border-bottom:1px solid #999;padding:4px 6px">Especificacion</th>' +
+        '<th style="text-align:left;border-bottom:1px solid #999;padding:4px 6px">Estado</th>' +
+      '</tr></thead><tbody>';
+  filas.forEach(function(f) {
+    html += '<tr>' +
+      '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.cant) + '</td>' +
+      '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.art) + '</td>' +
+      '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.esp) + '</td>' +
+      '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + (f.done ? 'Despachado' : 'Pendiente') + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
 // "Preparar Facturacion" -> click en una linea: resumen ENFOCADO (no la
 // ficha en vivo, ni el reporte completo de Historial con fechas / bitacora
 // de tiempos / % productividad / avisos) — solo el encabezado
@@ -7902,6 +7969,11 @@ function buildAvisoLavContent() {
 // en pantalla se sigue viendo el reporte completo).
 function _buildFocusedResumenHtml(o, opts) {
   opts = opts || {};
+  // Vista: 'todo' (como siempre) | 'mano_obra' | 'repuestos' — separa
+  // Trabajos realizados de Repuestos+Bodega (pedido de Byron, 24 sep 2026).
+  // Los otros llamadores (Preparar Facturacion, Historial) no la pasan, asi
+  // que siguen viendo el combinado de siempre sin ningun cambio.
+  var vista = opts.vista || 'todo';
   var pcR = PHASE_COLORS[o.phase] || {bg:'#333', color:'#fff', label:o.phase};
   var fmtQR = function(n) { return 'Q.' + Number(n).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
@@ -7932,23 +8004,25 @@ function _buildFocusedResumenHtml(o, opts) {
   var repsPendR = (o.repuestos || []).filter(function(r){ return !r.ck3; }).length;
   var bodsPendR = (o.bodega || []).filter(function(b){ return !b.despachado; }).length;
   var bodsSinVoboR = (o.bodega || []).filter(function(b){ return !b.vobo; }).length;
-  if (repsPendR || bodsPendR) {
-    var partesR = [];
-    if (repsPendR) partesR.push(repsPendR + (repsPendR === 1 ? ' repuesto sin instalar' : ' repuestos sin instalar'));
-    if (bodsPendR) partesR.push(bodsPendR + (bodsPendR === 1 ? ' material sin despachar' : ' materiales sin despachar'));
-    html += '<div style="background:var(--orbg);border:1px solid var(--orbd);border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--or);font-weight:600">' +
-      '&#9888; Esta orden todavia tiene ' + partesR.join(' y ') + '.' +
-      (bodsSinVoboR ? '<div style="font-size:11px;font-weight:400;margin-top:3px">' + bodsSinVoboR + ' de bodega espera(n) el Vo.Bo. del Jefe.</div>' : '') +
-    '</div>';
-  } else if ((o.repuestos && o.repuestos.length) || (o.bodega && o.bodega.length)) {
-    html += '<div style="background:var(--gnbg);border:1px solid var(--gnbd);border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--gn);font-weight:600">' +
-      '&#10003; Todo despachado e instalado.</div>';
+  if (vista !== 'mano_obra') {
+    if (repsPendR || bodsPendR) {
+      var partesR = [];
+      if (repsPendR) partesR.push(repsPendR + (repsPendR === 1 ? ' repuesto sin instalar' : ' repuestos sin instalar'));
+      if (bodsPendR) partesR.push(bodsPendR + (bodsPendR === 1 ? ' material sin despachar' : ' materiales sin despachar'));
+      html += '<div style="background:var(--orbg);border:1px solid var(--orbd);border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--or);font-weight:600">' +
+        '&#9888; Esta orden todavia tiene ' + partesR.join(' y ') + '.' +
+        (bodsSinVoboR ? '<div style="font-size:11px;font-weight:400;margin-top:3px">' + bodsSinVoboR + ' de bodega espera(n) el Vo.Bo. del Jefe.</div>' : '') +
+      '</div>';
+    } else if ((o.repuestos && o.repuestos.length) || (o.bodega && o.bodega.length)) {
+      html += '<div style="background:var(--gnbg);border:1px solid var(--gnbd);border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--gn);font-weight:600">' +
+        '&#10003; Todo despachado e instalado.</div>';
+    }
   }
 
   // Operaciones de mano de obra registradas en "Trabajos realizados" —
   // mismo contenido de solo lectura que ya se muestra en el reporte
   // completo de Historial.
-  if (o.trabajos && o.trabajos.length) {
+  if (vista !== 'repuestos' && o.trabajos && o.trabajos.length) {
     var totalHorasResumen = 0;
     for (var twr = 0; twr < o.trabajos.length; twr++) { totalHorasResumen += parseFloat(o.trabajos[twr].horas) || 0; }
     html += '<div class="sec"><div class="sec-l">Trabajos realizados</div>' +
@@ -7970,8 +8044,10 @@ function _buildFocusedResumenHtml(o, opts) {
     html += '</div>';
   }
 
-  if (o.repuestos && o.repuestos.length) {
-    html += '<div class="sec"><div class="sec-l">Repuestos solicitados</div>' +
+  if (vista !== 'mano_obra' && o.repuestos && o.repuestos.length) {
+    // En la vista "repuestos", esta tarjeta se oculta SOLO al imprimir (la
+    // reemplaza la tabla compacta de abajo) — en pantalla se ve igual.
+    html += '<div class="sec' + (vista === 'repuestos' ? ' no-print' : '') + '"><div class="sec-l">Repuestos solicitados</div>' +
       '<div style="font-size:11px;font-weight:700;color:var(--tx);margin-bottom:6px">' + o.repuestos.length + ' repuesto(s)/subcontrato(s)</div>';
     for (var ri = 0; ri < o.repuestos.length; ri++) {
       var rp = o.repuestos[ri];
@@ -7992,8 +8068,8 @@ function _buildFocusedResumenHtml(o, opts) {
     html += '</div>';
   }
 
-  if (o.bodega && o.bodega.length) {
-    html += '<div class="sec"><div class="sec-l">Solicitudes de bodega</div>' +
+  if (vista !== 'mano_obra' && o.bodega && o.bodega.length) {
+    html += '<div class="sec' + (vista === 'repuestos' ? ' no-print' : '') + '"><div class="sec-l">Solicitudes de bodega</div>' +
       '<div style="font-size:11px;font-weight:700;color:var(--tx);margin-bottom:6px">' + o.bodega.length + ' solicitud(es)</div>';
     for (var bi = 0; bi < o.bodega.length; bi++) {
       var bit = o.bodega[bi];
@@ -8012,7 +8088,20 @@ function _buildFocusedResumenHtml(o, opts) {
     html += '</div>';
   }
 
-  if ((!o.repuestos || !o.repuestos.length) && (!o.bodega || !o.bodega.length) && (!o.trabajos || !o.trabajos.length) && !o.montoMO && !o.montoTotal) {
+  // Tabla compacta SOLO para imprimir la vista "repuestos" (pedido de
+  // Byron, 24 sep 2026): reemplaza las tarjetas de arriba (ocultas con
+  // no-print) por una tabla angosta con las columnas exactas que pidio,
+  // para que la hoja impresa quepa mas junta y sirva para ir marcando
+  // fisicamente en bodega/repuestos.
+  if (vista === 'repuestos') html += _buildRepuestosCompactoPrintHtml(o);
+
+  var sinTrabajosR = !o.trabajos || !o.trabajos.length;
+  var sinPartesR = (!o.repuestos || !o.repuestos.length) && (!o.bodega || !o.bodega.length);
+  if (vista === 'mano_obra' && sinTrabajosR) {
+    html += '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:12px">Sin trabajos registrados todavia.</div>';
+  } else if (vista === 'repuestos' && sinPartesR) {
+    html += '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:12px">Sin repuestos ni solicitudes de bodega registradas todavia.</div>';
+  } else if (vista === 'todo' && sinTrabajosR && sinPartesR && !o.montoMO && !o.montoTotal) {
     html += '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:12px">Sin repuestos, mano de obra ni solicitudes de bodega registradas todavia.</div>';
   }
 
