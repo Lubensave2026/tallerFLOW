@@ -3825,6 +3825,15 @@ function openDrw(id) {
   }
   var addBodBtn = document.getElementById('btn-add-bod');
   if (addBodBtn) {
+    // Confirma que el tecnico ya paso por el catalogo antes de mandar texto
+    // libre — se pone en true al elegir un generico del catalogo o al tocar
+    // "No esta en la lista", y se resetea con cualquier edicion nueva del
+    // campo (22 sep 2026, pedido de Byron: cerrar la brecha para que un
+    // texto como "5w30" no le llegue a Bodega Virtual sin que el tecnico
+    // haya visto primero las sugerencias reales del catalogo — ver el caso
+    // real donde su propio sistema de alias lo interpreto como liquido de
+    // frenos).
+    var bodTextoLibreConfirmado = false;
     addBodBtn.addEventListener('click', function() {
       var cantInp = document.getElementById('bod-cant');
       var descInp = document.getElementById('bod-desc');
@@ -3835,6 +3844,10 @@ function openDrw(id) {
       var esp = espInp ? espInp.value.trim() : '';
       var codigoB = codigoInp ? codigoInp.value.trim() : '';
       if (!descB) { toast('Escribe la descripcion del insumo'); return; }
+      if (!codigoB && !bodTextoLibreConfirmado && _buscarEnCatalogoBodega(descB).length) {
+        toast('Ese insumo aparece en el catalogo — elige una opcion de la lista, o toca "No esta en la lista" para usar texto libre');
+        return;
+      }
       var ox = null;
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (!ox) return;
@@ -3903,6 +3916,7 @@ function openDrw(id) {
       };
       bodDescInp.addEventListener('input', function() {
         if (bodCodigoInp) bodCodigoInp.value = ''; // cualquier edicion manual invalida la seleccion anterior
+        bodTextoLibreConfirmado = false; // idem: hay que volver a confirmar para el texto nuevo
         renderBodSugg();
       });
       bodDescInp.addEventListener('focus', renderBodSugg);
@@ -3911,7 +3925,14 @@ function openDrw(id) {
         var itemEl = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
         if (itemEl) {
           bodDescInp.value = itemEl.getAttribute('data-nombre') || '';
-          if (bodCodigoInp) bodCodigoInp.value = itemEl.getAttribute('data-sincodigo') === '1' ? '' : (itemEl.getAttribute('data-sku') || '');
+          var esGenerico = itemEl.getAttribute('data-sincodigo') === '1';
+          if (bodCodigoInp) bodCodigoInp.value = esGenerico ? '' : (itemEl.getAttribute('data-sku') || '');
+          // elegir un generico (sin codigo a proposito, ver comentario
+          // arriba) tambien cuenta como paso real por el catalogo — no debe
+          // bloquear el envio como si fuera texto libre sin revisar.
+          bodTextoLibreConfirmado = esGenerico;
+        } else if (e.target && e.target.closest && e.target.closest('.bod-sugg-otro')) {
+          bodTextoLibreConfirmado = true;
         }
         bodSugg.style.display = 'none'; bodSugg.innerHTML = '';
       });
