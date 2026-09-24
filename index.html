@@ -7958,11 +7958,16 @@ function _buildRepuestosCompactoPrintHtml(o) {
         '<th style="text-align:left;border-bottom:1px solid #999;padding:4px 6px">Estado</th>' +
       '</tr></thead><tbody>';
   filas.forEach(function(f) {
-    // Fondo claro + negrita en toda la fila (no solo la celda Estado) para
-    // que salte a la vista de un vistazo en la hoja impresa -- un color
-    // solido (no var(--xx)) porque aun en una impresora blanco y negro se
-    // ve como un gris claro, a diferencia de dejarlo solo en negrita.
-    var rowStyle = f.faltaConseguir ? ' style="background:#fff3cd;font-weight:700"' : '';
+    // Rojo+negrita lo que falta CONSEGUIR, verde lo demas (24 sep 2026,
+    // pedido de Byron: el fondo amarillo solo no bastaba para diferenciar
+    // de un vistazo) -- en TODA la fila (cantidad/articulo/especificacion/
+    // estado), no solo la celda Estado. "Ya ingresado (pendiente instalar)"
+    // cae en verde: ya no depende de conseguir nada, solo de que el
+    // tecnico lo instale (mismo criterio que ya se habia acordado para no
+    // resaltarlo como urgente). Mismos tonos rojo/verde que ya usa el resto
+    // de la app al imprimir (ver --rd/--gn en el @media print de arriba),
+    // en hexadecimal fijo porque esta tabla no pasa por las variables CSS.
+    var rowStyle = f.faltaConseguir ? ' style="color:#b91c1c;font-weight:700"' : ' style="color:#157347"';
     html += '<tr' + rowStyle + '>' +
       '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.cant) + '</td>' +
       '<td style="padding:4px 6px;border-bottom:1px solid #ddd">' + esc(f.art) + '</td>' +
