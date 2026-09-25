@@ -327,7 +327,7 @@ button{cursor:pointer}
    alcanza para que todo el reporte se imprima en claro sin tener que tocar
    cada seccion una por una. */
 @media print {
-  #ap, .np, .ov, .drw, .mwrap:not(#m-hist-detail):not(#m-repparts) { display:none !important; }
+  #ap, .np, .ov, .drw, .mwrap:not(#m-hist-detail):not(#m-repparts):not(#m-hist) { display:none !important; }
   /* Solo el modal que este REALMENTE abierto (clase .on) se imprime. Antes
      esta regla forzaba display:block en #m-hist-detail Y #m-repparts sin
      condicion — asi que si alguien habia dejado el otro modal abierto
@@ -339,11 +339,21 @@ button{cursor:pointer}
      .mwrap es position:fixed;inset:0 — eso recorta la impresion al tamano
      de una sola pantalla. Para que el contenido fluya y pagine normal, hay
      que sacarlo de fixed/flex durante la impresion. */
-  #m-hist-detail:not(.on), #m-repparts:not(.on) { display:none !important; }
-  #m-hist-detail.on, #m-repparts.on {
+  #m-hist-detail:not(.on), #m-repparts:not(.on), #m-hist:not(.on) { display:none !important; }
+  #m-hist-detail.on, #m-repparts.on, #m-hist.on {
     position:static !important; display:block !important; inset:auto !important;
     background:#fff !important; backdrop-filter:none !important;
   }
+  /* #m-hist usa .modal (no .rep-modal) — mismo ensanche/desbloqueo que
+     arriba, para el reporte imprimible de Historial de ordenes (25 sep
+     2026, pedido de Byron). #hist-list tiene su propio scroll interno
+     (max-height:50vh en linea) que igual hay que liberar para que pagine. */
+  #m-hist.on .modal {
+    box-shadow:none; max-width:100% !important; width:100% !important; border-radius:0; border:none;
+    max-height:none !important; overflow:visible !important; position:static;
+  }
+  #m-hist.on #hist-list { max-height:none !important; overflow:visible !important }
+  #m-hist.on .modal-t button { display:none }
   #m-hist-detail.on .rep-modal, #m-repparts.on .rep-modal {
     /* !important en max-width/width: el modal de "Detalle de orden" trae un
        max-width:500px puesto EN LINEA en el HTML (ver #m-hist-detail mas
@@ -8981,6 +8991,11 @@ function openHist() {
   document.getElementById('m-hist').classList.add('on');
   var si = document.getElementById('hist-srch');
   if (si) si.value = '';
+  // Arranca siempre en Tarjetas, sin ningun detalle abierto — mismo
+  // criterio que ya tenia el buscador (arriba), para que nadie se quede
+  // viendo la vista Tabla de la vez anterior sin darse cuenta.
+  _histVista = 'tarjetas';
+  _histDetalleIdx = null;
   // attach events
   var closeBtn = document.getElementById('btn-close-hist');
   if (closeBtn) closeBtn.addEventListener('click', function() {
@@ -8993,6 +9008,14 @@ function openHist() {
   }
   var si2 = document.getElementById('hist-srch');
   if (si2) si2.addEventListener('input', function() { renderHist(this.value); });
+  var btnVistaTarjetas = document.getElementById('btn-hist-vista-tarjetas');
+  if (btnVistaTarjetas) btnVistaTarjetas.addEventListener('click', function() { setHistVista('tarjetas'); });
+  var btnVistaTabla = document.getElementById('btn-hist-vista-tabla');
+  if (btnVistaTabla) btnVistaTabla.addEventListener('click', function() { setHistVista('tabla'); });
+  var btnHistImprimir = document.getElementById('btn-hist-imprimir');
+  if (btnHistImprimir) btnHistImprimir.addEventListener('click', function() { window.print(); });
+  var btnHistExportar = document.getElementById('btn-hist-exportar');
+  if (btnHistExportar) btnHistExportar.addEventListener('click', function() { exportHistorialCSV(); });
 
   // El historial (ordenes cerradas y archivadas) ya no viaja permanentemente
   // en memoria — se consulta a taller/historial solo cuando se abre este
@@ -9006,10 +9029,161 @@ function openHist() {
   }
 }
 
+// Vista dentro de "Historial de ordenes": 'tarjetas' (como siempre) |
+// 'tabla' (reporte imprimible/exportable a Excel, 25 sep 2026, pedido de
+// Byron: control de mantenimiento por vehiculo con fechas, dias en taller,
+// kilometraje y que servicio fue). _histDetalleIdx: en vista tabla, indice
+// (dentro de window._histOrdersFull) de la fila cuyo detalle simplificado
+// se esta mostrando -- null muestra la tabla completa. Clic en una fila /
+// "Volver al reporte" solo cambian este indice y vuelven a llamar
+// renderHist(): nunca cierran #m-hist ni tocan el buscador, asi que la
+// busqueda nunca se pierde.
+var _histVista = 'tarjetas';
+var _histDetalleIdx = null;
+function setHistVista(v) {
+  _histVista = v;
+  _histDetalleIdx = null;
+  var si = document.getElementById('hist-srch');
+  renderHist(si ? si.value : '');
+}
+function _volverATablaHist() {
+  _histDetalleIdx = null;
+  var si = document.getElementById('hist-srch');
+  renderHist(si ? si.value : '');
+}
+function _actualizarBotonesVistaHist() {
+  var btnT = document.getElementById('btn-hist-vista-tarjetas');
+  var btnB = document.getElementById('btn-hist-vista-tabla');
+  var acciones = document.getElementById('hist-tabla-acciones');
+  var pintar = function(btn, activo) {
+    if (!btn) return;
+    btn.style.borderColor = activo ? 'var(--ac)' : 'var(--bd)';
+    btn.style.color = activo ? 'var(--ac)' : 'var(--tx2)';
+    btn.style.background = activo ? 'rgba(61,126,255,.15)' : 'var(--bg3)';
+    btn.style.fontWeight = activo ? '700' : '400';
+  };
+  pintar(btnT, _histVista === 'tarjetas');
+  pintar(btnB, _histVista === 'tabla');
+  if (acciones) acciones.style.display = (_histVista === 'tabla') ? 'flex' : 'none';
+}
+
+// Campos derivados compartidos por la vista Tabla, el detalle simplificado
+// y el export a Excel -- una sola fuente para que los 3 nunca se
+// desincronicen. "Dias en taller" se cuenta hasta la fecha de ENTREGA
+// (confirmado con Byron, 25 sep 2026) -- si la orden no tiene entrega
+// registrada, cae a la fecha de cierre contable en vez de dejarlo en
+// blanco. "Servicio" combina el nivel declarado por el cliente
+// (o.tipoServicioSolicitado) con "+ Reparaciones" cuando hay algun trabajo
+// registrado que NO sea la etiqueta de ese mismo nivel (ver
+// TIPO_OPERACION_CATALOG / _SERVICIO_RETRO_LABEL) -- sin nivel declarado,
+// la orden se muestra como "Reparacion" sola.
+function _histFilaDatos(o) {
+  var closeTs = o.montoFacturadoTs || (o.timestamps && o.timestamps.cer);
+  var entregaTs = o.timestamps && o.timestamps.ent;
+  var diasBaseTs = entregaTs || closeTs;
+  var diasTaller = (diasBaseTs && o.cat) ? Math.round((diasBaseTs - o.cat) / 86400000) : null;
+  var servicioLabel;
+  if (!o.tipoServicioSolicitado) {
+    servicioLabel = 'Reparacion';
+  } else {
+    var esReparacion = (o.trabajos || []).some(function(tw) { return tw.tipoOperacion !== o.tipoServicioSolicitado; });
+    servicioLabel = (_SERVICIO_RETRO_LABEL[o.tipoServicioSolicitado] || o.tipoServicioSolicitado) + (esReparacion ? ' + Reparaciones' : '');
+  }
+  return {
+    fechaEntrada: o.cat ? new Date(o.cat).toLocaleDateString('es-GT') : '—',
+    fechaCierre: closeTs ? new Date(closeTs).toLocaleDateString('es-GT') : '—',
+    fechaEntrega: entregaTs ? new Date(entregaTs).toLocaleDateString('es-GT') : '—',
+    diasTaller: diasTaller !== null ? diasTaller : '—',
+    ot: o.ot || '—',
+    kmTexto: (o.km != null) ? o.km.toLocaleString('es-GT') + ' km' : '— sin dato',
+    servicioLabel: servicioLabel,
+  };
+}
+
+function _histDetalleCampo(label, valor) {
+  return '<div style="font-size:11px">' +
+    '<div style="color:var(--tx3);text-transform:uppercase;letter-spacing:.3px;font-size:9.5px;margin-bottom:3px">' + label + '</div>' +
+    '<div style="font-weight:600;font-size:13px;color:var(--tx)">' + esc(valor) + '</div>' +
+  '</div>';
+}
+function _buildHistDetalleSimpleHtml(o) {
+  var d = _histFilaDatos(o);
+  return '<div class="no-print" style="margin-bottom:10px">' +
+      '<button onclick="_volverATablaHist()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0;font-weight:700">&#8592; Volver al reporte</button>' +
+    '</div>' +
+    '<div style="background:var(--bg3);border:1px solid var(--bd2);border-radius:var(--r);padding:14px 16px">' +
+      '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px">' +
+        '<span style="font-family:var(--mo);font-weight:500;font-size:15px;color:var(--ac)">' + esc(d.ot) + '</span>' +
+        '<span style="font-family:var(--mo);font-weight:500;font-size:15px">' + esc(o.plate) + '</span>' +
+      '</div>' +
+      '<div style="font-size:13px;color:var(--tx2);margin-bottom:14px">' + esc(o.model) + ' &middot; ' + esc(o.client) + '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px 18px">' +
+        _histDetalleCampo('Fecha entrada', d.fechaEntrada) +
+        _histDetalleCampo('Fecha cierre', d.fechaCierre) +
+        _histDetalleCampo('Fecha entrega', d.fechaEntrega) +
+        _histDetalleCampo('Dias en taller', String(d.diasTaller)) +
+        _histDetalleCampo('Kilometraje', d.kmTexto) +
+        _histDetalleCampo('Servicio', d.servicioLabel) +
+      '</div>' +
+    '</div>';
+}
+
+// Tabla imprimible/exportable: TODOS los resultados que calcen con la
+// busqueda, sin el tope de 50 que sigue teniendo la vista Tarjetas (pedido
+// de Byron: "sin tope, que salga todo lo que calce"). Clic en una fila abre
+// el detalle simplificado de arriba sin cerrar el modal.
+function _buildHistTablaHtml(all) {
+  var th = function(txt, alinDer) { return '<th style="text-align:' + (alinDer?'right':'left') + ';border-bottom:1.5px solid var(--bd2);padding:6px 8px;white-space:nowrap">' + txt + '</th>'; };
+  var td = function(txt, extra) { return '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + (extra||'') + '">' + txt + '</td>'; };
+  var html = '<div style="overflow-x:auto">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:11.5px;min-width:920px">' +
+      '<thead><tr>' +
+        th('Fecha entrada') + th('Fecha cierre') + th('Dias taller', true) + th('No. orden') +
+        th('Cliente') + th('Vehiculo') + th('Placa') + th('Kilometraje', true) + th('Servicio') +
+      '</tr></thead><tbody>';
+  for (var i = 0; i < all.length; i++) {
+    var o = all[i];
+    var d = _histFilaDatos(o);
+    html += '<tr class="hist-tabla-row" data-idx="' + i + '" style="cursor:pointer">' +
+      td(d.fechaEntrada, ';font-family:var(--mo)') +
+      td(d.fechaCierre, ';font-family:var(--mo)') +
+      td(d.diasTaller, ';font-family:var(--mo);text-align:right') +
+      td(esc(d.ot), ';font-family:var(--mo);color:var(--ac)') +
+      td(esc(o.client), ';font-weight:600') +
+      td(esc(o.model), '') +
+      td(esc(o.plate), ';font-family:var(--mo)') +
+      td(d.kmTexto, ';font-family:var(--mo);text-align:right') +
+      td(esc(d.servicioLabel), '') +
+    '</tr>';
+  }
+  html += '</tbody></table></div>' +
+    '<div style="font-size:10px;color:var(--tx3);margin-top:8px;line-height:1.5">' +
+      '* Dias en taller: de la fecha de entrada a la fecha de ENTREGA (no la de cierre).<br>' +
+      '** "+ Reparaciones": la orden tiene algun trabajo registrado fuera de la etiqueta de servicio de rutina (Menor/Intermedio/Mayor). "Reparacion" sola = nunca tuvo un nivel de servicio de rutina asignado.' +
+    '</div>';
+  return html;
+}
+
+function exportHistorialCSV() {
+  var all = window._histOrdersFull || [];
+  if (!all.length) { toast('No hay resultados para exportar'); return; }
+  var header = ['Fecha entrada','Fecha cierre','Dias en taller','No. orden','Cliente','Vehiculo','Placa','Kilometraje','Servicio'];
+  var rows = [header];
+  for (var i = 0; i < all.length; i++) {
+    var o = all[i];
+    var d = _histFilaDatos(o);
+    rows.push([d.fechaEntrada, d.fechaCierre, d.diasTaller, d.ot, o.client || '', o.model || '', o.plate || '', (o.km != null ? o.km : ''), d.servicioLabel]);
+  }
+  var csv = rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\n');
+  _downloadCSV(csv, 'tallerflow_historial_ordenes_' + _todayKey() + '.csv');
+  toast('Exportado: ' + all.length + ' orden(es)');
+}
+
 function renderHist(q) {
   var ql = (q || '').toLowerCase();
   var list = document.getElementById('hist-list');
   if (!list) return;
+  _actualizarBotonesVistaHist();
   // All closed orders + archived, newest first
   var all = [];
   for (var i = 0; i < orders.length; i++) {
@@ -9034,8 +9208,30 @@ function renderHist(q) {
       return (o.plate+o.model+o.client+o.tech+o.ot).toLowerCase().indexOf(ql) >= 0;
     });
   }
+  // TODOS los que calzan (sin tope) -- usado por la vista Tabla, el
+  // detalle simplificado y el export a Excel. La vista Tarjetas sigue
+  // usando su propio tope de 50 (window._histOrders, mas abajo).
+  window._histOrdersFull = all;
   if (!all.length) {
     list.innerHTML = '<div style="font-size:12px;color:var(--tx3);padding:1rem;text-align:center">Sin resultados</div>';
+    return;
+  }
+  if (_histVista === 'tabla') {
+    if (_histDetalleIdx !== null && all[_histDetalleIdx]) {
+      list.innerHTML = _buildHistDetalleSimpleHtml(all[_histDetalleIdx]);
+    } else {
+      list.innerHTML = _buildHistTablaHtml(all);
+      var filas = list.querySelectorAll('.hist-tabla-row');
+      for (var fi = 0; fi < filas.length; fi++) {
+        (function(fila) {
+          fila.addEventListener('click', function() {
+            _histDetalleIdx = parseInt(this.getAttribute('data-idx'), 10);
+            var siT = document.getElementById('hist-srch');
+            renderHist(siT ? siT.value : '');
+          });
+        })(filas[fi]);
+      }
+    }
     return;
   }
   var html = '';
@@ -11739,10 +11935,18 @@ window.addEventListener('load', function() {
 <div class="mwrap" id="m-hist">
   <div class="modal">
     <div class="modal-t">📁 Historial de ordenes <button class="btn-s" style="padding:4px 10px;font-size:12px" id="btn-close-hist">✕</button></div>
-    <div style="margin-bottom:12px">
+    <div class="no-print" style="margin-bottom:12px">
       <input class="fi" id="hist-srch" placeholder="Buscar por placa, cliente o vehiculo...">
     </div>
-    <div style="margin-bottom:10px;display:flex;gap:8px">
+    <div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn-s" id="btn-hist-vista-tarjetas" style="font-size:12px;padding:6px 12px">&#128193; Tarjetas</button>
+      <button class="btn-s" id="btn-hist-vista-tabla" style="font-size:12px;padding:6px 12px">&#128203; Tabla</button>
+    </div>
+    <div class="no-print" id="hist-tabla-acciones" style="display:none;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+      <button class="btn-s" id="btn-hist-imprimir" style="font-size:12px;padding:6px 12px">&#128424; Imprimir</button>
+      <button class="btn-s" id="btn-hist-exportar" style="font-size:12px;padding:6px 12px">&#128202; Exportar a Excel</button>
+    </div>
+    <div class="no-print" style="margin-bottom:10px;display:flex;gap:8px">
       <button class="btn-s" id="btn-arch-now" style="font-size:12px;padding:6px 12px;border-color:var(--orbd);color:var(--or);background:var(--orbg)">Archivar cerradas antiguas</button>
     </div>
     <div id="hist-list" style="max-height:50vh;overflow-y:auto"></div>
