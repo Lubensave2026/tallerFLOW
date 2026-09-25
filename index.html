@@ -9077,17 +9077,38 @@ function _actualizarBotonesVistaHist() {
 // registrado que NO sea la etiqueta de ese mismo nivel (ver
 // TIPO_OPERACION_CATALOG / _SERVICIO_RETRO_LABEL) -- sin nivel declarado,
 // la orden se muestra como "Reparacion" sola.
+// Los 3 niveles de servicio de rutina, tal como se guardan en
+// tipoOperacion (ver TIPO_OPERACION_CATALOG) -- usado para encontrar el
+// nivel real de una orden a partir de sus Trabajos, no solo de
+// o.tipoServicioSolicitado (ver el porque en el comentario de abajo).
+var _NIVELES_SERVICIO_RUTINA = ['servicioMenor', 'servicioIntermedio', 'servicioMayor'];
 function _histFilaDatos(o) {
   var closeTs = o.montoFacturadoTs || (o.timestamps && o.timestamps.cer);
   var entregaTs = o.timestamps && o.timestamps.ent;
   var diasBaseTs = entregaTs || closeTs;
   var diasTaller = (diasBaseTs && o.cat) ? Math.round((diasBaseTs - o.cat) / 86400000) : null;
+  // Cruce real (25 sep 2026, caso de Byron: OT-5348, P-930DRQ): un tecnico
+  // puede registrar "07 SERVICIO MAYOR" como Trabajo realizado SIN que la
+  // orden tenga o.tipoServicioSolicitado marcado (ese campo es lo que el
+  // CLIENTE pidio al abrir la orden / se agrego retroactivo, y desbloquea
+  // la Plantilla de repuestos+bodega -- son 2 acciones independientes). Esa
+  // orden salia como "Reparacion" (por no tener tipoServicioSolicitado)
+  // aunque el trabajo mismo SI decia "07 SERVICIO MAYOR". Ahora se busca
+  // primero el nivel en los Trabajos (la fuente que Byron pidio usar desde
+  // el principio) y solo se cae a tipoServicioSolicitado si ningun trabajo
+  // trae una de las 3 etiquetas de nivel.
+  var nivelDeTrabajo = null;
+  (o.trabajos || []).some(function(tw) {
+    if (_NIVELES_SERVICIO_RUTINA.indexOf(tw.tipoOperacion) !== -1) { nivelDeTrabajo = tw.tipoOperacion; return true; }
+    return false;
+  });
+  var nivel = nivelDeTrabajo || o.tipoServicioSolicitado || null;
   var servicioLabel;
-  if (!o.tipoServicioSolicitado) {
+  if (!nivel) {
     servicioLabel = 'Reparacion';
   } else {
-    var esReparacion = (o.trabajos || []).some(function(tw) { return tw.tipoOperacion !== o.tipoServicioSolicitado; });
-    servicioLabel = (_SERVICIO_RETRO_LABEL[o.tipoServicioSolicitado] || o.tipoServicioSolicitado) + (esReparacion ? ' + Reparaciones' : '');
+    var esReparacion = (o.trabajos || []).some(function(tw) { return tw.tipoOperacion !== nivel; });
+    servicioLabel = (_SERVICIO_RETRO_LABEL[nivel] || nivel) + (esReparacion ? ' + Reparaciones' : '');
   }
   return {
     fechaEntrada: o.cat ? new Date(o.cat).toLocaleDateString('es-GT') : '—',
@@ -9101,17 +9122,21 @@ function _histFilaDatos(o) {
 }
 
 // Clic en una fila de la vista Tabla: pedido de Byron 25 sep 2026 (mismo
-// dia) -- probo el detalle simplificado de arriba (fechas/km/servicio) y
-// noto que practicamente repetia lo que la fila ya mostraba. Pidio en su
-// lugar la MISMA pre-orden que ya se usa en "Preparar Facturacion"
-// (repuestos + bodega + trabajos + montos, ver _buildFocusedResumenHtml) --
-// sin conBotonFicha (ese atajo cierra otros modales que no son este; aqui
-// solo hace falta el "Volver al reporte" de siempre).
+// dia). 1ra vuelta: probo el resumen de "Preparar Facturacion"
+// (_buildFocusedResumenHtml) y dijo que repetia lo que la fila ya
+// mostraba. 2da vuelta (mismo dia): aclaro que queria la "PREORDEN" de
+// verdad -- el documento formal que sale con el boton "Orden de Trabajo"
+// DENTRO de "Preparar Facturacion" (_buildOrdenTrabajoFormalHtml: el mismo
+// "LUBE N' SAVE / ORDEN DE VENTA-ORDEN DE TRABAJO" que ya se usa para
+// mandarle al cliente por WhatsApp antes de facturar). Sin conBotonFicha
+// ni los botones de Imprimir/Volver propios de esa funcion (esos cierran o
+// dan por hecho otro modal) -- aqui solo hace falta el "Volver al reporte"
+// de siempre.
 function _buildHistDetallePreOrdenHtml(o) {
   return '<div class="no-print" style="margin-bottom:10px">' +
       '<button onclick="_volverATablaHist()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0;font-weight:700">&#8592; Volver al reporte</button>' +
     '</div>' +
-    _buildFocusedResumenHtml(o);
+    _buildOrdenTrabajoFormalHtml(o);
 }
 
 // Tabla imprimible/exportable: TODOS los resultados que calcen con la
