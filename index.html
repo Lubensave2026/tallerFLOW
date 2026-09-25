@@ -9100,32 +9100,18 @@ function _histFilaDatos(o) {
   };
 }
 
-function _histDetalleCampo(label, valor) {
-  return '<div style="font-size:11px">' +
-    '<div style="color:var(--tx3);text-transform:uppercase;letter-spacing:.3px;font-size:9.5px;margin-bottom:3px">' + label + '</div>' +
-    '<div style="font-weight:600;font-size:13px;color:var(--tx)">' + esc(valor) + '</div>' +
-  '</div>';
-}
-function _buildHistDetalleSimpleHtml(o) {
-  var d = _histFilaDatos(o);
+// Clic en una fila de la vista Tabla: pedido de Byron 25 sep 2026 (mismo
+// dia) -- probo el detalle simplificado de arriba (fechas/km/servicio) y
+// noto que practicamente repetia lo que la fila ya mostraba. Pidio en su
+// lugar la MISMA pre-orden que ya se usa en "Preparar Facturacion"
+// (repuestos + bodega + trabajos + montos, ver _buildFocusedResumenHtml) --
+// sin conBotonFicha (ese atajo cierra otros modales que no son este; aqui
+// solo hace falta el "Volver al reporte" de siempre).
+function _buildHistDetallePreOrdenHtml(o) {
   return '<div class="no-print" style="margin-bottom:10px">' +
       '<button onclick="_volverATablaHist()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0;font-weight:700">&#8592; Volver al reporte</button>' +
     '</div>' +
-    '<div style="background:var(--bg3);border:1px solid var(--bd2);border-radius:var(--r);padding:14px 16px">' +
-      '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px">' +
-        '<span style="font-family:var(--mo);font-weight:500;font-size:15px;color:var(--ac)">' + esc(d.ot) + '</span>' +
-        '<span style="font-family:var(--mo);font-weight:500;font-size:15px">' + esc(o.plate) + '</span>' +
-      '</div>' +
-      '<div style="font-size:13px;color:var(--tx2);margin-bottom:14px">' + esc(o.model) + ' &middot; ' + esc(o.client) + '</div>' +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px 18px">' +
-        _histDetalleCampo('Fecha entrada', d.fechaEntrada) +
-        _histDetalleCampo('Fecha cierre', d.fechaCierre) +
-        _histDetalleCampo('Fecha entrega', d.fechaEntrega) +
-        _histDetalleCampo('Dias en taller', String(d.diasTaller)) +
-        _histDetalleCampo('Kilometraje', d.kmTexto) +
-        _histDetalleCampo('Servicio', d.servicioLabel) +
-      '</div>' +
-    '</div>';
+    _buildFocusedResumenHtml(o);
 }
 
 // Tabla imprimible/exportable: TODOS los resultados que calcen con la
@@ -9218,7 +9204,7 @@ function renderHist(q) {
   }
   if (_histVista === 'tabla') {
     if (_histDetalleIdx !== null && all[_histDetalleIdx]) {
-      list.innerHTML = _buildHistDetalleSimpleHtml(all[_histDetalleIdx]);
+      list.innerHTML = _buildHistDetallePreOrdenHtml(all[_histDetalleIdx]);
     } else {
       list.innerHTML = _buildHistTablaHtml(all);
       var filas = list.querySelectorAll('.hist-tabla-row');
