@@ -219,6 +219,15 @@ button{cursor:pointer}
 .mwrap{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
 .mwrap.on{display:flex}
 .modal{background:var(--bg2);border-radius:18px 18px 0 0;border:1px solid var(--bd);border-bottom:none;width:100%;max-width:500px;padding:1.25rem;max-height:90vh;overflow-y:auto}
+/* Historial -> vista Tabla (25 sep 2026, pedido de Byron): la tabla de 9
+   columnas no entraba en el ancho normal del modal (500px) sin scroll
+   horizontal constante, aun en celular. Con mas especificidad que .modal
+   sola (id + 2 clases) le gana tambien a la regla movil de abajo
+   (@media max-width:600px), asi que ocupa casi toda la pantalla en
+   cualquier tamano mientras esta en Tabla -- vuelve a 500px solo al
+   cambiar de vuelta a Tarjetas (ver _actualizarBotonesVistaHist). */
+#m-hist.vista-tabla .modal{max-width:98vw;width:98vw;max-height:96vh}
+#m-hist.vista-tabla #hist-list{max-height:74vh}
 .modal-t{font-size:15px;font-weight:600;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center}
 .fg{margin-bottom:10px}
 .fl{font-size:11px;color:var(--tx2);display:block;margin-bottom:4px;font-weight:500}
@@ -316,6 +325,12 @@ button{cursor:pointer}
    REPUESTOS Y SUBCONTRATOS y en Despacho — a diferencia de las insignias
    quietas de Presupuestos pendientes y Preparar Facturacion. */
 .badge-alerta { animation:pulse-badge 1.4s ease-in-out infinite }
+/* Asigna la "pagina con nombre" @page historial-tabla (definida dentro de
+   @media print, ver arriba) al reporte de Historial en vista Tabla -- sin
+   efecto visual en pantalla, "page" solo importa al paginar para imprimir.
+   Puesta fuera de @media print a proposito: sale de una vez con el HTML,
+   no hace falta duplicarla adentro. */
+.hist-tabla-print-landscape { page: historial-tabla; }
 /* Inverso de .no-print: oculto en pantalla, visible SOLO al imprimir (ver
    la tabla compacta de _buildRepuestosCompactoPrintHtml). La regla que lo
    muestra vive dentro de @media print, junto a .no-print. */
@@ -353,6 +368,11 @@ button{cursor:pointer}
     max-height:none !important; overflow:visible !important; position:static;
   }
   #m-hist.on #hist-list { max-height:none !important; overflow:visible !important }
+  /* El scroll horizontal de la vista Tabla (.hist-tabla-scroll-x) es solo
+     para pantalla -- en papel no hay scrollbar, asi que hay que liberarlo
+     tambien o la tabla se corta en vez de usar el ancho horizontal nuevo
+     de la hoja @page historial-tabla. */
+  .hist-tabla-scroll-x { overflow:visible !important }
   #m-hist.on .modal-t button { display:none }
   #m-hist-detail.on .rep-modal, #m-repparts.on .rep-modal {
     /* !important en max-width/width: el modal de "Detalle de orden" trae un
@@ -390,14 +410,32 @@ button{cursor:pointer}
      regla de pagina antes de esto — el navegador usaba el default de la
      impresora/SO, que en varios equipos sale en A4 en vez de Carta, y sin
      orientacion fija dejaba lo ultimo que haya quedado seleccionado). Pedido
-     de Byron (8 sep) especificamente para "Orden de Trabajo", pero @page no
-     se puede acotar a un solo boton/contenido — aplica a lo que se este
-     imprimiendo en ese momento, sea cual sea. Portrait es el default de
-     "letter" (sin agregar "landscape"), y no se fuerza ningun margen — asi
-     el padding propio de "Orden de Trabajo" (40px 48px, ver
+     de Byron (8 sep) especificamente para "Orden de Trabajo". Portrait es
+     el default de "letter" (sin agregar "landscape"), y no se fuerza ningun
+     margen — asi el padding propio de "Orden de Trabajo" (40px 48px, ver
      _buildOrdenTrabajoFormalHtml) no se duplica con un margen de pagina
-     extra. */
+     extra.
+     ADVERTENCIA (25 sep 2026, reportado por Byron): fijar "size" aqui hace
+     que Chrome/Edge OCULTEN el selector de Orientacion del dialogo de
+     impresion por completo (la pagina ya declara sus propias dimensiones,
+     asi que el navegador no ofrece cambiarla a mano) — esto aplica a TODO
+     lo que se imprima, no solo a "Orden de Trabajo". Para el reporte de
+     Historial en vista Tabla (que si necesita horizontal) la solucion NO
+     es tocar esta regla general, sino una "pagina con nombre" aparte (ver
+     @page historial-tabla abajo) — asi el resto de la app sigue exactamente
+     igual (vertical, sin selector de orientacion) y solo ESE reporte sale
+     en horizontal automaticamente, sin que Byron tenga que cambiar nada a
+     mano en el dialogo de impresion. */
   @page { size: letter; }
+  /* Pagina con nombre (CSS Paged Media): cualquier elemento marcado con
+     page:historial-tabla (ver .hist-tabla-print-landscape en el CSS
+     general, usada por _buildHistTablaHtml) se imprime usando ESTAS
+     dimensiones en vez de la regla @page de arriba — nada mas de la app
+     se ve afectado. Soportado en Chrome/Edge recientes; en un navegador
+     viejo que no lo reconozca, simplemente se ignora y esa vista vuelve a
+     depender de que Byron elija Horizontal a mano (mismo comportamiento
+     que ya tenia antes de este cambio). */
+  @page historial-tabla { size: letter landscape; }
 }
 
 /* Logo LUBE N SAVE: una sola copia de la imagen, usada en los 3 lugares
@@ -9065,6 +9103,11 @@ function _actualizarBotonesVistaHist() {
   pintar(btnT, _histVista === 'tarjetas');
   pintar(btnB, _histVista === 'tabla');
   if (acciones) acciones.style.display = (_histVista === 'tabla') ? 'flex' : 'none';
+  // Ensancha el modal casi a pantalla completa mientras esta en Tabla (ver
+  // regla #m-hist.vista-tabla .modal en el CSS) -- vuelve a su ancho de
+  // siempre en cuanto se regresa a Tarjetas.
+  var mHist = document.getElementById('m-hist');
+  if (mHist) mHist.classList.toggle('vista-tabla', _histVista === 'tabla');
 }
 
 // Campos derivados compartidos por la vista Tabla, el detalle simplificado
@@ -9146,7 +9189,8 @@ function _buildHistDetallePreOrdenHtml(o) {
 function _buildHistTablaHtml(all) {
   var th = function(txt, alinDer) { return '<th style="text-align:' + (alinDer?'right':'left') + ';border-bottom:1.5px solid var(--bd2);padding:6px 8px;white-space:nowrap">' + txt + '</th>'; };
   var td = function(txt, extra) { return '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + (extra||'') + '">' + txt + '</td>'; };
-  var html = '<div style="overflow-x:auto">' +
+  var html = '<div class="hist-tabla-print-landscape">' +
+    '<div class="hist-tabla-scroll-x" style="overflow-x:auto">' +
     '<table style="width:100%;border-collapse:collapse;font-size:11.5px;min-width:920px">' +
       '<thead><tr>' +
         th('Fecha entrada') + th('Fecha cierre') + th('Dias taller', true) + th('No. orden') +
@@ -9171,7 +9215,8 @@ function _buildHistTablaHtml(all) {
     '<div style="font-size:10px;color:var(--tx3);margin-top:8px;line-height:1.5">' +
       '* Dias en taller: de la fecha de entrada a la fecha de ENTREGA (no la de cierre).<br>' +
       '** "+ Reparaciones": la orden tiene algun trabajo registrado fuera de la etiqueta de servicio de rutina (Menor/Intermedio/Mayor). "Reparacion" sola = nunca tuvo un nivel de servicio de rutina asignado.' +
-    '</div>';
+    '</div>' +
+  '</div>';
   return html;
 }
 
