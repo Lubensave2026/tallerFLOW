@@ -331,6 +331,13 @@ button{cursor:pointer}
    Puesta fuera de @media print a proposito: sale de una vez con el HTML,
    no hace falta duplicarla adentro. */
 .hist-tabla-print-landscape { page: historial-tabla; }
+/* Contraste entre filas de la vista Tabla del Historial (25 sep 2026,
+   pedido de Byron: costaba seguir una fila entre tanta columna, igual en
+   compu y en celular) -- "renglones cebra" con el mismo tono que ya usa el
+   resto de la app para fondos secundarios (var(--bg3)), asi que en modo
+   claro/oscuro y al imprimir (donde --bg3 se redefine a un gris claro) se
+   ve consistente sin tocar nada mas. */
+.hist-tabla-row:nth-child(even) { background: var(--bg3); }
 /* Inverso de .no-print: oculto en pantalla, visible SOLO al imprimir (ver
    la tabla compacta de _buildRepuestosCompactoPrintHtml). La regla que lo
    muestra vive dentro de @media print, junto a .no-print. */
@@ -367,6 +374,18 @@ button{cursor:pointer}
     box-shadow:none; max-width:100% !important; width:100% !important; border-radius:0; border:none;
     max-height:none !important; overflow:visible !important; position:static;
   }
+  /* Reportado por Byron (25 sep 2026, mismo dia): el reporte de verdad
+     salia hasta la 2da hoja impresa, con la 1ra en blanco salvo el titulo.
+     Causa: el titulo "Historial de ordenes" (arriba de #hist-list, fuera de
+     la tabla) se quedaba en la pagina vertical de siempre mientras la
+     tabla ya pedia la pagina historial-tabla en horizontal -- ese cambio de
+     pagina A MITAD del modal fuerza un salto de hoja, porque una misma
+     hoja fisica no puede ser vertical y horizontal a la vez. Con esta regla,
+     el modal COMPLETO (titulo incluido) usa la pagina horizontal desde el
+     inicio SOLO mientras se ve la lista de la tabla (.vista-tabla-lista,
+     ver _actualizarBotonesVistaHist) -- el detalle "Orden de Trabajo" no
+     lleva esa clase, asi que sigue imprimiendo vertical como siempre. */
+  #m-hist.on.vista-tabla-lista .modal { page: historial-tabla; }
   #m-hist.on #hist-list { max-height:none !important; overflow:visible !important }
   /* El scroll horizontal de la vista Tabla (.hist-tabla-scroll-x) es solo
      para pantalla -- en papel no hay scrollbar, asi que hay que liberarlo
@@ -9108,6 +9127,16 @@ function _actualizarBotonesVistaHist() {
   // siempre en cuanto se regresa a Tarjetas.
   var mHist = document.getElementById('m-hist');
   if (mHist) mHist.classList.toggle('vista-tabla', _histVista === 'tabla');
+  // Clase aparte SOLO para cuando se ve la lista de la tabla (no el detalle
+  // "Orden de Trabajo", que debe seguir imprimiendo vertical) -- pedido de
+  // Byron 25 sep 2026, mismo dia: el titulo "Historial de ordenes" (fuera
+  // de #hist-list) usaba la pagina vertical de siempre mientras la tabla ya
+  // usaba la pagina historial-tabla en horizontal -- ese cambio de pagina A
+  // MITAD del modal fuerza un salto de hoja (no se puede mezclar horizontal
+  // y vertical en la misma hoja), asi que el reporte real siempre salia
+  // hasta la 2da hoja con la 1ra en blanco. Con esta clase, TODO el modal
+  // (titulo incluido) usa la misma pagina horizontal desde el inicio.
+  if (mHist) mHist.classList.toggle('vista-tabla-lista', _histVista === 'tabla' && _histDetalleIdx === null);
 }
 
 // Campos derivados compartidos por la vista Tabla, el detalle simplificado
