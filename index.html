@@ -9205,6 +9205,11 @@ function _histFilaDatos(o) {
     var esReparacion = (o.trabajos || []).some(function(tw) { return tw.tipoOperacion !== nivel; });
     servicioLabel = (_SERVICIO_RETRO_LABEL[nivel] || nivel) + (esReparacion ? ' + Reparaciones' : '');
   }
+  // Monto facturado (26 sep 2026, pedido de Byron): mismo criterio que ya
+  // usan otros reportes (Bitacora/Reporte General) -- si la orden quedo
+  // "Ya facturada" (cierre anticipado, congelado) se usa ese monto fijo;
+  // si no, el monto total normal de la orden.
+  var montoFacturadoNum = Number(o.montoFacturadoTotal || o.montoTotal || 0);
   return {
     fechaEntrada: o.cat ? new Date(o.cat).toLocaleDateString('es-GT') : '—',
     fechaCierre: closeTs ? new Date(closeTs).toLocaleDateString('es-GT') : '—',
@@ -9213,6 +9218,8 @@ function _histFilaDatos(o) {
     ot: o.ot || '—',
     kmTexto: (o.km != null) ? o.km.toLocaleString('es-GT') + ' km' : '— sin dato',
     servicioLabel: servicioLabel,
+    montoFacturadoNum: montoFacturadoNum,
+    montoFacturadoTexto: montoFacturadoNum ? 'Q.' + montoFacturadoNum.toLocaleString('es-GT', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—',
   };
 }
 
@@ -9228,8 +9235,11 @@ function _histFilaDatos(o) {
 // dan por hecho otro modal) -- aqui solo hace falta el "Volver al reporte"
 // de siempre.
 function _buildHistDetallePreOrdenHtml(o) {
+  // Boton real (borde + relleno), no un link de texto plano -- pedido de
+  // Byron 26 sep 2026: se prestaba a confundirlo con la "X" de cerrar el
+  // modal y darle clic por error.
   return '<div class="no-print" style="margin-bottom:10px">' +
-      '<button onclick="_volverATablaHist()" style="background:none;border:none;color:var(--ac);font-size:12px;cursor:pointer;padding:0;font-weight:700">&#8592; Volver al reporte</button>' +
+      '<button onclick="_volverATablaHist()" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:20px;border:1px solid var(--ac);background:rgba(61,126,255,.15);color:var(--ac);cursor:pointer">&#8592; Volver al reporte</button>' +
     '</div>' +
     _buildOrdenTrabajoFormalHtml(o);
 }
@@ -9239,14 +9249,17 @@ function _buildHistDetallePreOrdenHtml(o) {
 // de Byron: "sin tope, que salga todo lo que calce"). Clic en una fila abre
 // el detalle simplificado de arriba sin cerrar el modal.
 function _buildHistTablaHtml(all) {
-  var th = function(txt, alinDer) { return '<th style="text-align:' + (alinDer?'right':'left') + ';border-bottom:1.5px solid var(--bd2);padding:6px 8px;white-space:nowrap">' + txt + '</th>'; };
+  // "D/T" (26 sep 2026, pedido de Byron: ahorrar espacio horizontal al
+  // agregar Monto facturado) -- el titulo del header explica la abreviatura
+  // al pasar el mouse, y la nota al pie de abajo la explica del todo.
+  var th = function(txt, alinDer, titulo) { return '<th style="text-align:' + (alinDer?'right':'left') + ';border-bottom:1.5px solid var(--bd2);padding:6px 8px;white-space:nowrap"' + (titulo ? ' title="' + titulo + '"' : '') + '>' + txt + '</th>'; };
   var td = function(txt, extra) { return '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)' + (extra||'') + '">' + txt + '</td>'; };
   var html = '<div class="hist-tabla-print-landscape">' +
     '<div class="hist-tabla-scroll-x" style="overflow-x:auto">' +
     '<table style="width:100%;border-collapse:collapse;font-size:11.5px;min-width:920px">' +
       '<thead><tr>' +
-        th('Fecha entrada') + th('Fecha cierre') + th('Dias taller', true) + th('No. orden') +
-        th('Cliente') + th('Vehiculo') + th('Placa') + th('Kilometraje', true) + th('Servicio') +
+        th('Fecha entrada') + th('Fecha cierre') + th('D/T', true, 'Dias en taller') + th('No. orden') +
+        th('Cliente') + th('Vehiculo') + th('Placa') + th('Kilometraje', true) + th('Servicio') + th('Monto facturado', true) +
       '</tr></thead><tbody>';
   for (var i = 0; i < all.length; i++) {
     var o = all[i];
@@ -9261,11 +9274,12 @@ function _buildHistTablaHtml(all) {
       td(esc(o.plate), ';font-family:var(--mo)') +
       td(d.kmTexto, ';font-family:var(--mo);text-align:right') +
       td(esc(d.servicioLabel), '') +
+      td(d.montoFacturadoTexto, ';font-family:var(--mo);text-align:right') +
     '</tr>';
   }
   html += '</tbody></table></div>' +
     '<div style="font-size:10px;color:var(--tx3);margin-top:8px;line-height:1.5">' +
-      '* Dias en taller: de la fecha de entrada a la fecha de ENTREGA (no la de cierre).<br>' +
+      '* D/T = Dias en taller: de la fecha de entrada a la fecha de ENTREGA (no la de cierre).<br>' +
       '** "+ Reparaciones": la orden tiene algun trabajo registrado fuera de la etiqueta de servicio de rutina (Menor/Intermedio/Mayor). "Reparacion" sola = nunca tuvo un nivel de servicio de rutina asignado.' +
     '</div>' +
   '</div>';
@@ -9275,12 +9289,13 @@ function _buildHistTablaHtml(all) {
 function exportHistorialCSV() {
   var all = window._histOrdersFull || [];
   if (!all.length) { toast('No hay resultados para exportar'); return; }
-  var header = ['Fecha entrada','Fecha cierre','Dias en taller','No. orden','Cliente','Vehiculo','Placa','Kilometraje','Servicio'];
+  var header = ['Fecha entrada','Fecha cierre','Dias en taller','No. orden','Cliente','Vehiculo','Placa','Kilometraje','Servicio','Monto facturado'];
   var rows = [header];
   for (var i = 0; i < all.length; i++) {
     var o = all[i];
     var d = _histFilaDatos(o);
-    rows.push([d.fechaEntrada, d.fechaCierre, d.diasTaller, d.ot, o.client || '', o.model || '', o.plate || '', (o.km != null ? o.km : ''), d.servicioLabel]);
+    rows.push([d.fechaEntrada, d.fechaCierre, d.diasTaller, d.ot, o.client || '', o.model || '', o.plate || '', (o.km != null ? o.km : ''), d.servicioLabel,
+      d.montoFacturadoNum ? _csvNum(d.montoFacturadoNum) : '']);
   }
   var csv = rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\n');
   _downloadCSV(csv, 'tallerflow_historial_ordenes_' + _todayKey() + '.csv');
