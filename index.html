@@ -349,7 +349,7 @@ button{cursor:pointer}
    alcanza para que todo el reporte se imprima en claro sin tener que tocar
    cada seccion una por una. */
 @media print {
-  #ap, .np, .ov, .drw, .mwrap:not(#m-hist-detail):not(#m-repparts):not(#m-hist) { display:none !important; }
+  #ap, .np, .ov, .drw, .mwrap:not(#m-hist-detail):not(#m-repparts):not(#m-hist):not(#m-rep) { display:none !important; }
   /* Solo el modal que este REALMENTE abierto (clase .on) se imprime. Antes
      esta regla forzaba display:block en #m-hist-detail Y #m-repparts sin
      condicion — asi que si alguien habia dejado el otro modal abierto
@@ -361,8 +361,8 @@ button{cursor:pointer}
      .mwrap es position:fixed;inset:0 — eso recorta la impresion al tamano
      de una sola pantalla. Para que el contenido fluya y pagine normal, hay
      que sacarlo de fixed/flex durante la impresion. */
-  #m-hist-detail:not(.on), #m-repparts:not(.on), #m-hist:not(.on) { display:none !important; }
-  #m-hist-detail.on, #m-repparts.on, #m-hist.on {
+  #m-hist-detail:not(.on), #m-repparts:not(.on), #m-hist:not(.on), #m-rep:not(.on) { display:none !important; }
+  #m-hist-detail.on, #m-repparts.on, #m-hist.on, #m-rep.on {
     position:static !important; display:block !important; inset:auto !important;
     background:#fff !important; backdrop-filter:none !important;
   }
@@ -393,7 +393,7 @@ button{cursor:pointer}
      de la hoja @page historial-tabla. */
   .hist-tabla-scroll-x { overflow:visible !important }
   #m-hist.on .modal-t button { display:none }
-  #m-hist-detail.on .rep-modal, #m-repparts.on .rep-modal {
+  #m-hist-detail.on .rep-modal, #m-repparts.on .rep-modal, #m-rep.on .rep-modal {
     /* !important en max-width/width: el modal de "Detalle de orden" trae un
        max-width:500px puesto EN LINEA en el HTML (ver #m-hist-detail mas
        abajo) — un estilo en linea le gana a cualquier regla de clase sin
@@ -403,6 +403,23 @@ button{cursor:pointer}
     box-shadow:none; max-width:100% !important; width:100% !important; border-radius:0; border:none;
     max-height:none !important; overflow:visible !important; position:static;
   }
+  /* "Reporte del dia" (#m-rep) — pedido de Byron (25 sep 2026, mismo dia):
+     imprimir lo que este a la vista (los filtros ya aplicados esconden
+     filas con display:none en el DOM, asi que la impresion los respeta
+     solo, sin logica nueva) en horizontal, para que quepan las 10 columnas.
+     Pagina con nombre APARTE de historial-tabla (misma idea, otro reporte)
+     asignada a TODO .rep-modal (titulo "Reporte del dia" incluido) desde
+     el inicio, para no repetir el bug de la hoja en blanco que ya paso con
+     Historial (ver comentario de #m-hist.on.vista-tabla-lista arriba). A
+     diferencia de Historial, aqui no hace falta una clase condicional --
+     este modal siempre es este mismo reporte ancho, sin una vista angosta
+     alterna que deba quedarse vertical. */
+  #m-rep.on .rep-modal { page: reporte-general; }
+  #m-rep.on .modal-t button { display:none }
+  /* El scroll horizontal de la tabla (igual que .hist-tabla-scroll-x) es
+     solo para pantalla -- hay que liberarlo o la tabla se corta en vez de
+     usar el ancho nuevo de la hoja horizontal. */
+  #rep-table-wrap { overflow:visible !important }
   #m-hist-detail.on #hist-detail-body { max-height:none !important; overflow:visible !important }
   #m-hist-detail.on .chat-box { max-height:none !important; overflow:visible !important }
   #hist-detail-title button { display:none }
@@ -455,6 +472,10 @@ button{cursor:pointer}
      depender de que Byron elija Horizontal a mano (mismo comportamiento
      que ya tenia antes de este cambio). */
   @page historial-tabla { size: letter landscape; }
+  /* "Reporte del dia" (#m-rep) — misma idea que historial-tabla arriba,
+     pagina aparte para no tocar la regla general (que sigue vertical para
+     todo lo demas). Asignada directo a #m-rep.on .rep-modal (ver arriba). */
+  @page reporte-general { size: letter landscape; }
 }
 
 /* Logo LUBE N SAVE: una sola copia de la imagen, usada en los 3 lugares
@@ -6332,15 +6353,16 @@ function buildRepContent() {
     // monto no aplican aqui (todo es del mismo tecnico, toda fila es fase
     // 'cer'), asi que se ocultan en vez de dejarlos puestos sin efecto —
     // misma vista simplificada que ya tiene el propio tecnico.
-    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:1rem">' +
+    html += '<div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:1rem">' +
       '<span style="font-size:12px;font-weight:700;color:var(--ac);background:var(--bg3);border:1px solid var(--bd);border-radius:20px;padding:6px 12px">&#128193; Cerradas de ' + esc(tecActivo) + '</span>' +
       '<button onclick="volverDeVerCerradasDeTec()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#9664; Volver a ordenes activas</button>' +
+      '<button onclick="window.print()" title="Imprime esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button>' +
       '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
       '<button onclick="exportTodosTecnicosCerradosCSV()" title="Un solo archivo con las cerradas de TODOS los tecnicos de este mes (2 filas si la orden tuvo 2 tecnicos), para filtrar despues en Excel en vez de exportar uno por uno" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar TODOS los tecnicos</button>' +
       '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
     '</div>';
   } else {
-  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem">' +
+  html += '<div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem">' +
     (myName ? '' :
     '<select id="rep-fil-tec" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
       '<option value="">Todos los tecnicos</option>' +
@@ -6387,6 +6409,7 @@ function buildRepContent() {
         ? '<button onclick="verCerradasDeTecnico()" title="Elige un tecnico en el filtro de arriba y toca aqui" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128193; Ver cerradas de un tecnico</button>' +
           '<button onclick="exportTodosTecnicosCerradosCSV()" title="Un solo archivo con las cerradas de TODOS los tecnicos de este mes (2 filas si la orden tuvo 2 tecnicos), para filtrar despues en Excel en vez de exportar uno por uno" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar TODOS los tecnicos</button>'
         : '')) +
+    '<button onclick="window.print()" title="Imprime esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button>' +
     '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
     '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
   '</div>';
