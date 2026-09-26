@@ -2673,7 +2673,7 @@ function openDrw(id) {
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Vehiculo</label><input class="fi" id="e-model" value="' + esc(o.model) + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Cliente</label><input class="fi" id="e-client" value="' + esc(o.client) + '"></div>' +
         '<div class="fg" style="margin-bottom:6px"><label class="fl">Kilometraje — opcional</label><input class="fi" id="e-km" type="number" min="0" step="1" value="' + (o.km!=null?o.km:'') + '"></div>' +
-        '<div class="fg" style="margin-bottom:6px"><label class="fl">Tiempo estimado (hrs) — opcional</label><input class="fi" id="e-hrs" type="number" min="0.5" step="0.5" value="' + (o.hrsEstimado||'') + '">' +
+        '<div class="fg" style="margin-bottom:6px;border:2px solid #eab308;border-radius:var(--rs);background:var(--bg);padding:8px 10px"><label class="fl">&#9201; Tiempo calculado (hrs) — opcional</label><input class="fi" id="e-hrs" type="number" min="0.5" step="0.5" value="' + (o.hrsEstimado||'') + '">' +
           (function() {
             // Aviso si la orden ya trae horas reales de vueltas anteriores en
             // Trabajando (ej. diagnostico separado del trabajo real) — para
@@ -3180,6 +3180,16 @@ function openDrw(id) {
     phaseLogHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:8px;background:rgba(249,168,37,.08);border:1px solid #F9A825;border-radius:var(--rs)">' +
       '<span style="font-size:10px;color:#F9A825;text-transform:uppercase;letter-spacing:.3px;flex:1">&#128663; Tiempo en ruta</span>' +
       '<span style="color:#F9A825;font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + rutaDur + '</span>' +
+    '</div>';
+  }
+  // Km recorridos en pruebas de ruta (26 sep 2026, pedido de Byron) --
+  // mismo recuadro/tema visual que "Tiempo en ruta" arriba (opcion C que
+  // el eligio: se captura con un prompt al marcar salida/al firmar, y
+  // despues queda visible aqui, no solo en el momento).
+  if (o.kmRecorridos !== undefined && o.kmRecorridos !== null) {
+    phaseLogHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:8px;background:rgba(249,168,37,.08);border:1px solid #F9A825;border-radius:var(--rs)">' +
+      '<span style="font-size:10px;color:#F9A825;text-transform:uppercase;letter-spacing:.3px;flex:1">&#128663; Km recorridos en ruta</span>' +
+      '<span style="color:#F9A825;font-weight:700;font-size:12px;white-space:nowrap">' + o.kmRecorridos.toLocaleString('es-GT') + ' km</span>' +
     '</div>';
   }
   // Fecha de cierre: se muestra siempre que exista un registro (o.timestamps.cer
@@ -4625,9 +4635,22 @@ function openDrw(id) {
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (!ox || ox.phase !== 'prb') return;
       ox.rutaSalidaTs = Date.now();
+      // Kilometraje de salida (26 sep 2026, pedido de Byron: llevar control
+      // de km recorridos en la prueba de ruta) -- OPCIONAL a proposito,
+      // igual que "Horas estimadas" en Espera-asignacion: si se cancela o se
+      // deja en blanco, la salida a ruta se registra igual (el tiempo en
+      // ruta no depende de esto) y simplemente no se pide/valida el
+      // kilometraje de entrada mas adelante (ver doSign).
+      var kmSalidaInput = prompt('Kilometraje de salida (opcional, para llevar el control de km recorridos en esta prueba):');
+      var kmSalidaTxt = '';
+      if (kmSalidaInput !== null && kmSalidaInput.trim() !== '') {
+        var kmSalidaVal = parseFloat(kmSalidaInput);
+        if (kmSalidaVal >= 0) { ox.kmSalidaRuta = kmSalidaVal; kmSalidaTxt = ' — km salida: ' + kmSalidaVal.toLocaleString('es-GT'); }
+        else toast('Numero de kilometraje invalido — no se guardo (la salida a ruta si quedo registrada)');
+      }
       var whoRuta = ROLES[role] ? ROLES[role].label : role;
       ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:whoRuta, txt:'&#128663; Vehiculo sale a prueba de ruta', ts:Date.now(), type:'system'});
+      ox.msgs.push({who:whoRuta, txt:'&#128663; Vehiculo sale a prueba de ruta' + kmSalidaTxt, ts:Date.now(), type:'system'});
       save(); toast('Salida a ruta registrada'); openDrw(id);
     });
   }
@@ -4994,6 +5017,38 @@ function doSign(id, sigId) {
     o.msgs = o.msgs || [];
     o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'Total cotizado registrado: Q.' + cotizadoVal.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}), ts:Date.now(), type:'system'});
   }
+  // Kilometraje de entrada de la prueba de ruta (26 sep 2026, pedido de
+  // Byron) -- solo aplica si se registro kilometraje de SALIDA (opcional,
+  // ver btn-ruta-salida); si no se registro, no se pide nada aqui, igual
+  // que rutaMinutos no se acumula sin rutaSalidaTs. Reglas de validacion
+  // acordadas con Byron: menor al de salida = bloquea (numero invalido);
+  // diferencia de 20 a 50 km = pregunta si esta seguro (una prueba puede
+  // excepcionalmente ser mas larga de lo normal); mas de 50 km = bloquea
+  // directo (nunca ha pasado en la practica, es señal de un numero mal
+  // escrito). Cancelar el cuadro NO bloquea la firma -- el kilometraje es
+  // un dato opcional, cancelar solo significa que esta vuelta no suma km
+  // (el Jefe puede no tenerlo a la mano en ese momento).
+  if (o.phase === 'prb' && sigId === 'jefe' && o.kmSalidaRuta != null) {
+    var kmEntradaInput = prompt('Kilometraje de entrada (salida fue ' + o.kmSalidaRuta.toLocaleString('es-GT') + ' km):');
+    if (kmEntradaInput !== null && kmEntradaInput.trim() !== '') {
+      var kmEntradaVal = parseFloat(kmEntradaInput);
+      if (isNaN(kmEntradaVal) || kmEntradaVal < o.kmSalidaRuta) {
+        toast('El kilometraje de entrada no puede ser menor al de salida (' + o.kmSalidaRuta.toLocaleString('es-GT') + ' km) — corrige el numero antes de firmar');
+        return;
+      }
+      var kmVueltaActual = kmEntradaVal - o.kmSalidaRuta;
+      if (kmVueltaActual > 50) {
+        toast('Diferencia de ' + kmVueltaActual.toLocaleString('es-GT') + ' km — nunca ha pasado de 50 km en una sola prueba. Revisa el kilometraje antes de firmar.');
+        return;
+      }
+      if (kmVueltaActual > 20 && !confirm('Esta prueba recorrio ' + kmVueltaActual.toLocaleString('es-GT') + ' km (lo normal es hasta 20 km). ¿Estas seguro de que el kilometraje es correcto?')) {
+        return;
+      }
+      o.kmRecorridos = (o.kmRecorridos || 0) + kmVueltaActual;
+      o.msgs = o.msgs || [];
+      o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'&#128663; Prueba de ruta: ' + kmVueltaActual.toLocaleString('es-GT') + ' km recorridos (' + o.kmSalidaRuta.toLocaleString('es-GT') + ' &rarr; ' + kmEntradaVal.toLocaleString('es-GT') + ' km)', ts:Date.now(), type:'system'});
+    }
+  }
   o.sigs[sigId] = true;
   o.sigsTs = o.sigsTs || {};
   o.sigsTs[sigId] = Date.now();
@@ -5207,7 +5262,9 @@ function advance(id, newPhase) {
   // aqui — se sigue acumulando cada vez que se completa una nueva ruta (ver
   // doSign), igual que el resto de la bitacora nunca pierde tiempo de
   // visitas previas a una fase.
-  if (newPhase === 'prb') { delete o.rutaSalidaTs; }
+  // o.kmSalidaRuta se limpia igual que o.rutaSalidaTs -- o.kmRecorridos (ya
+  // acumulado de rutas anteriores) tampoco se borra aqui, mismo criterio.
+  if (newPhase === 'prb') { delete o.rutaSalidaTs; delete o.kmSalidaRuta; }
   if (!o.timestamps) o.timestamps = {};
   o.timestamps[newPhase] = phaseTo;
   if (newPhase === 'cer' && o._closeDateOverride) { delete o._closeDateOverride; }
@@ -8632,13 +8689,16 @@ function _buildOrderSummaryCSV(allOrders) {
     // reparte entre 2 tecnicos, a diferencia de Monto_Total/Monto_MO/
     // Hrs_Com que si son por-tecnico) — se repite igual en ambas filas si
     // hay 2 tecnicos, mismo criterio que Cliente/Vehiculo/Dias.
-    'Monto_Cotizado','Pct_Aprobacion'];
+    'Monto_Cotizado','Pct_Aprobacion',
+    // Km_Recorridos (26 sep 2026, pedido de Byron): mismo criterio que
+    // Monto_Cotizado, agregada al final sin correr las columnas de arriba.
+    'Km_Recorridos'];
   var rows = [header];
 
   var sumDias = 0;
   var sumHoras = {};
   _ORDER_SUMMARY_PHASE_COLS.forEach(function(ph) { sumHoras[ph] = 0; });
-  var sumMontoTotal = 0, sumMontoMO = 0, sumHrsCom = 0, sumRutaMin = 0;
+  var sumMontoTotal = 0, sumMontoMO = 0, sumHrsCom = 0, sumRutaMin = 0, sumKmRecorridos = 0;
   // Acumulados UNA VEZ por orden (no por fila/tecnico) — Monto_Cotizado no
   // se reparte, asi que sumarlo en el loop de filas lo duplicaria con 2
   // tecnicos.
@@ -8685,6 +8745,11 @@ function _buildOrderSummaryCSV(allOrders) {
     var montoCotizado = o.montoCotizado ? Number(o.montoCotizado) : 0;
     var pctAprobacionRow = (montoCotizado && montoTotal) ? Math.round(montoTotal / montoCotizado * 100) : null;
     if (montoCotizado) sumMontoCotizado += montoCotizado;
+    // Km_Recorridos: igual que Monto_Cotizado, de la ORDEN completa (no se
+    // reparte entre tecnicos) -- vacio si nunca se registro kilometraje de
+    // salida en ninguna prueba de ruta de esta orden.
+    var kmRecorridosRow = (o.kmRecorridos !== undefined && o.kmRecorridos !== null) ? o.kmRecorridos : null;
+    if (kmRecorridosRow !== null) sumKmRecorridos += kmRecorridosRow;
     if (montoCotizado && montoTotal) sumMontoTotalConCotizado += montoTotal;
 
     // Con 2 tecnicos asignados, la orden sale como 2 FILAS (una por
@@ -8753,7 +8818,8 @@ function _buildOrderSummaryCSV(allOrders) {
         pctProdRow !== null ? pctProdRow : '',
         rutaHoras !== null ? _csvNum(rutaHoras.toFixed(2)) : '',
         montoCotizado ? _csvNum(montoCotizado.toFixed(2)) : '',
-        pctAprobacionRow !== null ? pctAprobacionRow : ''
+        pctAprobacionRow !== null ? pctAprobacionRow : '',
+        kmRecorridosRow !== null ? _csvNum(String(kmRecorridosRow)) : ''
       ]);
     }
   }
@@ -8785,6 +8851,9 @@ function _buildOrderSummaryCSV(allOrders) {
   // coincida con la tarjeta "% de aprobacion" del Reporte General.
   footer.push(_csvNum(sumMontoCotizado.toFixed(2)));
   footer.push(sumMontoCotizado > 0 ? Math.round(sumMontoTotalConCotizado / sumMontoCotizado * 100) : '');
+  // Km_Recorridos: TOTAL del periodo (no promedio), mismo criterio que
+  // Monto_Cotizado arriba.
+  footer.push(_csvNum(String(sumKmRecorridos)));
   rows.push(footer);
 
   return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
@@ -10327,6 +10396,11 @@ function _buildLineaTiempoHtml(o, role) {
       '<span style="font-size:10px;color:var(--tx3);white-space:nowrap">' + fmtFecha(o.rutaSalidaTs) + ' ' + fmtHora(o.rutaSalidaTs) + '</span>' +
       '<span style="background:#F9A825;color:#000;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:600;white-space:nowrap">EN RUTA</span>' +
       '<span style="flex:1"></span>' +
+      // Km recorridos (26 sep 2026, pedido de Byron) -- mismo tramo que el
+      // tiempo en ruta, se muestra al lado en vez de un renglon aparte.
+      (o.kmRecorridos !== undefined && o.kmRecorridos !== null
+        ? '<span style="font-size:10px;color:#F9A825;white-space:nowrap;font-weight:600">' + o.kmRecorridos.toLocaleString('es-GT') + ' km</span>'
+        : '') +
       '<span style="font-size:10px;color:#F9A825;white-space:nowrap;font-weight:600">&#9201; ' + rutaDur + '</span>'));
   }
 
@@ -11213,6 +11287,14 @@ function openHistDetail(o) {
       html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:8px;background:rgba(249,168,37,.08);border:1px solid #F9A825;border-radius:var(--rs)">' +
         '<span style="font-size:10px;color:#F9A825;text-transform:uppercase;letter-spacing:.3px;flex:1">&#128663; Tiempo en ruta</span>' +
         '<span style="color:#F9A825;font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + rutaDurHist + '</span>' +
+      '</div>';
+    }
+    // Km recorridos (26 sep 2026, pedido de Byron) -- mismo gemelo que ya
+    // se agrego en openDrw, para que no quede desactualizado al archivar.
+    if (o.kmRecorridos !== undefined && o.kmRecorridos !== null) {
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:8px;background:rgba(249,168,37,.08);border:1px solid #F9A825;border-radius:var(--rs)">' +
+        '<span style="font-size:10px;color:#F9A825;text-transform:uppercase;letter-spacing:.3px;flex:1">&#128663; Km recorridos en ruta</span>' +
+        '<span style="color:#F9A825;font-weight:700;font-size:12px;white-space:nowrap">' + o.kmRecorridos.toLocaleString('es-GT') + ' km</span>' +
       '</div>';
     }
     html += '</div>';
