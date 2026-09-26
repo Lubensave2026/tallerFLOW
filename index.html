@@ -2749,17 +2749,43 @@ function openDrw(id) {
   if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) hrsRealOrdenInfo += _minutosFase('ab', o.timestamps.ab, Date.now()) / 60;
   var hrsComOrdenInfo = 0;
   (o.trabajos || []).forEach(function(tw) { hrsComOrdenInfo += parseFloat(tw.horas) || 0; });
+  // Los 3 tiempos agrupados en un solo lugar, con contorno de color (26 sep
+  // 2026, pedido de Byron) -- puramente visual, no cambia ningun calculo:
+  // "Tiempo pagado" (Hrs. comision, flat rate) y "Tiempo real trabajado"
+  // vivian en su propio bloque de Productividad mas abajo; "Tiempo
+  // calculado" (o.hrsEstimado) vivia arriba, suelto entre Kilometraje y
+  // Montos. Se fusionan en un solo grupo -- % Productividad se conserva
+  // igual, justo debajo del grupo.
   var productividadOrdenHtml = '';
-  if (hrsRealOrdenInfo > 0) {
-    // Color segun el mismo valor REDONDEADO que se muestra (no el crudo) —
-    // evita que un 99.6% se vea como "100%" en texto pero en color rojo/naranja.
-    var pctProdOrdenRounded = Math.round((hrsComOrdenInfo / hrsRealOrdenInfo) * 100);
-    var pctProdOrdenColorInfo = _productividadColor(pctProdOrdenRounded);
+  if (o.hrsEstimado || hrsComOrdenInfo > 0 || hrsRealOrdenInfo > 0) {
+    var cajaTiempo = function(colorBorde, label, valor, notaExtra) {
+      return '<div style="flex:1;min-width:120px;border:2px solid ' + colorBorde + ';border-radius:var(--rs);background:var(--bg);padding:8px 10px">' +
+        '<div style="font-size:9.5px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">' + label + '</div>' +
+        '<div style="font-family:var(--mo);font-weight:700;font-size:14px">' + valor + '</div>' +
+        (notaExtra || '') +
+      '</div>';
+    };
+    // "Tiempo calculado" (hrsEstimado): si se ajusto solo porque el tiempo
+    // real ya lo habia superado (ver _ajustarTiempoCalculado, usado desde
+    // Capacidad del taller), se avisa aqui con el original de referencia --
+    // pedido de Byron, "alarma" de que hubo que emparejarlo.
+    var notaAjuste = o.hrsEstimadoAjustado
+      ? '<div style="font-size:9.5px;color:var(--rd);font-weight:700;margin-top:3px">&#9888; Ajustado (original: ' + (o.hrsEstimadoOriginal!=null ? o.hrsEstimadoOriginal : '—') + ' h)</div>'
+      : '';
     productividadOrdenHtml =
-      '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128202; Productividad de esta orden (Trabajando)</div>' +
-      '<div class="irow"><span class="ik">Tiempo real trabajado</span><span style="color:var(--or)">' + hrsRealOrdenInfo.toFixed(2).replace('.', ',') + ' h</span></div>' +
-      '<div class="irow"><span class="ik">Hrs. comision</span><span style="font-family:var(--mo)">' + hrsComOrdenInfo.toFixed(2).replace('.', ',') + ' h</span></div>' +
-      '<div class="irow"><span class="ik">% Productividad</span><span style="color:' + pctProdOrdenColorInfo + ';font-weight:700">' + pctProdOrdenRounded + '%</span></div>';
+      '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#9201; Tiempos de esta orden</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
+        cajaTiempo('#22c55e', 'Tiempo pagado (flat rate)', hrsComOrdenInfo.toFixed(2).replace('.', ',') + ' h') +
+        cajaTiempo('#3b82f6', 'Tiempo real trabajado', hrsRealOrdenInfo.toFixed(2).replace('.', ',') + ' h') +
+        cajaTiempo('#eab308', 'Tiempo calculado', (o.hrsEstimado ? o.hrsEstimado + ' h' : '—'), notaAjuste) +
+      '</div>';
+    if (hrsRealOrdenInfo > 0) {
+      // Color segun el mismo valor REDONDEADO que se muestra (no el crudo) —
+      // evita que un 99.6% se vea como "100%" en texto pero en color rojo/naranja.
+      var pctProdOrdenRounded = Math.round((hrsComOrdenInfo / hrsRealOrdenInfo) * 100);
+      var pctProdOrdenColorInfo = _productividadColor(pctProdOrdenRounded);
+      productividadOrdenHtml += '<div class="irow"><span class="ik">% Productividad</span><span style="color:' + pctProdOrdenColorInfo + ';font-weight:700">' + pctProdOrdenRounded + '%</span></div>';
+    }
   }
   // Enlace a la orden en Clear Mechanic (recepcion, reporte de fallas del
   // tecnico, presupuesto enviado) — solo Jefe, Asesor de servicio y Asesor
@@ -2781,15 +2807,14 @@ function openDrw(id) {
     (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + esc(o.detMotivo) + '</span></div>' : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
     cmRowHtml +
-    (o.hrsEstimado ? '<div class="irow"><span class="ik">Tiempo estimado</span><span style="color:var(--ac)">' + o.hrsEstimado + ' h</span></div>' : '') +
     (o.numFisico ? '<div class="irow"><span class="ik">No. orden fisica</span><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + (o.colorFisico === 'azul' ? '#1565C0' : o.colorFisico === 'amarillo' ? '#F9A825' : o.colorFisico === 'verde' ? '#2E7D32' : '#555') + ';color:#fff;font-size:12px;font-weight:700">' + o.numFisico + '</span><span style="color:var(--tx2);font-size:11px">' + (o.colorFisico || '') + '</span></span></div>' : '') +
     '<div class="irow"><span class="ik">Tiempo en esta fase</span><span style="color:var(--or)">' + (timeInPhase || 'Recien ingresado') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
-      '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+      '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo);color:' + (o.montoTotal ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoTotal ? '700' : '400') + '">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
       (role === 'jefe'
-        ? '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+        ? '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo);color:' + (o.montoMO ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoMO ? '700' : '400') + '">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
           '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Editar montos desde el boton &#9999; Editar arriba</div>'
         // El Asesor de servicio NO tiene el boton "Editar" (es jefe-only) —
         // la MANO DE OBRA es lo unico que el puede fijar, y SOLO mientras la
@@ -2801,7 +2826,7 @@ function openDrw(id) {
         // que no haya que ir a buscarla a otra seccion aparte (bug real
         // reportado: no la encontraba a tiempo de firmar). Aqui solo queda
         // el valor de solo lectura con un puntero a donde editarla.
-        : '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+        : '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo);color:' + (o.montoMO ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoMO ? '700' : '400') + '">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
           (o.phase === 'ea'
             ? '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Se edita en &#9997; Firmas y cambios de fase, mas abajo</div>'
             : '<div style="font-size:10px;color:var(--tx3);margin-top:4px">&#128274; Solo editable en Espera de autorizacion</div>')
@@ -4264,7 +4289,7 @@ function openDrw(id) {
       if (eLocEl) ox.loc = newLoc;
       if (eKmEl) ox.km = newKm;
       var hrsEl = document.getElementById('e-hrs');
-      ox.hrsEstimado = hrsEl && hrsEl.value ? parseFloat(hrsEl.value) : null;
+      _fijarHrsEstimado(ox, hrsEl && hrsEl.value ? parseFloat(hrsEl.value) : null);
       if (changes.length) {
         var who = ROLES[role] ? ROLES[role].label : role;
         ox.msgs = ox.msgs || [];
@@ -5090,7 +5115,7 @@ function advance(id, newPhase) {
     if (hrsInput === null) return; // cancelo
     var hrsVal = parseFloat(hrsInput);
     if (!hrsVal || hrsVal <= 0) { toast('Ingresa un numero de horas mayor a 0'); return; }
-    o.hrsEstimado = hrsVal;
+    _fijarHrsEstimado(o, hrsVal);
     o.msgs = o.msgs || [];
     o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'Tiempo estimado registrado: ' + hrsVal + 'h', ts:Date.now(), type:'system'});
   }
@@ -5110,7 +5135,7 @@ function advance(id, newPhase) {
     if (hrsInputAA !== null && hrsInputAA.trim() !== '') {
       var hrsValAA = parseFloat(hrsInputAA);
       if (hrsValAA > 0) {
-        o.hrsEstimado = hrsValAA;
+        _fijarHrsEstimado(o, hrsValAA);
         o.msgs = o.msgs || [];
         o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'Tiempo estimado registrado (en cola, sin tecnico aun): ' + hrsValAA + 'h', ts:Date.now(), type:'system'});
       } else {
@@ -5546,7 +5571,7 @@ function saveNO() {
 
   function createWithId(assignedId) {
     var ot = otInput || ('OT-' + assignedId);
-    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,km:km,tipoServicioSolicitado:_noTipoServicio||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
+    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,hrsEstimadoOriginal:hrsEst||null,km:km,tipoServicioSolicitado:_noTipoServicio||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
     if (_noRepDraft.length) {
       no.repuestos = _noRepDraft.map(function(d0) {
         // El borrador guarda objetos {desc, cantidad?, especificacion?};
@@ -9648,6 +9673,37 @@ function _jornadaHrs(fecha) {
   return mins / 60;
 }
 
+// Aplica el ajuste automatico del "tiempo calculado" (o.hrsEstimado) cuando
+// el tiempo real ya lo supero (26 sep 2026, pedido de Byron: antes tenia
+// que revisarlo e ir a corregirlo a mano en cada revision). Guarda el
+// estimado ORIGINAL aparte, una sola vez (la primera vez que se fija un
+// valor real, por cualquier via — creacion, al entrar a Trabajando, o
+// edicion manual) para no perder ese dato historico cuando el "de trabajo"
+// se ajuste solo despues. NO llama a save() ni toca el DOM — eso lo hace
+// quien la use (ver buildCapacidadContent), para no romper la pureza de
+// _capacidadCalc (test_capacidad_taller.js la prueba en aislamiento).
+// Fija o.hrsEstimado por cualquiera de sus 4 vias (creacion, al entrar a
+// Trabajando o Espera-asignacion, o edicion manual del Jefe) guardando el
+// ORIGINAL aparte la primera vez que hay un valor real -- una edicion
+// manual tambien limpia la "alarma" de ajuste automatico (o.hrsEstimadoAjustado):
+// el Jefe ya tomo el control y puso su propio numero, la senal de "el
+// sistema tuvo que corregirlo" ya no aplica hasta la proxima vez que haga
+// falta.
+function _fijarHrsEstimado(o, valor) {
+  if (o.hrsEstimadoOriginal == null && valor != null) o.hrsEstimadoOriginal = valor;
+  o.hrsEstimado = valor;
+  delete o.hrsEstimadoAjustado;
+}
+
+function _ajustarTiempoCalculado(o, horasReales) {
+  if (o.hrsEstimadoOriginal == null) o.hrsEstimadoOriginal = o.hrsEstimado;
+  var nuevo = Math.round(horasReales * 100) / 100;
+  o.hrsEstimado = nuevo;
+  o.hrsEstimadoAjustado = true;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:'Sistema', txt:'&#9201; Tiempo calculado ajustado automaticamente a ' + nuevo.toFixed(2).replace('.', ',') + ' h (el tiempo real ya lo habia superado) — estimado original: ' + o.hrsEstimadoOriginal + ' h', ts:Date.now(), type:'system'});
+}
+
 // Calcula todo el modelo de datos, sin tocar el DOM — asi se puede probar
 // en aislamiento (ver test_capacidad_taller.js). Recibe opcionalmente el
 // timestamp de "ahora" — igual que _jornadaHrs(fecha) recibe la fecha —
@@ -9697,6 +9753,10 @@ function _capacidadCalc(nowTs) {
   // equipo" las tomaban en cuenta). Se acumulan aparte, en un "pool" comun.
   var cargaSinAsignar = 0;
   var ordenesSinAsignar = [];
+  // Ordenes cuyo tiempo real ya supero el calculado -- se detectan aqui
+  // (sin mutar nada, ver comentario de _ajustarTiempoCalculado) para que
+  // quien llame a buildCapacidadContent aplique el ajuste + guarde + avise.
+  var pendientesDeAjuste = [];
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.phase !== 'ab' && o.phase !== 'aa') continue;
@@ -9725,6 +9785,7 @@ function _capacidadCalc(nowTs) {
     if (o.phase === 'ab' && o.timestamps && o.timestamps.ab) {
       horasYaTrabajadas += _minutosFase('ab', o.timestamps.ab, hoy.getTime()) / 60;
     }
+    if (horasYaTrabajadas > o.hrsEstimado) pendientesDeAjuste.push({o: o, horasReales: horasYaTrabajadas});
     var horasRestantesOrden = Math.max(0, o.hrsEstimado - horasYaTrabajadas);
     var horasPorTec = horasRestantesOrden / asignados.length;
     for (var j = 0; j < asignados.length; j++) {
@@ -9832,7 +9893,8 @@ function _capacidadCalc(nowTs) {
     jornadaHoy: jornadaHoy, horasRestantesHoy: horasRestantesHoy, tallerCerradoHoy: tallerCerradoHoy,
     activos: tecs.filter(function(t){ return !t.ausente; }).length,
     capacidadDisponibleEquipoHoy: capacidadDisponibleEquipoHoy,
-    cargaSinAsignar: cargaSinAsignar, ordenesSinAsignar: ordenesSinAsignar
+    cargaSinAsignar: cargaSinAsignar, ordenesSinAsignar: ordenesSinAsignar,
+    pendientesDeAjuste: pendientesDeAjuste
   };
 }
 
@@ -9851,6 +9913,18 @@ var _capLastNowTs = null;
 
 function openCapacidad() {
   _capExpandedTec = {};
+  // Ajuste automatico del tiempo calculado (26 sep 2026, pedido de Byron):
+  // se aplica UNA sola vez aqui, al abrir el panel (no en
+  // buildCapacidadContent, que tambien corre en cada "Ver cola" de
+  // _toggleCapTec) -- si lo hiciera ahi, una orden activa en Trabajando
+  // seguiria acumulando tiempo real mientras el panel esta abierto y cada
+  // clic de "Ver cola" dispararia un guardado y un aviso nuevos.
+  var d0 = _capacidadCalc();
+  if (d0.pendientesDeAjuste && d0.pendientesDeAjuste.length) {
+    d0.pendientesDeAjuste.forEach(function(p) { _ajustarTiempoCalculado(p.o, p.horasReales); });
+    save();
+    toast((d0.pendientesDeAjuste.length === 1 ? '1 orden' : d0.pendientesDeAjuste.length + ' ordenes') + ': tiempo calculado ajustado al tiempo real trabajado');
+  }
   buildCapacidadContent();
   document.getElementById('m-cap').classList.add('on');
 }
@@ -11052,8 +11126,8 @@ function openHistDetail(o) {
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor' || role === 'partes') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
-      '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo)">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
-      '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo)">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>'
+      '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo);color:' + (o.montoTotal ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoTotal ? '700' : '400') + '">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+      '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo);color:' + (o.montoMO ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoMO ? '700' : '400') + '">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>'
     : '') +
   '</div>';
 
