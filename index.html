@@ -2801,8 +2801,38 @@ function openDrw(id) {
         '<button id="btn-cm-link" data-oid="' + id + '" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (o.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>' +
       '</span></div>'
     : '';
+  // Tecnicos de apoyo (26 sep 2026): prestamo temporal de otro tecnico del
+  // taller a esta orden, sin tocar Tecnico/Tecnico 2 ni la Capacidad del
+  // taller — caso real: Byron le pidio a Pablo y Kevin que avanzaran la
+  // orden 5149 porque Gerson estaba en otra orden urgente, y necesitaba
+  // poder reconocerles el tiempo invertido. Solo el Jefe los agrega/quita;
+  // el registra las horas de ellos en "Trabajos realizados" (confirmado con
+  // Byron: no hace falta que ellos vean la orden en su propio tablero).
+  var apoyoActuales = o.tecnicosApoyo || [];
+  var apoyoRowHtml = '';
+  if (apoyoActuales.length) {
+    apoyoRowHtml += '<div class="irow"><span class="ik">Tecnicos de apoyo</span><span>' +
+      apoyoActuales.map(function(nm) {
+        return esc(nm) + (role === 'jefe' ? ' <button class="btn-rm-apoyo" data-nm="' + esc(nm) + '" title="Quitar tecnico de apoyo" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:11px;padding:0 3px">&#10005;</button>' : '');
+      }).join(', ') +
+    '</span></div>';
+  }
+  if (role === 'jefe') {
+    var apoyoOpciones = '';
+    TEC_NAMES.forEach(function(nm) {
+      if (nm === o.tech || nm === o.tech2 || apoyoActuales.indexOf(nm) !== -1) return;
+      apoyoOpciones += '<option value="' + esc(nm) + '">' + esc(nm) + '</option>';
+    });
+    if (apoyoOpciones) {
+      apoyoRowHtml += '<div class="irow" style="align-items:center"><span class="ik"></span><span style="display:flex;gap:6px;align-items:center">' +
+        '<select id="apoyo-sel" class="fi" style="font-size:11px;padding:4px 8px;width:auto"><option value="">+ Agregar tecnico de apoyo...</option>' + apoyoOpciones + '</select>' +
+        '<button id="btn-add-apoyo" style="padding:4px 10px;border-radius:var(--rs);background:var(--bg3);border:1px solid var(--bd);color:var(--tx2);font-size:11px;cursor:pointer">+ Agregar</button>' +
+      '</span></div>';
+    }
+  }
   html += '<div class="sec">' +
     '<div class="irow"><span class="ik">Tecnico</span><span>' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '</span></div>' +
+    apoyoRowHtml +
     '<div class="irow"><span class="ik">Sucursal</span><span>' + esc(o.loc || '—') + '</span></div>' +
     (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + esc(o.detMotivo) + '</span></div>' : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
@@ -3559,6 +3589,10 @@ function openDrw(id) {
   var ordTecs = [];
   if (o.tech && ordTecs.indexOf(o.tech) === -1) ordTecs.push(o.tech);
   if (o.tech2 && ordTecs.indexOf(o.tech2) === -1) ordTecs.push(o.tech2);
+  // Tecnicos de apoyo (26 sep 2026, ver o.tecnicosApoyo abajo) tambien
+  // pueden recibir horas de comision aqui -- normalmente las registra el
+  // Jefe en su nombre, no ellos mismos (no ven esta orden en su tablero).
+  (o.tecnicosApoyo || []).forEach(function(nm) { if (ordTecs.indexOf(nm) === -1) ordTecs.push(nm); });
   // El tecnico solo puede registrar trabajos mientras la orden esta en
   // "Trabajando" (ab) — asi anota lo realizado antes de firmar y pasar de
   // fase. Jefe y Asesor pueden hacerlo en cualquier fase (correcciones,
@@ -4334,6 +4368,49 @@ function openDrw(id) {
     });
   }
 
+  /* tecnicos de apoyo — agregar/quitar (26 sep 2026, ver o.tecnicosApoyo) */
+  var addApoyoBtn = document.getElementById('btn-add-apoyo');
+  if (addApoyoBtn) {
+    addApoyoBtn.addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede agregar tecnicos de apoyo'); return; }
+      var selApoyo = document.getElementById('apoyo-sel');
+      var nmApoyo = selApoyo ? selApoyo.value : '';
+      if (!nmApoyo) { toast('Elige un tecnico'); return; }
+      var oA = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { oA = orders[i]; break; } }
+      if (!oA) return;
+      oA.tecnicosApoyo = oA.tecnicosApoyo || [];
+      if (oA.tecnicosApoyo.indexOf(nmApoyo) !== -1 || nmApoyo === oA.tech || nmApoyo === oA.tech2) {
+        toast('Ese tecnico ya esta en esta orden'); return;
+      }
+      oA.tecnicosApoyo.push(nmApoyo);
+      var whoA = ROLES[role] ? ROLES[role].label : role;
+      oA.msgs = oA.msgs || [];
+      oA.msgs.push({who:whoA, txt:'&#129309; Tecnico de apoyo agregado: ' + esc(nmApoyo), ts:Date.now(), type:'system'});
+      save(); toast('Tecnico de apoyo agregado'); openDrw(id);
+    });
+  }
+  var rmApoyoBtns = body.querySelectorAll('.btn-rm-apoyo');
+  for (var rai = 0; rai < rmApoyoBtns.length; rai++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede quitar tecnicos de apoyo'); return; }
+        var nmRm = this.getAttribute('data-nm');
+        var oR = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { oR = orders[i]; break; } }
+        if (!oR || !oR.tecnicosApoyo) return;
+        var idxRm = oR.tecnicosApoyo.indexOf(nmRm);
+        if (idxRm === -1) return;
+        if (!confirm('¿Quitar a ' + nmRm + ' como tecnico de apoyo de esta orden? Las horas que ya haya registrado en Trabajos realizados no se borran.')) return;
+        oR.tecnicosApoyo.splice(idxRm, 1);
+        var whoR = ROLES[role] ? ROLES[role].label : role;
+        oR.msgs = oR.msgs || [];
+        oR.msgs.push({who:whoR, txt:'&#129309; Tecnico de apoyo quitado: ' + esc(nmRm), ts:Date.now(), type:'system'});
+        save(); toast('Tecnico de apoyo quitado'); openDrw(id);
+      });
+    })(rmApoyoBtns[rai]);
+  }
+
   /* confirm advance button */
   var confirmBtn = document.getElementById('btn-confirm-advance');
   if (confirmBtn) {
@@ -4578,6 +4655,11 @@ function openDrw(id) {
       ox.horasFacturadoSnapshot = {ts: facTs, porTecnico: {}};
       if (ox.tech && ox.tech !== TEC_EXTERNO) ox.horasFacturadoSnapshot.porTecnico[ox.tech] = calcTecHoras(ox, ox.tech);
       if (ox.tech2 && ox.tech2 !== TEC_EXTERNO) ox.horasFacturadoSnapshot.porTecnico[ox.tech2] = calcTecHoras(ox, ox.tech2);
+      // Tecnicos de apoyo (26 sep 2026) tambien se congelan igual — mismo
+      // motivo/exclusion de T. Externo que arriba.
+      (ox.tecnicosApoyo || []).forEach(function(nmApoyoSnap) {
+        if (nmApoyoSnap && nmApoyoSnap !== TEC_EXTERNO) ox.horasFacturadoSnapshot.porTecnico[nmApoyoSnap] = calcTecHoras(ox, nmApoyoSnap);
+      });
       // Tambien se congela el desglose de horas por fase (bitacora) y las
       // horas de comision totales de la orden — asi, si se reabre para
       // seguir trabajando, sigue apareciendo en el reporte de bitacora (CSV)
@@ -5951,26 +6033,83 @@ function mapPick(sp) {
     }
   }
   if (!myOrders.length) { toast('Sin ordenes activas para asignar'); return; }
-  if (myOrders.length === 1) { setSpace(myOrders[0].id, sp); closeMap(); return; }
 
-  var picker = document.createElement('div');
-  picker.style.cssText = 'margin-top:1rem;border-top:1px solid var(--bd);padding-top:1rem';
-  picker.innerHTML = '<div style="font-size:12px;color:var(--tx2);margin-bottom:8px">Asignar espacio ' + sp + ' a:</div>';
-  for (var i = 0; i < myOrders.length; i++) {
-    var o = myOrders[i];
+  // Se separan en 2 grupos (26 sep 2026, pedido de Byron): "sin espacio" son
+  // las candidatas normales para este espacio libre; "en otro espacio" son
+  // las que YA estan en otro lugar del taller y se quieren MOVER aqui — se
+  // muestran aparte, con su boton propio, para que mover algo sea siempre
+  // una accion explicita (nunca implicita por el atajo de "solo hay 1").
+  var sinEspacio = myOrders.filter(function(o) { return !o.space; });
+  var enOtroEspacio = myOrders.filter(function(o) { return o.space && o.space !== sp; });
+
+  if (sinEspacio.length === 1 && !enOtroEspacio.length) {
+    setSpace(sinEspacio[0].id, sp); closeMap(); return;
+  }
+
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'margin-top:1rem;border-top:1px solid var(--bd);padding-top:1rem';
+  wrap.innerHTML = '<div style="font-size:12px;color:var(--tx2);margin-bottom:8px">Asignar espacio ' + esc(sp) + ' a:</div>';
+
+  var srch = document.createElement('input');
+  srch.className = 'fi';
+  srch.placeholder = 'Buscar por No. orden, vehiculo, placa o cliente...';
+  srch.style.cssText = 'margin-bottom:10px';
+  wrap.appendChild(srch);
+
+  var results = document.createElement('div');
+  wrap.appendChild(results);
+
+  function cardFor(o, esMover) {
+    var pc = PHASE_COLORS[o.phase] || {bg:'#333', color:'#fff', label:o.phase};
     var row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px';
-    row.innerHTML = '<div><div style="font-size:12px;font-weight:500;font-family:var(--mo)">' + esc(o.plate) + '</div><div style="font-size:11px;color:var(--tx2)">' + esc(o.model) + '</div></div>';
+    row.style.cssText = 'background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:10px;margin-bottom:8px';
+    var html = '<div style="font-size:13px;font-weight:700;font-family:var(--mo)">OR #' + esc(o.ot || '—') + ' &middot; ' + esc(o.model) + ' &middot; ' + esc(o.plate) + '</div>';
+    html += '<div style="font-size:12px;color:var(--tx2);margin-top:2px">' + esc(o.client || '—') + '</div>';
+    html += '<div style="margin-top:8px"><span style="display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:' + pc.bg + ';color:' + pc.color + '">' + esc(pc.label) + '</span></div>';
+    html += '<div style="font-size:11px;color:var(--tx3);margin-top:3px">' + esc(o.tech || '—') + '</div>';
+    if (esMover) html += '<div style="font-size:10px;color:#F39C12;margin-top:6px">Actualmente en espacio ' + esc(o.space) + '</div>';
+    row.innerHTML = html;
     var btn = document.createElement('button');
     btn.className = 'btn-sg';
-    btn.textContent = 'Asignar';
+    btn.style.cssText = 'margin-top:8px;width:100%';
+    btn.textContent = esMover ? 'Mover aqui' : 'Asignar';
     (function(oid, s) {
       btn.addEventListener('click', function() { setSpace(oid, s); closeMap(); });
     })(o.id, sp);
     row.appendChild(btn);
-    picker.appendChild(row);
+    return row;
   }
-  document.getElementById('map-body').appendChild(picker);
+
+  function renderResults(q) {
+    var ql = (q || '').toLowerCase();
+    function matches(o) {
+      if (!ql) return true;
+      return ((o.ot||'') + (o.model||'') + (o.plate||'') + (o.client||'')).toLowerCase().indexOf(ql) >= 0;
+    }
+    var listSin = sinEspacio.filter(matches);
+    var listCon = enOtroEspacio.filter(matches);
+    results.innerHTML = '';
+    if (!listSin.length && !listCon.length) {
+      var vacio = document.createElement('div');
+      vacio.style.cssText = 'font-size:12px;color:var(--tx3);text-align:center;padding:12px';
+      vacio.textContent = 'Sin resultados';
+      results.appendChild(vacio);
+      return;
+    }
+    listSin.forEach(function(o) { results.appendChild(cardFor(o, false)); });
+    if (listCon.length) {
+      var lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin:10px 0 6px';
+      lbl.textContent = 'Ya en otro espacio — mover aqui';
+      results.appendChild(lbl);
+      listCon.forEach(function(o) { results.appendChild(cardFor(o, true)); });
+    }
+  }
+
+  srch.addEventListener('input', function() { renderResults(srch.value); });
+  renderResults('');
+
+  document.getElementById('map-body').appendChild(wrap);
 }
 
 /* REPORT */
@@ -6082,7 +6221,7 @@ function buildRepContent() {
     sorted = orders.concat(archived || []).filter(function(o) {
       if (seenTecClosedIds[o.id]) return false;
       seenTecClosedIds[o.id] = true;
-      if (!((o.tech === tecActivo || o.tech2 === tecActivo) && o.phase === 'cer')) return false;
+      if (!((o.tech === tecActivo || o.tech2 === tecActivo || (o.tecnicosApoyo||[]).indexOf(tecActivo) !== -1) && o.phase === 'cer')) return false;
       var closeTsFilt = o.timestamps && o.timestamps.cer;
       if (!closeTsFilt) return false;
       var frozenHorasFilt = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecActivo];
@@ -8765,13 +8904,20 @@ function _buildOrderSummaryCSV(allOrders) {
     // orden ya quedo "Ya facturada" (congelada), se usa el desglose por
     // tecnico que se congelo en ese momento (horasFacturadoSnapshot.porTecnico),
     // no el calculo en vivo.
-    var hasTwoTecs = !!(o.tech && o.tech2);
-    var tecsToExport = hasTwoTecs ? [o.tech, o.tech2] : [o.tech || 'Sin asignar'];
+    // Roster de esta fila: Tecnico + Tecnico 2 + tecnicos de apoyo (26 sep
+    // 2026, ver o.tecnicosApoyo) — antes tope de 2, ahora tantos como hayan
+    // quedado registrados en la orden (asignados o de apoyo).
+    var tecsToExport = [];
+    if (o.tech) tecsToExport.push(o.tech);
+    if (o.tech2) tecsToExport.push(o.tech2);
+    (o.tecnicosApoyo || []).forEach(function(nm) { if (tecsToExport.indexOf(nm) === -1) tecsToExport.push(nm); });
+    if (!tecsToExport.length) tecsToExport = ['Sin asignar'];
+    var hasMultiTecs = tecsToExport.length > 1;
 
     // Primera pasada: horas/comision por tecnico, para poder sacar el % de
     // participacion de cada uno antes de repartir tambien los montos.
     var tecRowData = tecsToExport.map(function(tecNameRow) {
-      if (!hasTwoTecs) return {tecNameRow: tecNameRow, rowHrsCom: hrsCom, rowHrsAb: horas.ab};
+      if (!hasMultiTecs) return {tecNameRow: tecNameRow, rowHrsCom: hrsCom, rowHrsAb: horas.ab};
       var frozenTecH = isFrozenReopened && o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico
         ? o.horasFacturadoSnapshot.porTecnico[tecNameRow] : null;
       if (frozenTecH) {
@@ -8794,10 +8940,11 @@ function _buildOrderSummaryCSV(allOrders) {
       // nunca hubo tiempo Trabajando que repartir.
       var pctProdRow = rowHrsAb > 0 ? Math.round(rowHrsCom / rowHrsAb * 100) : null;
       // Reparto de montos: mismo % de participacion que Hrs_Com de este
-      // tecnico sobre el total de la orden. Si ninguno de los 2 tiene horas
-      // de comision registradas aun (0/0), cae a 50/50 mientras no hay dato
-      // en que basar el reparto — igual que calcTecHoras.
-      var montoShare = hasTwoTecs ? (sumRowHrsCom > 0 ? (rowHrsCom / sumRowHrsCom) : 0.5) : 1;
+      // tecnico sobre el total de la orden. Si ninguno tiene horas de
+      // comision registradas aun (todas en 0), cae a partes iguales entre
+      // el roster mientras no hay dato en que basar el reparto — igual que
+      // calcTecHoras.
+      var montoShare = hasMultiTecs ? (sumRowHrsCom > 0 ? (rowHrsCom / sumRowHrsCom) : (1 / tecsToExport.length)) : 1;
       var rowMontoTotal = montoTotal * montoShare;
       var rowMontoMO = montoMO * montoShare;
       sumMontoTotal += rowMontoTotal;
@@ -10295,13 +10442,26 @@ function calcTecHoras(o, tecName) {
   var flat = 0;
   (o.trabajos || []).forEach(function(tw) { if (tw.tecnico === tecName) flat += (parseFloat(tw.horas) || 0); });
 
+  // Roster que se reparte las horas reales de esta orden: Tecnico + Tecnico
+  // 2 + tecnicos de apoyo (26 sep 2026, ver o.tecnicosApoyo — prestamo
+  // temporal de otro tecnico del taller, ej. caso real orden 5149: Gerson
+  // estaba en otra orden urgente, Byron le pidio a Pablo y Kevin que la
+  // avanzaran y necesitaba reconocerles el tiempo). Antes solo se repartia
+  // entre exactamente 2 (Tecnico/Tecnico 2) — misma formula generalizada a
+  // N: cada quien se lleva la proporcion de horas reales que corresponde a
+  // sus horas de comision (trabajos[].tecnico) sobre el total del roster.
+  var roster = [];
+  if (o.tech) roster.push(o.tech);
+  if (o.tech2) roster.push(o.tech2);
+  (o.tecnicosApoyo || []).forEach(function(nm) { if (roster.indexOf(nm) === -1) roster.push(nm); });
+
   var share = 1;
-  if (o.tech && o.tech2) {
-    var otherTec = tecName === o.tech ? o.tech2 : o.tech;
-    var flatOther = 0;
-    (o.trabajos || []).forEach(function(tw) { if (tw.tecnico === otherTec) flatOther += (parseFloat(tw.horas) || 0); });
-    var flatTotal = flat + flatOther;
-    share = flatTotal > 0 ? (flat / flatTotal) : 0.5;
+  if (roster.length > 1) {
+    var flatTotal = 0;
+    roster.forEach(function(nm) {
+      (o.trabajos || []).forEach(function(tw) { if (tw.tecnico === nm) flatTotal += (parseFloat(tw.horas) || 0); });
+    });
+    share = flatTotal > 0 ? (flat / flatTotal) : (1 / roster.length);
   }
   abHoras = abHoras * share;
   return {real: abHoras, flat: flat, abVeces: abVeces};
@@ -12000,7 +12160,7 @@ function exportTodosTecnicosCerradosCSV() {
     var ordenesTec = orders.concat(archived || []).filter(function(o) {
       if (seenIds[o.id]) return false;
       seenIds[o.id] = true;
-      if (!((o.tech === tecName || o.tech2 === tecName) && o.phase === 'cer')) return false;
+      if (!((o.tech === tecName || o.tech2 === tecName || (o.tecnicosApoyo||[]).indexOf(tecName) !== -1) && o.phase === 'cer')) return false;
       var closeTs = o.timestamps && o.timestamps.cer;
       if (!closeTs) return false;
       var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
@@ -12090,7 +12250,7 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
     if (seen[o.id]) continue;
     seen[o.id] = true;
     if (o.phase !== 'cer') continue;
-    if (o.tech !== tecName && o.tech2 !== tecName) continue;
+    if (o.tech !== tecName && o.tech2 !== tecName && (o.tecnicosApoyo||[]).indexOf(tecName) === -1) continue;
     var closeTs = o.timestamps && o.timestamps.cer;
     if (!closeTs) continue;
     var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
