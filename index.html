@@ -1698,11 +1698,11 @@ function doLogin(rk) {
   // propio boton para no mezclar los presupuestos de ordenes ya cerradas
   // con los repuestos pendientes de ordenes activas.
   document.getElementById('btn-presq-pend').style.display = (rk === 'jefe' || rk === 'partes' || rk === 'asesor') ? 'inline-flex' : 'none';
-  // Mapa: el Jefe lo usa para asignar espacios (funcional); los tecnicos solo
-  // lo ven para saber donde esta cada vehiculo (openMap() lo deja de solo
-  // lectura para ellos, ver mas abajo); el resto de roles (asesor, partes,
-  // mensajero, lavador) ya no lo necesitan.
-  document.getElementById('btn-map').style.display = (rk === 'jefe' || (r && r.tec)) ? 'inline-flex' : 'none';
+  // Mapa: el Jefe lo usa para asignar espacios (funcional); los tecnicos y,
+  // desde el 28 sep 2026, tambien el Asesor, solo lo ven para saber donde
+  // esta cada vehiculo y en que etapa (openMap() lo deja de solo lectura
+  // para ambos, ver mas abajo) — partes/mensajero/lavador no lo necesitan.
+  document.getElementById('btn-map').style.display = (rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   // Capacidad del taller: herramienta de planeacion del dia, solo para
@@ -3601,18 +3601,17 @@ function openDrw(id) {
   var trabajosList = o.trabajos || [];
   var totalHoras = 0;
   for (var twi = 0; twi < trabajosList.length; twi++) { totalHoras += parseFloat(trabajosList[twi].horas) || 0; }
-  // Con 2 tecnicos asignados, se desglosa cuanto de esas horas pagadas le
+  // Con 2+ tecnicos en el roster (Tecnico + Tecnico 2 + tecnicos de apoyo,
+  // ver ordTecs arriba), se desglosa cuanto de esas horas pagadas le
   // corresponde a cada uno, MAS su parte de horas Trabajando (repartidas por
   // "regla de 3" segun ese mismo % de horas de comision — ver calcTecHoras)
   // y su % de productividad individual. Visible para cualquiera que abra la
   // ficha (Jefe incluido) — antes solo se veia agregado en "Mi
-  // productividad", que es unicamente para el tecnico mismo.
+  // productividad", que es unicamente para el tecnico mismo. Generalizado a
+  // N tecnicos (28 sep 2026) — antes topado a exactamente Tecnico/Tecnico 2,
+  // sin mostrar a los de apoyo aunque ya tuvieran horas registradas.
   var horasPorTecDesglose = '';
-  if (o.tech && o.tech2) {
-    var hTec1 = calcTecHoras(o, o.tech);
-    var hTec2 = calcTecHoras(o, o.tech2);
-    var pctTec1 = hTec1.real > 0 ? Math.round(hTec1.flat / hTec1.real * 100) : null;
-    var pctTec2 = hTec2.real > 0 ? Math.round(hTec2.flat / hTec2.real * 100) : null;
+  if (ordTecs.length > 1) {
     var fmtTecLine = function(nombre, h, pct) {
       return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--tx3);padding:2px 0">' +
         '<span>' + esc(nombre) + '</span>' +
@@ -3621,9 +3620,12 @@ function openDrw(id) {
         '</span>' +
       '</div>';
     };
-    horasPorTecDesglose = '<div style="margin-top:4px;padding-top:4px;border-top:1px solid var(--bd)">' +
-      fmtTecLine(o.tech, hTec1, pctTec1) + fmtTecLine(o.tech2, hTec2, pctTec2) +
-    '</div>';
+    var lineasDesglose = ordTecs.map(function(nm) {
+      var h = calcTecHoras(o, nm);
+      var pct = h.real > 0 ? Math.round(h.flat / h.real * 100) : null;
+      return fmtTecLine(nm, h, pct);
+    }).join('');
+    horasPorTecDesglose = '<div style="margin-top:4px;padding-top:4px;border-top:1px solid var(--bd)">' + lineasDesglose + '</div>';
   }
   // Catalogo de operaciones que, por ahora, pueden marcarse como Subcontrato
   // en vez de asignarles horas de comision (ej. alineacion mientras no hay
@@ -5903,7 +5905,7 @@ function openMap() {
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.space && o.phase !== 'cer') {
-      occ[o.space] = {tech:o.tech, plate:o.plate, id:o.id, trabajando: o.phase === 'ab'};
+      occ[o.space] = {tech:o.tech, plate:o.plate, id:o.id, trabajando: o.phase === 'ab', model:o.model, phase:o.phase};
     }
   }
 
@@ -5941,17 +5943,38 @@ function openMap() {
     }
     if (readOnlyMap) { clickable = false; cur = 'default'; }
 
+    // Color del punto (28 sep 2026, pedido de Byron): antes era fijo
+    // verde/naranja (mio/de otro). Ahora, para Jefe/Asesor (myTec === null,
+    // no tienen "mio") el punto muestra el color REAL de la etapa de esa
+    // orden (mismo PHASE_COLORS que el resto de la app), para identificar
+    // en que parte del proceso esta cada carro sin abrir la ficha. Para un
+    // tecnico viendo SU PROPIA orden: verde si la esta trabajando ahora
+    // mismo (como siempre), o el color de la etapa real si esta en otra
+    // fase (ej. Prueba, Detenido) — el recuadro se queda verde de todas
+    // formas para que la siga reconociendo como suya de un vistazo. Viendo
+    // la orden de OTRO tecnico: se queda naranja fijo, sin cambios.
+    var dotColor = '#F39C12';
+    if (taken) {
+      if (isMine && taken.trabajando) {
+        dotColor = '#2ECC71';
+      } else if (isMine || !myTec) {
+        dotColor = (PHASE_COLORS[taken.phase] && PHASE_COLORS[taken.phase].bg) || dotColor;
+      }
+    }
+
     var lparts = spLabels[sp].split('\n');
     var div = document.createElement('div');
     div.style.cssText = 'width:60px;height:82px;border-radius:6px;border:1.5px solid '+bc+';background:'+bg+';display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3px;cursor:'+cur+';text-align:center;transition:all .15s';
     var inner = '';
     if (taken) {
       var estadoTxt = taken.trabajando ? 'Trab.' : 'Parq.';
-      inner = '<div style="font-size:11px;white-space:nowrap">' + (isMine ? '&#128994;' : '&#128992;') + ' <span style="font-size:8px;font-weight:700;vertical-align:middle">' + estadoTxt + '</span></div>';
+      var dotSpan = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+dotColor+';vertical-align:middle"></span>';
+      inner = '<div style="font-size:11px;white-space:nowrap">' + dotSpan + ' <span style="font-size:8px;font-weight:700;vertical-align:middle">' + estadoTxt + '</span></div>';
       inner += '<div style="font-size:14px;font-weight:700;font-family:var(--mo);color:'+tc2+'">' + lparts[0] + '</div>';
       if (lparts[1]) inner += '<div style="font-size:8px;color:'+tc2+';opacity:.8">' + lparts[1] + '</div>';
       inner += '<div style="font-size:8px;color:var(--tx2);margin-top:2px;overflow:hidden;white-space:nowrap;width:56px;text-overflow:ellipsis">' + esc(taken.tech.split(' ')[0]) + '</div>';
       inner += '<div style="font-size:7px;font-family:var(--mo);color:var(--tx3)">' + esc(taken.plate) + '</div>';
+      if (taken.model) inner += '<div style="font-size:7px;color:var(--tx3);overflow:hidden;white-space:nowrap;width:56px;text-overflow:ellipsis">' + esc(taken.model) + '</div>';
     } else {
       inner = '<div style="font-size:16px;opacity:.3">' + (tipo==='alin'?'&#9881;':tipo==='elev'?'&#128295;':'&#128663;') + '</div>';
       inner += '<div style="font-size:14px;font-weight:700;font-family:var(--mo);color:'+tc2+'">' + lparts[0] + '</div>';
@@ -5971,7 +5994,11 @@ function openMap() {
 
   var leg = document.createElement('div');
   leg.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1rem;font-size:11px;color:var(--tx3)';
-  leg.innerHTML = '<span>&#128994;/&#128992; Trab. = Trabajando</span><span>&#128994;/&#128992; Parq. = Parqueado</span><span>(verde = mio, naranja = de otro)</span><span style="color:#D4A017">&#9881; Alineadora</span><span style="color:#3D7EFF">&#128295; Elevador</span><span style="opacity:.5">Libre</span>';
+  // Leyenda actualizada (28 sep 2026): el punto de color ya no es solo
+  // verde/naranja fijo -- ver el comentario en makeSlot() sobre dotColor.
+  leg.innerHTML = '<span>Trab. = Trabajando &middot; Parq. = Parqueado</span><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ECC71;vertical-align:middle"></span> = trabajando ahora</span><span>El resto del color del punto = etapa del vehiculo</span>' +
+    (myTec ? '<span>(recuadro verde = es tu orden)</span>' : '') +
+    '<span style="color:#D4A017">&#9881; Alineadora</span><span style="color:#3D7EFF">&#128295; Elevador</span><span style="opacity:.5">Libre</span>';
   mapDiv.appendChild(leg);
 
   // Distribucion real del taller — 36 espacios en 5 filas (ver comentario
