@@ -2604,7 +2604,12 @@ function openDrw(id) {
   /* header */
   var hdr = document.getElementById('drw-hdr');
   var prio = o.prio !== 'normal' ? '<span class="dbg tag ' + (o.prio === 'urgente' ? 'tr' : o.prio === 'garantia' ? 'tw' : 'tb') + '">' + (PRIO_LABELS[o.prio] || o.prio.toUpperCase()) + '</span>' : '';
-  var spBadge = o.space ? '<span class="dbg" style="background:var(--blbg);color:var(--ac);border:1px solid var(--blbd)">Espacio ' + o.space + '</span>' : '';
+  // Boton "cambiar espacio" (28 sep 2026, pedido de Byron): justo en el
+  // badge de Espacio, para moverla de espacio sin tener que ir al Mapa.
+  // Solo Jefe (mismo candado de siempre para asignar/mover espacios).
+  var spBadge = o.space ? '<span class="dbg" style="background:var(--blbg);color:var(--ac);border:1px solid var(--blbd)">Espacio ' + o.space +
+    (role === 'jefe' ? ' <button id="btn-cambiar-espacio" data-oid="' + id + '" title="Cambiar de espacio" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:10px;padding:0 2px;vertical-align:middle">&#9998;</button>' : '') +
+    '</span>' : '';
   var confirmBadge = (o.pendingConfirm && role === 'jefe')
     ? '<span class="dbg" style="background:#2E1F0A;color:#F39C12;border:1px solid #6B4510">&#9888; Confirmar movimiento de ' + o.pendingConfirm.by + '</span>'
     : '';
@@ -4752,6 +4757,10 @@ function openDrw(id) {
       showReprocesoCausaModal(id, registrarReprocesoSinAvance);
     });
   }
+  var cambiarEspacioBtn = document.getElementById('btn-cambiar-espacio');
+  if (cambiarEspacioBtn) {
+    cambiarEspacioBtn.addEventListener('click', function() { showCambiarEspacioModal(id); });
+  }
   var cmLinkBtn = document.getElementById('btn-cm-link');
   if (cmLinkBtn) {
     cmLinkBtn.addEventListener('click', function() {
@@ -5929,6 +5938,85 @@ document.addEventListener('click', function(e) {
   }
 });
 
+// Tipos especiales de espacio (3=Alineadora, 4/5/10/11=Elevador) -- fuente
+// unica reusada por openMap() y por "Cambiar espacio" en la ficha (28 sep
+// 2026, ver showCambiarEspacioModal), para no mantener esta lista 2 veces.
+var ESPACIO_TIPOS = {'3':'Alineadora', '4':'Elevador', '5':'Elevador', '10':'Elevador', '11':'Elevador'};
+
+// Cualquier orden activa (cualquier fase menos Cerrada) puede tener un
+// espacio asignado y ocuparlo en el mapa — el carro sigue fisicamente en el
+// taller sin importar en que parte del flujo este (Detenido, Esp. de
+// repuestos, etc. incluidos). Antes solo se marcaba ocupado en 4 fases
+// puntuales, lo que dejaba espacios "asignados" pero mostrandose como
+// libres — mismo reporte de Byron (14 sep 2026) que tambien corrigio
+// mapPick() para poder asignar esas ordenes desde el inicio. Cada espacio
+// ocupado distingue "Trabajando" (fase ab, el tecnico esta realmente
+// operando ahi en este momento) de "Parqueado" (ocupa el espacio fisico
+// pero esta en cualquier otra fase), derivado directo de la fase de la
+// orden, sin campo nuevo que mantener. Factorizada aparte (28 sep 2026)
+// para que openMap() y "Cambiar espacio" en la ficha compartan el mismo
+// criterio de "ocupado" en vez de 2 loops paralelos.
+function _espaciosOcupados() {
+  var occ = {};
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.space && o.phase !== 'cer') {
+      occ[o.space] = {tech:o.tech, plate:o.plate, id:o.id, trabajando: o.phase === 'ab', model:o.model, phase:o.phase};
+    }
+  }
+  return occ;
+}
+
+// Espacios LIBRES (1 al 36), en orden -- excluye el espacio actual de la
+// orden (no tiene sentido "moverla" al mismo espacio donde ya esta).
+function _espaciosLibres(excluirSp) {
+  var occ = _espaciosOcupados();
+  var libres = [];
+  for (var spn = 1; spn <= 36; spn++) {
+    var spnS = String(spn);
+    if (!occ[spnS] && spnS !== excluirSp) libres.push(spnS);
+  }
+  return libres;
+}
+
+function _espacioDisplayLabel(sp) {
+  return ESPACIO_TIPOS[sp] ? (sp + ' - ' + ESPACIO_TIPOS[sp]) : sp;
+}
+
+// Modal para mover una orden de espacio directo desde su propia ficha (28
+// sep 2026, pedido de Byron: "cuando haya que cambiarle de espacio se
+// pueda hacer directamente ahi", sin tener que abrir el Mapa primero).
+// Reusa setSpace() -- el mismo mecanismo ya probado que usa mapPick() --
+// asi que mover desde aqui o desde el Mapa tiene exactamente el mismo
+// resultado. Solo Jefe, mismo candado que ya rige quien puede asignar
+// espacios en el Mapa.
+function showCambiarEspacioModal(id) {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede cambiar el espacio'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  var libres = _espaciosLibres(o.space ? String(o.space) : null);
+  if (!libres.length) { toast('No hay espacios libres en este momento'); return; }
+  var opciones = libres.map(function(sp) { return '<option value="' + sp + '">' + _espacioDisplayLabel(sp) + '</option>'; }).join('');
+  var tempDiv = document.createElement('div');
+  tempDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:320px;width:90%;padding:1rem">' +
+    '<div style="font-weight:600;margin-bottom:10px;color:var(--ac)">&#128663; Cambiar espacio' + (o.space ? ' (actual: ' + esc(String(o.space)) + ')' : '') + '</div>' +
+    '<select id="cambiar-espacio-sel" class="fi" style="width:100%;margin-bottom:10px">' + opciones + '</select>' +
+    '<div style="display:flex;gap:8px">' +
+      '<button id="btn-cambiar-espacio-cancel" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Cancelar</button>' +
+      '<button id="btn-cambiar-espacio-ok" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--ac);color:#000;font-weight:600;cursor:pointer">Mover</button>' +
+    '</div>' +
+  '</div>';
+  document.body.appendChild(tempDiv);
+  document.getElementById('btn-cambiar-espacio-cancel').addEventListener('click', function() { document.body.removeChild(tempDiv); });
+  document.getElementById('btn-cambiar-espacio-ok').addEventListener('click', function() {
+    var nuevoSp = document.getElementById('cambiar-espacio-sel').value;
+    document.body.removeChild(tempDiv);
+    setSpace(id, nuevoSp);
+  });
+}
+
 /* MAP */
 function openMap() {
   var r = role ? ROLES[role] : null;
@@ -5938,24 +6026,7 @@ function openMap() {
   // espacio (queda de solo lectura para ellos).
   var readOnlyMap = (role !== 'jefe');
 
-  // Cualquier orden activa (cualquier fase menos Cerrada) puede tener un
-  // espacio asignado y ocuparlo en el mapa — el carro sigue fisicamente en
-  // el taller sin importar en que parte del flujo este (Detenido, Esp. de
-  // repuestos, etc. incluidos). Antes solo se marcaba ocupado en 4 fases
-  // puntuales, lo que dejaba espacios "asignados" pero mostrandose como
-  // libres — mismo reporte de Byron (14 sep 2026) que tambien corrigio
-  // mapPick() para poder asignar esas ordenes desde el inicio. Cada espacio
-  // ocupado distingue "Trabajando" (fase ab, el tecnico esta realmente
-  // operando ahi en este momento) de "Parqueado" (ocupa el espacio fisico
-  // pero esta en cualquier otra fase), derivado directo de la fase de la
-  // orden, sin campo nuevo que mantener.
-  var occ = {};
-  for (var i = 0; i < orders.length; i++) {
-    var o = orders[i];
-    if (o.space && o.phase !== 'cer') {
-      occ[o.space] = {tech:o.tech, plate:o.plate, id:o.id, trabajando: o.phase === 'ab', model:o.model, phase:o.phase};
-    }
-  }
+  var occ = _espaciosOcupados();
 
   // Distribucion real del taller (foto de Byron, 14 sep 2026) — reemplaza
   // la rejilla abstracta de 11 espacios que habia antes. 36 espacios en
