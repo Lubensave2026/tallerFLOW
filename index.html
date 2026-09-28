@@ -4724,18 +4724,21 @@ function openDrw(id) {
       // igual que "Horas estimadas" en Espera-asignacion: si se cancela o se
       // deja en blanco, la salida a ruta se registra igual (el tiempo en
       // ruta no depende de esto) y simplemente no se pide/valida el
-      // kilometraje de entrada mas adelante (ver doSign).
-      var kmSalidaInput = prompt('Kilometraje de salida (opcional, para llevar el control de km recorridos en esta prueba):');
-      var kmSalidaTxt = '';
-      if (kmSalidaInput !== null && kmSalidaInput.trim() !== '') {
-        var kmSalidaVal = parseFloat(kmSalidaInput);
-        if (kmSalidaVal >= 0) { ox.kmSalidaRuta = kmSalidaVal; kmSalidaTxt = ' — km salida: ' + kmSalidaVal.toLocaleString('es-GT'); }
-        else toast('Numero de kilometraje invalido — no se guardo (la salida a ruta si quedo registrada)');
-      }
-      var whoRuta = ROLES[role] ? ROLES[role].label : role;
-      ox.msgs = ox.msgs || [];
-      ox.msgs.push({who:whoRuta, txt:'&#128663; Vehiculo sale a prueba de ruta' + kmSalidaTxt, ts:Date.now(), type:'system'});
-      save(); toast('Salida a ruta registrada'); openDrw(id);
+      // kilometraje de entrada mas adelante (ver doSign). Usa showKmModal
+      // (28 sep 2026) en vez de prompt() para que el celular abra el
+      // teclado numerico, no el de letras.
+      showKmModal('Kilometraje de salida', 'Opcional, para llevar el control de km recorridos en esta prueba', function(kmSalidaInput) {
+        var kmSalidaTxt = '';
+        if (kmSalidaInput !== null) {
+          var kmSalidaVal = parseFloat(kmSalidaInput);
+          if (kmSalidaVal >= 0) { ox.kmSalidaRuta = kmSalidaVal; kmSalidaTxt = ' — km salida: ' + kmSalidaVal.toLocaleString('es-GT'); }
+          else toast('Numero de kilometraje invalido — no se guardo (la salida a ruta si quedo registrada)');
+        }
+        var whoRuta = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:whoRuta, txt:'&#128663; Vehiculo sale a prueba de ruta' + kmSalidaTxt, ts:Date.now(), type:'system'});
+        save(); toast('Salida a ruta registrada'); openDrw(id);
+      });
     });
   }
   var reprocesoInfoBtn = document.getElementById('btn-reproceso-info');
@@ -4993,6 +4996,39 @@ function _eaFaltaConfirmarMO(o) {
   return null;
 }
 
+// Modal generico para capturar un kilometraje (28 sep 2026, pedido de
+// Byron: el prompt() nativo no abre el teclado numerico del celular, solo
+// el de letras). Un input real con inputmode="numeric" si lo hace. onConfirm
+// recibe el texto escrito (string) o null si se omite/cancela — mismo
+// contrato que el prompt() que reemplaza, para no tener que tocar la logica
+// de validacion en cada lugar que lo usa (ver btn-ruta-salida y doSign).
+function showKmModal(titulo, subtitulo, onConfirm) {
+  var tempDiv = document.createElement('div');
+  tempDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:320px;width:90%;padding:1rem">' +
+    '<div style="font-weight:600;margin-bottom:4px;color:#F9A825">&#128663; ' + esc(titulo) + '</div>' +
+    (subtitulo ? '<div style="font-size:11px;color:var(--tx3);margin-bottom:10px">' + esc(subtitulo) + '</div>' : '') +
+    '<input id="km-modal-inp" class="fi" type="number" inputmode="numeric" pattern="[0-9]*" min="0" step="1" placeholder="Ej. 45230" style="width:100%;margin-bottom:10px">' +
+    '<div style="display:flex;gap:8px">' +
+      '<button id="btn-km-modal-cancel" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Omitir</button>' +
+      '<button id="btn-km-modal-ok" style="flex:1;padding:8px;border-radius:8px;border:none;background:#F9A825;color:#000;font-weight:600;cursor:pointer">Guardar</button>' +
+    '</div>' +
+  '</div>';
+  document.body.appendChild(tempDiv);
+  var inp = document.getElementById('km-modal-inp');
+  inp.focus();
+  function cerrar(valor) {
+    document.body.removeChild(tempDiv);
+    onConfirm(valor);
+  }
+  document.getElementById('btn-km-modal-cancel').addEventListener('click', function() { cerrar(null); });
+  document.getElementById('btn-km-modal-ok').addEventListener('click', function() {
+    var v = inp.value.trim();
+    cerrar(v === '' ? null : v);
+  });
+  inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') document.getElementById('btn-km-modal-ok').click(); });
+}
+
 function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
@@ -5112,64 +5148,76 @@ function doSign(id, sigId) {
   // escrito). Cancelar el cuadro NO bloquea la firma -- el kilometraje es
   // un dato opcional, cancelar solo significa que esta vuelta no suma km
   // (el Jefe puede no tenerlo a la mano en ese momento).
+  // El resto de la firma (marcar o.sigs, acumular tiempo en ruta,
+  // auto-avance, mensaje/notif/guardar) se separo en una funcion aparte
+  // (28 sep 2026) para poder pausarla mientras se espera el modal de
+  // kilometraje de entrada (showKmModal es asincrono — ya no bloquea con
+  // prompt() como antes) y retomarla justo despues, con exactamente el
+  // mismo resultado final que si todo hubiera sido sincrono.
+  function _terminarFirma() {
+    o.sigs[sigId] = true;
+    o.sigsTs = o.sigsTs || {};
+    o.sigsTs[sigId] = Date.now();
+    // Tiempo especifico que el vehiculo estuvo EN RUTA (desde que se marco la
+    // salida con el boton "Marcar salida a ruta" hasta que el Jefe firma esta
+    // misma "Prueba de ruta") — se ACUMULA en o.rutaMinutos (no se sobrescribe)
+    // porque una orden puede pasar por Prueba/Insp.Final mas de una vez (ej.
+    // reproceso, o se vuelve a probar despues de un ajuste) — igual que el
+    // resto de la bitacora, que suma TODAS las veces que paso por cada fase en
+    // vez de quedarse solo con la ultima. Si nunca se marco la salida, no
+    // agrega nada.
+    if (o.phase === 'prb' && sigId === 'jefe' && o.rutaSalidaTs) {
+      // Reloj real, no horas habiles — el Jefe prueba vehiculos a cualquier
+      // hora (ver rawMinutes arriba).
+      o.rutaMinutos = (o.rutaMinutos || 0) + rawMinutes(o.rutaSalidaTs, Date.now());
+    }
+    // Auto-advance when all required sigs for this phase are complete
+    var phaseSigsAuto = SIGS[o.phase] || [];
+    var allSignedAuto = phaseSigsAuto.every(function(s) { return o.sigs[s.id]; });
+    if (allSignedAuto) {
+      var autoNext = {rec:'aa', pa:'pb', lav:'lst'};
+      if (autoNext[o.phase]) {
+        // Small delay so user sees confirmation toast before advance
+        var autoPhase = autoNext[o.phase];
+        var autoId = o.id;
+        setTimeout(function() { advance(autoId, autoPhase); }, 600);
+      }
+    }
+    var who = ROLES[role] ? ROLES[role].label : role;
+    var sigs = SIGS[o.phase] || [];
+    var lb = sigId;
+    for (var i = 0; i < sigs.length; i++) { if (sigs[i].id === sigId) { lb = sigs[i].lb; break; } }
+    o.msgs = o.msgs || [];
+    o.msgs.push({who:who, txt:'Firma: ' + lb, ts:Date.now(), type:'system'});
+    addNotif(who + ' firmo en ' + o.plate, id);
+    _recentSignAt = Date.now();
+    save(); toast('Firma registrada'); openDrw(id);
+  }
   if (o.phase === 'prb' && sigId === 'jefe' && o.kmSalidaRuta != null) {
-    var kmEntradaInput = prompt('Kilometraje de entrada (salida fue ' + o.kmSalidaRuta.toLocaleString('es-GT') + ' km):');
-    if (kmEntradaInput !== null && kmEntradaInput.trim() !== '') {
-      var kmEntradaVal = parseFloat(kmEntradaInput);
-      if (isNaN(kmEntradaVal) || kmEntradaVal < o.kmSalidaRuta) {
-        toast('El kilometraje de entrada no puede ser menor al de salida (' + o.kmSalidaRuta.toLocaleString('es-GT') + ' km) — corrige el numero antes de firmar');
-        return;
+    showKmModal('Kilometraje de entrada', 'Salida fue ' + o.kmSalidaRuta.toLocaleString('es-GT') + ' km', function(kmEntradaInput) {
+      if (kmEntradaInput !== null) {
+        var kmEntradaVal = parseFloat(kmEntradaInput);
+        if (isNaN(kmEntradaVal) || kmEntradaVal < o.kmSalidaRuta) {
+          toast('El kilometraje de entrada no puede ser menor al de salida (' + o.kmSalidaRuta.toLocaleString('es-GT') + ' km) — corrige el numero antes de firmar');
+          return;
+        }
+        var kmVueltaActual = kmEntradaVal - o.kmSalidaRuta;
+        if (kmVueltaActual > 50) {
+          toast('Diferencia de ' + kmVueltaActual.toLocaleString('es-GT') + ' km — nunca ha pasado de 50 km en una sola prueba. Revisa el kilometraje antes de firmar.');
+          return;
+        }
+        if (kmVueltaActual > 20 && !confirm('Esta prueba recorrio ' + kmVueltaActual.toLocaleString('es-GT') + ' km (lo normal es hasta 20 km). ¿Estas seguro de que el kilometraje es correcto?')) {
+          return;
+        }
+        o.kmRecorridos = (o.kmRecorridos || 0) + kmVueltaActual;
+        o.msgs = o.msgs || [];
+        o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'&#128663; Prueba de ruta: ' + kmVueltaActual.toLocaleString('es-GT') + ' km recorridos (' + o.kmSalidaRuta.toLocaleString('es-GT') + ' &rarr; ' + kmEntradaVal.toLocaleString('es-GT') + ' km)', ts:Date.now(), type:'system'});
       }
-      var kmVueltaActual = kmEntradaVal - o.kmSalidaRuta;
-      if (kmVueltaActual > 50) {
-        toast('Diferencia de ' + kmVueltaActual.toLocaleString('es-GT') + ' km — nunca ha pasado de 50 km en una sola prueba. Revisa el kilometraje antes de firmar.');
-        return;
-      }
-      if (kmVueltaActual > 20 && !confirm('Esta prueba recorrio ' + kmVueltaActual.toLocaleString('es-GT') + ' km (lo normal es hasta 20 km). ¿Estas seguro de que el kilometraje es correcto?')) {
-        return;
-      }
-      o.kmRecorridos = (o.kmRecorridos || 0) + kmVueltaActual;
-      o.msgs = o.msgs || [];
-      o.msgs.push({who:(ROLES[role]?ROLES[role].label:role), txt:'&#128663; Prueba de ruta: ' + kmVueltaActual.toLocaleString('es-GT') + ' km recorridos (' + o.kmSalidaRuta.toLocaleString('es-GT') + ' &rarr; ' + kmEntradaVal.toLocaleString('es-GT') + ' km)', ts:Date.now(), type:'system'});
-    }
+      _terminarFirma();
+    });
+    return; // pausa aqui -- _terminarFirma() la retoma cuando el modal se resuelve
   }
-  o.sigs[sigId] = true;
-  o.sigsTs = o.sigsTs || {};
-  o.sigsTs[sigId] = Date.now();
-  // Tiempo especifico que el vehiculo estuvo EN RUTA (desde que se marco la
-  // salida con el boton "Marcar salida a ruta" hasta que el Jefe firma esta
-  // misma "Prueba de ruta") — se ACUMULA en o.rutaMinutos (no se sobrescribe)
-  // porque una orden puede pasar por Prueba/Insp.Final mas de una vez (ej.
-  // reproceso, o se vuelve a probar despues de un ajuste) — igual que el
-  // resto de la bitacora, que suma TODAS las veces que paso por cada fase en
-  // vez de quedarse solo con la ultima. Si nunca se marco la salida, no
-  // agrega nada.
-  if (o.phase === 'prb' && sigId === 'jefe' && o.rutaSalidaTs) {
-    // Reloj real, no horas habiles — el Jefe prueba vehiculos a cualquier
-    // hora (ver rawMinutes arriba).
-    o.rutaMinutos = (o.rutaMinutos || 0) + rawMinutes(o.rutaSalidaTs, Date.now());
-  }
-  // Auto-advance when all required sigs for this phase are complete
-  var phaseSigsAuto = SIGS[o.phase] || [];
-  var allSignedAuto = phaseSigsAuto.every(function(s) { return o.sigs[s.id]; });
-  if (allSignedAuto) {
-    var autoNext = {rec:'aa', pa:'pb', lav:'lst'};
-    if (autoNext[o.phase]) {
-      // Small delay so user sees confirmation toast before advance
-      var autoPhase = autoNext[o.phase];
-      var autoId = o.id;
-      setTimeout(function() { advance(autoId, autoPhase); }, 600);
-    }
-  }
-  var who = ROLES[role] ? ROLES[role].label : role;
-  var sigs = SIGS[o.phase] || [];
-  var lb = sigId;
-  for (var i = 0; i < sigs.length; i++) { if (sigs[i].id === sigId) { lb = sigs[i].lb; break; } }
-  o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'Firma: ' + lb, ts:Date.now(), type:'system'});
-  addNotif(who + ' firmo en ' + o.plate, id);
-  _recentSignAt = Date.now();
-  save(); toast('Firma registrada'); openDrw(id);
+  _terminarFirma();
 }
 
 // Modal para elegir la causa (y opcionalmente una nota) de un reproceso —
@@ -5939,9 +5987,16 @@ function openMap() {
     else if (tipo === 'elev') { bc='#1A3A6B'; bg='#0D1A2E'; tc2='#3D7EFF'; }
     if (taken) {
       if (isMine) { bc='#1A5C35'; bg='#0D2E1A'; tc2='#2ECC71'; }
-      else { bc='#6B4510'; bg='#2E1F0A'; tc2='#F39C12'; cur='default'; clickable=false; }
+      else { bc='#6B4510'; bg='#2E1F0A'; tc2='#F39C12'; }
+      // Un espacio OCUPADO siempre se puede tocar para abrir la ficha de esa
+      // orden (28 sep 2026, pedido de Byron) — para cualquier rol que vea el
+      // Mapa, incluida la vista de solo lectura de tecnico/asesor (ver el
+      // switch mas abajo: openDrw(), no mapPick(), asi que readOnlyMap no
+      // aplica aqui — solo bloquea ASIGNAR un espacio libre).
+      clickable = true;
+    } else if (readOnlyMap) {
+      clickable = false; cur = 'default';
     }
-    if (readOnlyMap) { clickable = false; cur = 'default'; }
 
     // Color del punto (28 sep 2026, pedido de Byron): antes era fijo
     // verde/naranja (mio/de otro). Ahora, para Jefe/Asesor (myTec === null,
@@ -5983,9 +6038,15 @@ function openMap() {
     }
     div.innerHTML = inner;
     if (clickable) {
-      (function(s) {
-        div.addEventListener('click', function() { mapPick(s); });
-      })(sp);
+      if (taken) {
+        (function(oid) {
+          div.addEventListener('click', function() { closeMap(); openDrw(oid); });
+        })(taken.id);
+      } else {
+        (function(s) {
+          div.addEventListener('click', function() { mapPick(s); });
+        })(sp);
+      }
     }
     return div;
   }
@@ -6030,8 +6091,8 @@ function openMap() {
   var note = document.createElement('div');
   note.style.cssText = 'font-size:11px;color:var(--tx3);padding:8px;background:var(--bg3);border-radius:var(--rs);border:1px solid var(--bd)';
   note.textContent = readOnlyMap
-    ? 'Solo el Jefe de taller puede asignar espacios — esta vista es de solo lectura.'
-    : 'Toca un espacio libre para asignarlo a una de las ordenes activas.';
+    ? 'Solo el Jefe de taller puede asignar espacios — esta vista es de solo lectura. Toca un espacio ocupado para ver la ficha de esa orden.'
+    : 'Toca un espacio libre para asignarlo a una de las ordenes activas, o un espacio ocupado para ver su ficha.';
   mapDiv.appendChild(note);
 
   var mapBody = document.getElementById('map-body');
