@@ -2717,7 +2717,11 @@ function openDrw(id) {
         // aparte, fuera de este formulario (ver "Mano de obra" mas abajo,
         // mismo patron que el enlace de Clear Mechanic).
         ((role === 'jefe' || role === 'asesor') ?
-          '<div class="fr2" style="margin-bottom:6px">' +
+          // Encasillado en amarillo (29 sep 2026, pedido de Byron): mismo
+          // tratamiento que la vista de solo lectura de estos 2 montos (ver
+          // arriba) y que el cuadro de "Tiempo calculado" — para ubicarlos
+          // facil tambien al editar.
+          '<div class="fr2" style="margin-bottom:6px;border:2px solid #eab308;border-radius:var(--rs);background:var(--bg);padding:8px 10px">' +
             '<div class="fg"><label class="fl">Total autorizado (Q)</label><input class="fi" id="e-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '"></div>' +
             '<div class="fg"><label class="fl">Mano de obra (Q)</label><input class="fi" id="e-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '"></div>' +
           '</div>'
@@ -2847,6 +2851,12 @@ function openDrw(id) {
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
+      // Encasillado en amarillo (29 sep 2026, pedido de Byron): mismo
+      // tratamiento que ya usa el cuadro de "Tiempo calculado" (borde
+      // #eab308), para ubicar estos 2 montos de un vistazo tanto en la
+      // vista de solo lectura como en el formulario de edicion (ver e-total/
+      // e-mo mas abajo).
+      '<div style="border:2px solid #eab308;border-radius:var(--rs);background:var(--bg);padding:8px 10px">' +
       '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo);color:' + (o.montoTotal ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoTotal ? '700' : '400') + '">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
       (role === 'jefe'
         ? '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo);color:' + (o.montoMO ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoMO ? '700' : '400') + '">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
@@ -2865,7 +2875,8 @@ function openDrw(id) {
           (o.phase === 'ea'
             ? '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Se edita en &#9997; Firmas y cambios de fase, mas abajo</div>'
             : '<div style="font-size:10px;color:var(--tx3);margin-top:4px">&#128274; Solo editable en Espera de autorizacion</div>')
-      )
+      ) +
+      '</div>'
     : '') +
     (o.phaseStart ? '<div class="irow"><span class="ik">Tiempo en fase</span><span style="color:var(--or)">' + elapsed(o.phaseStart) + '</span></div>' : '') +
     productividadOrdenHtml +
@@ -3873,12 +3884,24 @@ function openDrw(id) {
   var addRepBtn = document.getElementById('btn-add-rep');
   if (addRepBtn) {
     addRepBtn.addEventListener('click', function() {
-      var inp = document.getElementById('rep-inp');
-      var desc = inp ? inp.value.trim() : '';
-      if (!desc) { toast('Escribe la descripcion del repuesto'); return; }
       var ox = null;
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (!ox) return;
+      // Revalida la fase AL MOMENTO de tocar el boton, no solo al dibujar el
+      // formulario (29 sep 2026, bug real reportado por Byron: un tecnico con
+      // la ficha ya abierta en Trabajando podia seguir agregando un repuesto
+      // aunque la orden hubiera pasado a Detenido mientras tanto, porque el
+      // candado de fase solo se checaba al construir el HTML — mismo
+      // candado que ya tenia bien puesto "Trabajos realizados", ver
+      // addTrabBtn mas abajo).
+      var rMeRep = ROLES[role];
+      if (role !== 'jefe' && role !== 'asesor' && rMeRep && rMeRep.tec && ox.phase !== 'ab') {
+        toast('Los tecnicos solo pueden solicitar repuestos mientras la orden esta en Trabajando');
+        return;
+      }
+      var inp = document.getElementById('rep-inp');
+      var desc = inp ? inp.value.trim() : '';
+      if (!desc) { toast('Escribe la descripcion del repuesto'); return; }
       ox.repuestos = ox.repuestos || [];
       var origenSel = document.getElementById('rep-origen');
       var origen = origenSel ? origenSel.value : 'local';
@@ -4004,6 +4027,17 @@ function openDrw(id) {
     // frenos).
     var bodTextoLibreConfirmado = false;
     addBodBtn.addEventListener('click', function() {
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      // Revalida la fase AL MOMENTO de tocar el boton, no solo al dibujar el
+      // formulario (29 sep 2026, mismo bug real reportado por Byron para
+      // repuestos — ver addRepBtn arriba — que tambien aplicaba aqui).
+      var rMeBod = ROLES[role];
+      if (role !== 'jefe' && rMeBod && rMeBod.tec && ox.phase !== 'ab') {
+        toast('Los tecnicos solo pueden solicitar materiales de bodega mientras la orden esta en Trabajando');
+        return;
+      }
       var cantInp = document.getElementById('bod-cant');
       var descInp = document.getElementById('bod-desc');
       var espInp = document.getElementById('bod-esp');
@@ -4017,9 +4051,6 @@ function openDrw(id) {
         toast('Ese insumo aparece en el catalogo — elige una opcion de la lista, o toca "No esta en la lista" para usar texto libre');
         return;
       }
-      var ox = null;
-      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
-      if (!ox) return;
       ox.bodega = ox.bodega || [];
       var nuevoBod = {cantidad:esc(cant), desc:esc(descB), especificacion:esc(esp), by:ROLES[role]?ROLES[role].label:role, ts:Date.now(), vobo:false, despachado:false};
       // codigo solo se guarda cuando viene de una seleccion real del
@@ -11519,8 +11550,12 @@ function openHistDetail(o) {
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor' || role === 'partes') ?
       '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
+      // Encasillado en amarillo (29 sep 2026, pedido de Byron) — mismo
+      // tratamiento que su gemela en la ficha en vivo (openDrw, ver arriba).
+      '<div style="border:2px solid #eab308;border-radius:var(--rs);background:var(--bg);padding:8px 10px">' +
       '<div class="irow"><span class="ik">Total autorizado (Q)</span><span style="font-family:var(--mo);color:' + (o.montoTotal ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoTotal ? '700' : '400') + '">' + (o.montoTotal ? 'Q.' + Number(o.montoTotal).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
-      '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo);color:' + (o.montoMO ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoMO ? '700' : '400') + '">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>'
+      '<div class="irow"><span class="ik">Mano de obra (Q)</span><span style="font-family:var(--mo);color:' + (o.montoMO ? 'var(--gn)' : 'var(--tx3)') + ';font-weight:' + (o.montoMO ? '700' : '400') + '">' + (o.montoMO ? 'Q.' + Number(o.montoMO).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—') + '</span></div>' +
+      '</div>'
     : '') +
   '</div>';
 
