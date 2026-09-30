@@ -614,6 +614,7 @@ button{cursor:pointer}
     <div class="fg"><label class="fl">Vehiculo *</label><input class="fi" id="f-mo" placeholder="Toyota Hilux 2020"></div>
     <div class="fg"><label class="fl">Cliente *</label><input class="fi" id="f-cl" placeholder="Nombre completo"></div>
     <div class="fg"><label class="fl">Kilometraje (opcional)</label><input class="fi" id="f-km" type="number" min="0" step="1" placeholder="Ej. 45230"></div>
+    <div class="fg" id="f-cm-wrap" style="display:none"><label class="fl">&#128279; Link de Clear Mechanic (opcional)</label><input class="fi" id="f-cm" placeholder="https://..."></div>
     <div class="fr2">
       <div class="fg"><label class="fl">Tecnico (opcional, se asigna despues)</label>
         <select class="fi" id="f-tc">
@@ -1327,7 +1328,13 @@ var SIGS = {
   pa: [{id:'partes',lb:'Partes cotiza repuestos',sb:true}],
   pb: [{id:'asesor',lb:'Asesor cotiza M/O',sb:true}],
   ea: [{id:'asesor',lb:'Asesor confirma autorizacion',sb:false}],
-  er: [{id:'mensajero',lb:'Mensajero abastece',sb:true,seq:1},{id:'partes',lb:'Partes confirma',sb:true,seq:2},{id:'tecnico',lb:'Tecnico Vo.Bo.',sb:false,seq:3}],
+  // Antes exigia 3 firmas en secuencia (Mensajero/Partes/Tecnico) para poder
+  // sacar la orden de esta fase -- Byron (30 sep 2026) pidio dejarlo en una
+  // sola firma suya, igual que ya funciona 'det'. La verificacion POR
+  // REPUESTO individual (Mensajero trae / Partes confirma / Tecnico instala,
+  // ver repuesto.ck1/ck2/ck3 en getMyPendingSigs y los reportes de Repuestos
+  // y Subcontratos / Despacho Bodega) es un mecanismo aparte, sin tocar.
+  er: [{id:'jefe',lb:'Jefe confirma repuesto recibido',sb:false}],
   ext:[{id:'asesor',lb:'Asesor envia externo',sb:false},{id:'partes',lb:'Partes coordina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo.',sb:false}],
   lav:[{id:'lavador',lb:'Lavador termina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. lavado',sb:false}],
   lst:[{id:'asesor',lb:'Asesor confirma entrega',sb:false}],
@@ -1965,6 +1972,9 @@ function renderBoard() {
         var motivoHtml = (o.phase === 'det' && o.detMotivo)
           ? '<div style="font-size:9px;color:#FF4444;margin-top:2px">&#128683; ' + esc(o.detMotivo) + '</div>'
           : '';
+        var largaDuracionHtml = (o.phase === 'det' && o.detLargaDuracion)
+          ? '<div style="font-size:9px;color:var(--tx3);margin-top:1px">&#9203; Larga duracion — no cuenta en Capacidad</div>'
+          : '';
         var pendingHtml = (o.pendingConfirm && role === 'jefe')
           ? '<div style="font-size:9px;color:var(--or);margin-top:2px">&#9888; Pendiente confirmar</div>'
           : '';
@@ -2057,7 +2067,7 @@ function renderBoard() {
           '</div>' +
           spHtml + numHtml +
           '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + misTrabHtml + '</div>' +
-          motivoHtml +
+          motivoHtml + largaDuracionHtml +
           '<div class="card-sg">' + sigHtml + '</div>' +
           prodBadgeHtml;
         card.appendChild(inner);
@@ -2600,6 +2610,16 @@ function openDrw(id) {
   if (o.phase === 'det' && role === 'jefe') {
     nexts = ['aa', 'ab'];
   }
+  // Fase ESP. REPUESTOS (30 sep 2026, pedido de Byron): el camino normal
+  // (NEXT['er']=['aa'], gateado por la firma unica "Jefe confirma repuesto
+  // recibido") sigue igual para todos los demas roles. El Jefe, ademas,
+  // puede mandarla directo a Trabajando cuando el repuesto ya llego y no
+  // hace falta pasar por Espera-asignacion — mismo patron ya usado en
+  // Detenido arriba. A diferencia de Detenido, aqui NO se le da este atajo
+  // al tecnico asignado (decision explicita de Byron: solo el Jefe).
+  if (o.phase === 'er' && role === 'jefe') {
+    nexts = ['aa', 'ab'];
+  }
 
   /* header */
   var hdr = document.getElementById('drw-hdr');
@@ -2797,19 +2817,20 @@ function openDrw(id) {
     }
   }
   // Enlace a la orden en Clear Mechanic (recepcion, reporte de fallas del
-  // tecnico, presupuesto enviado) — solo Jefe, Asesor de servicio y Asesor
-  // de partes lo ven; el resto del personal (tecnicos, mensajero) no ve esta
-  // fila en absoluto. Editable por esos 3 roles via boton, no solo Jefe —
-  // por eso vive fuera del formulario grande de "Editar" (que es jefe-only).
-  var canSeeCM = (role === 'jefe' || role === 'asesor' || role === 'partes');
-  var cmRowHtml = canSeeCM
-    ? '<div class="irow" style="align-items:center"><span class="ik">&#128279; Clear Mechanic</span><span style="display:flex;align-items:center;gap:8px">' +
-        (o.cmUrl
-          ? '<a href="' + esc(o.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>'
-          : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
-        '<button id="btn-cm-link" data-oid="' + id + '" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (o.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>' +
-      '</span></div>'
-    : '';
+  // tecnico, presupuesto enviado) — pedido de Byron (30 sep 2026): antes
+  // solo lo veian y editaban Jefe/Asesor/Partes; ahora lo ve CUALQUIER rol
+  // (incluidos tecnicos y mensajero, de solo lectura) y solo el Jefe lo
+  // agrega/edita/quita. Por eso vive fuera del formulario grande de
+  // "Editar" (que ya es jefe-only) — el boton aparece solo para el Jefe,
+  // el resto de roles solo ve el enlace (o "Sin enlace"), sin boton.
+  var cmRowHtml = '<div class="irow" style="align-items:center"><span class="ik">&#128279; Clear Mechanic</span><span style="display:flex;align-items:center;gap:8px">' +
+      (o.cmUrl
+        ? '<a href="' + esc(o.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>'
+        : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
+      (role === 'jefe'
+        ? '<button id="btn-cm-link" data-oid="' + id + '" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (o.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>'
+        : '') +
+    '</span></div>';
   // Tecnicos de apoyo (26 sep 2026): prestamo temporal de otro tecnico del
   // taller a esta orden, sin tocar Tecnico/Tecnico 2 ni la Capacidad del
   // taller — caso real: Byron le pidio a Pablo y Kevin que avanzaran la
@@ -2844,6 +2865,18 @@ function openDrw(id) {
     apoyoRowHtml +
     '<div class="irow"><span class="ik">Sucursal</span><span>' + esc(o.loc || '—') + '</span></div>' +
     (o.detMotivo ? '<div class="irow"><span class="ik" style="color:var(--rd)">&#128683; Motivo detencion</span><span style="color:var(--rd)">' + esc(o.detMotivo) + '</span></div>' : '') +
+    // "Larga duracion" (30 sep 2026, pedido de Byron): una orden Detenida
+    // normal SI cuenta en Capacidad del taller (podria reactivarse en
+    // cualquier momento) — ver _capacidadCalc. Esta casilla es la
+    // excepcion para un caso realmente largo (ej. repuesto de
+    // importacion) donde contarla solo mostraria al tecnico como "ocupado"
+    // sin que en la practica lo este. Solo el Jefe la marca/desmarca;
+    // el resto de roles la ve de solo lectura si ya esta marcada.
+    (o.phase === 'det'
+      ? (role === 'jefe'
+          ? '<div class="irow" style="align-items:center"><span class="ik">&#9203; Larga duracion</span><span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:var(--tx2)"><input type="checkbox" id="chk-larga-duracion"' + (o.detLargaDuracion ? ' checked' : '') + ' onchange="toggleLargaDuracion(' + id + ', this.checked)" style="width:15px;height:15px;cursor:pointer"> No contar en Capacidad del taller</label></span></div>'
+          : (o.detLargaDuracion ? '<div class="irow"><span class="ik" style="color:var(--tx3)">&#9203; Larga duracion</span><span style="color:var(--tx3)">Si — no cuenta en Capacidad del taller</span></div>' : ''))
+      : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
     cmRowHtml +
     (o.numFisico ? '<div class="irow"><span class="ik">No. orden fisica</span><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + (o.colorFisico === 'azul' ? '#1565C0' : o.colorFisico === 'amarillo' ? '#F9A825' : o.colorFisico === 'verde' ? '#2E7D32' : '#555') + ';color:#fff;font-size:12px;font-weight:700">' + o.numFisico + '</span><span style="color:var(--tx2);font-size:11px">' + (o.colorFisico || '') + '</span></span></div>' : '') +
@@ -4795,7 +4828,7 @@ function openDrw(id) {
   var cmLinkBtn = document.getElementById('btn-cm-link');
   if (cmLinkBtn) {
     cmLinkBtn.addEventListener('click', function() {
-      if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) { toast('No tienes permiso para editar este enlace'); return; }
+      if (role !== 'jefe') { toast('No tienes permiso para editar este enlace'); return; }
       var ox = null;
       for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
       if (!ox) return;
@@ -4885,6 +4918,24 @@ function closeDrw() {
   if (window._drwRepInt) { clearInterval(window._drwRepInt); window._drwRepInt = null; }
   openId = null;
   renderBoard();
+}
+
+// "Larga duracion" en Detenido (30 sep 2026): saca/mete la orden del calculo
+// de Capacidad del taller sin moverla de fase ni tocar su motivo — ver
+// _capacidadCalc. Solo el Jefe puede tocar esto (defensa en profundidad —
+// el checkbox ya es jefe-only en el render de openDrw).
+function toggleLargaDuracion(id, checked) {
+  if (role !== 'jefe') { toast('Solo el Jefe puede marcar esto'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || o.phase !== 'det') return;
+  o.detLargaDuracion = !!checked;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt: (checked ? '&#9203; Marcada como Larga duracion — deja de contar en Capacidad del taller' : '&#9203; Ya no es Larga duracion — vuelve a contar en Capacidad del taller'), ts:Date.now(), type:'system'});
+  save();
+  toast(checked ? 'Marcada como Larga duracion' : 'Ya cuenta de nuevo en Capacidad del taller');
+  openDrw(id);
 }
 
 function saveDesc(id) {
@@ -5634,6 +5685,15 @@ function openNO() {
   // otra sucursal.
   var ubEl = document.getElementById('f-ub');
   if (ubEl) ubEl.value = 'Z10';
+  // Link de Clear Mechanic (30 sep 2026): solo el Jefe puede agregarlo o
+  // editarlo (mismo candado que el resto del enlace), asi que el campo solo
+  // se ofrece al crear cuando quien esta creando la orden es el Jefe — si la
+  // crea el Asesor, se puede agregar despues desde la ficha (pero solo el
+  // Jefe podra hacerlo).
+  var cmWrapEl = document.getElementById('f-cm-wrap');
+  if (cmWrapEl) cmWrapEl.style.display = (role === 'jefe') ? '' : 'none';
+  var cmInputEl = document.getElementById('f-cm');
+  if (cmInputEl) cmInputEl.value = '';
   _sugerirSiguienteOt();
   document.getElementById('m-no').classList.add('on');
 }
@@ -5797,10 +5857,17 @@ function saveNO() {
   var hrsEst = parseFloat(document.getElementById('f-hrs').value) || 0;
   var kmEl = document.getElementById('f-km');
   var km = kmEl && kmEl.value ? parseInt(kmEl.value, 10) : null;
+  // Link de Clear Mechanic (30 sep 2026): solo se lee si quien crea es Jefe
+  // (el campo solo se muestra para ese rol, ver openNO) — asi un Asesor
+  // nunca deja un cmUrl puesto por accion propia, consistente con que solo
+  // el Jefe puede editarlo despues.
+  var cmEl = document.getElementById('f-cm');
+  var cmUrlInput = (role === 'jefe' && cmEl && cmEl.value.trim()) ? cmEl.value.trim() : null;
 
   function createWithId(assignedId) {
     var ot = otInput || ('OT-' + assignedId);
     var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,hrsEstimadoOriginal:hrsEst||null,km:km,tipoServicioSolicitado:_noTipoServicio||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
+    if (cmUrlInput) no.cmUrl = cmUrlInput;
     if (_noRepDraft.length) {
       no.repuestos = _noRepDraft.map(function(d0) {
         // El borrador guarda objetos {desc, cantidad?, especificacion?};
@@ -6986,7 +7053,18 @@ function buildRepContent() {
     }
     var rowBg = i % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
     html += '<tr style="background:' + rowBg + ';cursor:pointer" data-tec="' + esc(o.tech||'') + '" data-phase="' + esc(o.phase||'') + '" data-monto="' + (o.montoTotal ? '1' : '0') + '" data-oid="' + o.id + '" class="rep-row-clickable">' +
-      '<td style="padding:6px 8px;font-family:var(--mo);font-weight:500;font-size:13px;border-bottom:1px solid var(--bd)">' + esc(o.ot||'—') + '</td>' +
+      // No. de orden clickeable si tiene enlace de Clear Mechanic guardado
+      // (30 sep 2026, pedido de Byron) -- reusa la misma columna "OR #" en
+      // vez de agregar una columna nueva, para no descuadrar el formato del
+      // reporte. Sin enlace, se ve exactamente igual que siempre (texto
+      // plano). stopPropagation: la fila entera ya abre el detalle al
+      // hacer click (rep-row-clickable) -- sin esto, tocar el link tambien
+      // dispararia esa apertura.
+      '<td style="padding:6px 8px;font-family:var(--mo);font-weight:500;font-size:13px;border-bottom:1px solid var(--bd)">' +
+        (o.cmUrl
+          ? '<a href="' + esc(o.cmUrl) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--ac);text-decoration:underline" title="Abrir en Clear Mechanic">' + esc(o.ot||'—') + ' &#128279;</a>'
+          : esc(o.ot||'—')) +
+      '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap">' + fecha + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' +
         '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">' + pcLabel + '</span>' +
@@ -6996,7 +7074,12 @@ function buildRepContent() {
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:center">' +
         (o.numFisico ? '<div style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:' + (o.colorFisico==='azul'?'#1565C0':o.colorFisico==='amarillo'?'#F9A825':o.colorFisico==='verde'?'#2E7D32':'#555') + ';color:#fff;font-size:11px;font-weight:700">' + o.numFisico + '</div>' : '<span style="color:var(--tx3);font-size:10px">—</span>') +
       '</td>' +
-      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + esc(o.plate||'—') + '</td>' +
+      // Espacio asignado, como etiqueta chica pegada a la Placa (30 sep
+      // 2026, pedido de Byron) -- en vez de una columna nueva, para no
+      // ensanchar el reporte.
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + esc(o.plate||'—') +
+        (o.space ? '<span style="margin-left:6px;font-family:var(--fn);font-size:9px;font-weight:600;color:var(--tx3);background:var(--bg4);border:1px solid var(--bd);border-radius:8px;padding:1px 6px;white-space:nowrap">Esp.' + esc(String(o.space)) + '</span>' : '') +
+      '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.tech||'Sin asignar') + (o.tech2?' + '+esc(o.tech2.split(' ')[0]):'') + '</td>' +
       (tecActivo ? tecRowCells : ((role === 'jefe' && _jefeShowProdCols) ? jefeProdRowCells : '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>')) +
       factPotencialCell +
@@ -10165,7 +10248,14 @@ function _capacidadCalc(nowTs) {
   var pendientesDeAjuste = [];
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
-    if (o.phase !== 'ab' && o.phase !== 'aa') continue;
+    // Detenido (30 sep 2026, pedido de Byron): SI cuenta como carga del
+    // tecnico -- podria reactivarse en cualquier momento, asi que mostrarlo
+    // como "disponible" seria enganoso para planear el dia. Excepcion: un
+    // caso marcado "Larga duracion" (ej. esperando un repuesto de
+    // importacion) de verdad libera al tecnico mientras tanto, asi que no
+    // cuenta. Ver el checkbox o.detLargaDuracion en la ficha (openDrw).
+    var detCuenta = (o.phase === 'det' && !o.detLargaDuracion);
+    if (o.phase !== 'ab' && o.phase !== 'aa' && !detCuenta) continue;
     // "T. Externo" y nombres vacios no reparten capacidad de nadie de la casa.
     var asignados = [o.tech, o.tech2].filter(function(n){ return n && porNombre[n]; });
     if (!asignados.length) {
@@ -11087,13 +11177,17 @@ function buildPresqPendContent() {
       '</div>';
       // Enlace de Clear Mechanic — reusa el MISMO campo o.cmUrl que ya
       // existe en la ficha de la orden (no un campo paralelo): lo que se
-      // agregue/edite aqui es lo mismo que se ve alla, y viceversa.
+      // agregue/edite aqui es lo mismo que se ve alla, y viceversa. Solo el
+      // Jefe edita (30 sep 2026) — Asesor/Partes, que sí pueden abrir este
+      // panel, ven el enlace pero sin boton.
       html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:7px 9px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);flex-wrap:wrap">' +
         '<span style="font-size:11px;color:var(--tx2);flex-shrink:0">&#128279; Clear Mechanic</span>' +
         (po2.cmUrl
           ? '<a href="' + esc(po2.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>'
           : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
-        '<button class="btn-presq-cm" data-oid="' + po2.id + '" style="margin-left:auto;background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (po2.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>' +
+        (role === 'jefe'
+          ? '<button class="btn-presq-cm" data-oid="' + po2.id + '" style="margin-left:auto;background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (po2.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>'
+          : '') +
       '</div>';
       // Ruta de 3 pasos: Partes completa -> Asesor lo envia al cliente ->
       // Jefe da Vo.Bo. final (solo entonces desaparece del pendiente).
@@ -11179,7 +11273,7 @@ function buildPresqPendContent() {
   for (var pcmi = 0; pcmi < presqCmBtns.length; pcmi++) {
     (function(btn) {
       btn.addEventListener('click', function() {
-        if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) { toast('No tienes permiso para editar este enlace'); return; }
+        if (role !== 'jefe') { toast('No tienes permiso para editar este enlace'); return; }
         var oidCm = parseInt(this.getAttribute('data-oid'));
         var oxCm = null;
         for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidCm) { oxCm = orders[j]; break; } }
@@ -11526,13 +11620,11 @@ function openHistDetail(o) {
   (o.trabajos || []).forEach(function(tw) { hrsComHistDetail += parseFloat(tw.horas) || 0; });
   var pctProdHistDetail = hrsRealHistDetail > 0 ? Math.round(hrsComHistDetail / hrsRealHistDetail * 100) : null;
   var pctProdHistColor = pctProdHistDetail !== null ? _productividadColor(pctProdHistDetail) : 'var(--tx3)';
-  // Mismo criterio de visibilidad que en la ficha en vivo — solo lectura
-  // aqui (sin boton editar), la vista de Historial ya es de solo lectura.
-  var cmRowHtmlHist = (role === 'jefe' || role === 'asesor' || role === 'partes')
-    ? '<div class="irow"><span class="ik">&#128279; Clear Mechanic</span><span>' +
-        (o.cmUrl ? '<a href="' + esc(o.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>' : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
-      '</span></div>'
-    : '';
+  // Visible para cualquier rol (30 sep 2026) — solo lectura aqui (sin boton
+  // editar), la vista de Historial ya es de solo lectura para todos.
+  var cmRowHtmlHist = '<div class="irow"><span class="ik">&#128279; Clear Mechanic</span><span>' +
+      (o.cmUrl ? '<a href="' + esc(o.cmUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir enlace &#8599;</a>' : '<span style="color:var(--tx3);font-size:11px">Sin enlace</span>') +
+    '</span></div>';
   html += '<div class="sec"><div class="sec-l">Informacion general</div>' +
     '<div class="irow"><span class="ik">Vehiculo</span><span>' + esc(o.model||'—') + '</span></div>' +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
