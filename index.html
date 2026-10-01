@@ -2212,6 +2212,30 @@ function _buscarEnCatalogoBodega(q) {
   return [];
 }
 
+// Un item es "generico" cuando su nombre es PREFIJO del nombre de otro
+// resultado en la MISMA busqueda (ej. "REFRIGERANTE" lo es de "REFRIGERANTE
+// AZUL ARTIC (GALON)") — factorizado (30 sep 2026) de donde vivia inline
+// solo en el buscador de "+ Solicitar", para que "Cambiar articulo" (ver
+// btn-bod-cambiar-art) use exactamente la misma regla sin poder
+// desincronizarse.
+function _bodEsGenericoDeVariantes(it, matches) {
+  return !!((it.nombre || '') && matches.some(function(otro) {
+    if (otro === it) return false;
+    var n1 = (it.nombre || '').toLowerCase(), n2 = (otro.nombre || '').toLowerCase();
+    return n2.indexOf(n1) === 0 && n2 !== n1;
+  }));
+}
+// Variantes especificas de un "generico" dado, acotadas a una busqueda
+// concreta (30 sep 2026) — usado tanto al forzar una eleccion especifica en
+// "+ Solicitar" (ver bodSugg click) como en "Cambiar articulo".
+function _bodVariantesDeGenerico(nombreGenerico, searchTerm) {
+  nombreGenerico = (nombreGenerico || '').toLowerCase();
+  return _buscarEnCatalogoBodega(searchTerm).filter(function(it) {
+    var n = (it.nombre || '').toLowerCase();
+    return n.indexOf(nombreGenerico) === 0 && n !== nombreGenerico;
+  });
+}
+
 // Plantillas de "Servicio Menor/Intermedio/Mayor" (pedido de los tecnicos,
 // confirmado con Byron 1 sep 2026): listas GENERICAS (sin marca/SKU) para
 // agregar de una vez los repuestos y materiales tipicos de cada nivel, en
@@ -2273,16 +2297,50 @@ var SERVICIO_BODEGA_INTERMEDIO_EXTRA = [
 // Byron) — a diferencia de SERVICIO_BODEGA_TEMPLATE (igual en los 3
 // niveles), estos SI varian por nivel: solo van en Mayor, y por lo tanto SI
 // entran al diff aQuitar/aAgregar al cambiar de nivel (igual que ya hacen
-// los repuestos por nivel — ver _bodegaDeNivel mas abajo). "Refrigerante"
-// queda a proposito SIN codigo (generico, texto libre): varia por vehiculo
-// (color/tipo — Byron confirmo que hay varios en el catalogo real) y se
-// prefirio dejar que Bodega Virtual lo resuelva con su propio sistema de
-// alias (el mismo que ya usa para cualquier solicitud de texto libre) en
-// vez de fijar un color que no siempre va a aplicar.
+// los repuestos por nivel — ver _bodegaDeNivel mas abajo).
+// "Refrigerante" SALIO de esta lista (30 sep 2026, ver
+// SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES mas abajo) — antes se
+// agregaba generico sin codigo y Bodega Virtual tenia que adivinar el color
+// por su sistema de alias (misma causa raiz que ya genero un cruce real el
+// 22 sep, ver "5w30"); ahora se pregunta el color al aplicar Mayor, mismo
+// patron que los aceites condicionales de abajo.
 var SERVICIO_BODEGA_MAYOR_EXTRA = [
   { desc: 'Liquido de frenos', codigo: 'A031729.' },
-  { desc: 'Refrigerante' },
 ];
+// Color de Refrigerante en Servicio Mayor (30 sep 2026, pedido de Byron):
+// 3 opciones (Azul/Rosado/No estoy seguro) en vez de dejarlo siempre
+// generico — nunca bloquea aplicar la plantilla, "No estoy seguro" deja el
+// mismo generico de siempre (RVCG33), corregible despues desde Despacho
+// Bodega (ver el boton de editar articulo, _buildEditarBodArticuloHtml).
+// Codigos confirmados contra el catalogo real (mismos que ya ve el tecnico
+// en el buscador de Despacho Bodega).
+var SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES = {
+  '1': { desc: 'Refrigerante Azul Artic (Galon)', codigo: 'RACG50' },
+  '2': { desc: 'Refrigerante Rosado Artic (Galon)', codigo: 'RRECG50' },
+  generico: { desc: 'Refrigerante', codigo: 'RVCG33' }
+};
+function _refrigeranteMayorDescsPosibles() {
+  return [
+    SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES['1'].desc,
+    SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES['2'].desc,
+    SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES.generico.desc
+  ];
+}
+// Pregunta el color UNA vez al entrar a Mayor (si no esta ya agregado desde
+// antes, ej. el tecnico bajo de nivel y volvio a subir sin haberlo
+// quitado). Igual que los aceites condicionales, queda marcado
+// desdeServicioPlantilla, asi que "Quitar plantilla completa" y el
+// candado de Despachado ya lo cubren solos sin codigo aparte.
+function _preguntarColorRefrigeranteMayor(o, who) {
+  var descsPosibles = _refrigeranteMayorDescsPosibles();
+  var yaEsta = o.bodega.some(function(bd) { return bd.desdeServicioPlantilla && descsPosibles.indexOf(bd.desc) !== -1; });
+  if (yaEsta) return;
+  var resp = prompt('¿De que color es el Refrigerante para este vehiculo?\n\nEscribe 1, 2 o 3:\n1 = Azul\n2 = Rosado\n3 = No estoy seguro todavia (se agrega generico, se corrige despues)');
+  var opt = SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES[resp === '1' ? '1' : resp === '2' ? '2' : 'generico'];
+  o.bodega.push({cantidad:'', desc: esc(opt.desc), codigo: esc(opt.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#10052; ' + esc(opt.desc) + ' (' + esc(opt.codigo) + ') agregado a Despacho Bodega al aplicar Mayor', ts:Date.now(), type:'system'});
+}
 // Aceites condicionales de Servicio Mayor (17 sep 2026, pedido de Byron,
 // contra el Excel real: "17102 — se despacha cuando el vehiculo sea
 // mecanico" / "881791 — se despacha cuando el vehiculo trae catarina") — a
@@ -2399,10 +2457,11 @@ function aplicarPlantillaServicio(id, nivel) {
     var itemsNuevosBod = _bodegaDeNivel(nivel);
     var aQuitarBodDescs = itemsViejosBod.filter(function(it) { return !itemsNuevosBod.some(function(it2){ return it2.desc === it.desc; }); }).map(function(it){ return it.desc; });
     var aAgregarBod = itemsNuevosBod.filter(function(it) { return !itemsViejosBod.some(function(it2){ return it2.desc === it.desc; }); });
-    // Al SALIR de Mayor, los aceites condicionales (si se habian agregado)
-    // tambien se quitan — ya no aplican, aunque no vengan de _bodegaDeNivel.
+    // Al SALIR de Mayor, los aceites condicionales y el color de
+    // Refrigerante (si se habian agregado) tambien se quitan — ya no
+    // aplican, aunque no vengan de _bodegaDeNivel.
     if (nivel !== 'mayor') {
-      aQuitarBodDescs = aQuitarBodDescs.concat(SERVICIO_BODEGA_MAYOR_CONDICIONAL.map(function(it){ return it.desc; }));
+      aQuitarBodDescs = aQuitarBodDescs.concat(SERVICIO_BODEGA_MAYOR_CONDICIONAL.map(function(it){ return it.desc; })).concat(_refrigeranteMayorDescsPosibles());
     }
     var entradasAQuitarBod = o.bodega.filter(function(bd) { return bd.desdeServicioPlantilla && aQuitarBodDescs.indexOf(bd.desc) !== -1; });
     var conAvanceBod = entradasAQuitarBod.filter(function(bd) { return bd.vobo || bd.despachado; });
@@ -2428,7 +2487,7 @@ function aplicarPlantillaServicio(id, nivel) {
     o.tipoServicioAplicado = nivel;
     o.msgs = o.msgs || [];
     o.msgs.push({who:who, txt:'&#9889; Plantilla de servicio cambiada: ' + SERVICIO_TEMPLATE_LABELS[nivelViejo] + ' → ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' (' + entradasAQuitar.length + '+' + entradasAQuitarBod.length + ' quitado(s), ' + aAgregar.length + '+' + aAgregarBod.length + ' agregado(s))', ts:Date.now(), type:'system'});
-    if (nivel === 'mayor') _preguntarAceitesCondicionalesMayor(o, who);
+    if (nivel === 'mayor') { _preguntarAceitesCondicionalesMayor(o, who); _preguntarColorRefrigeranteMayor(o, who); }
     save();
     toast('Cambiado a Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ': ' + (entradasAQuitar.length + entradasAQuitarBod.length) + ' quitados, ' + (aAgregar.length + aAgregarBod.length) + ' agregados');
     openDrw(id);
@@ -2455,7 +2514,7 @@ function aplicarPlantillaServicio(id, nivel) {
   o.tipoServicioAplicado = nivel;
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt:'&#9889; Plantilla de Servicio ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + (itemsNuevos.length + SERVICIO_REPUESTOS_FIJOS.length) + ' repuesto(s) + ' + bodegaDeEsteNivel.length + ' material(es) de bodega' + (addedByTec ? ' — repuestos requieren Vo.Bo. del Jefe' : ''), ts:Date.now(), type:'system'});
-  if (nivel === 'mayor') _preguntarAceitesCondicionalesMayor(o, who);
+  if (nivel === 'mayor') { _preguntarAceitesCondicionalesMayor(o, who); _preguntarColorRefrigeranteMayor(o, who); }
   save();
   toast('Plantilla ' + SERVICIO_TEMPLATE_LABELS[nivel] + ' aplicada: ' + (itemsNuevos.length + SERVICIO_REPUESTOS_FIJOS.length) + ' repuestos + ' + bodegaDeEsteNivel.length + ' materiales de bodega');
   openDrw(id);
@@ -3597,12 +3656,33 @@ function openDrw(id) {
           '<div style="font-size:12px;font-weight:500' + (bitDone ? ';text-decoration:line-through' : '') + '">' + bitDesc + bitCodigoBadge + '</div>' +
           (role === 'jefe' && !bitDone ? '<div style="display:flex;gap:4px;flex-shrink:0">' +
             '<button class="btn-bod-edit" data-bi="' + bi + '" title="Editar cantidad/especificacion" style="background:none;border:1px solid var(--tx2);color:var(--tx2);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#9998;</button>' +
+            // "Cambiar articulo" (30 sep 2026, pedido de Byron): a diferencia
+            // de btn-bod-edit (solo cantidad/especificacion), reemplaza el
+            // ARTICULO del catalogo en si (desc+codigo) -- para corregir, sin
+            // borrar la solicitud del tecnico, un caso como "pidio
+            // Refrigerante generico / escribio un color a mano, pero el carro
+            // necesita otro real". Ver _bodVariantesDeGenerico mas abajo.
+            '<button class="btn-bod-cambiar-art" data-bi="' + bi + '" title="Cambiar el articulo del catalogo (ej. color/viscosidad equivocada)" style="background:none;border:1px solid var(--ac);color:var(--ac);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#128260;</button>' +
             '<button class="btn-bod-del" data-bi="' + bi + '" title="Eliminar solicitud" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' +
           '</div>' : '') +
         '</div>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' + bitStatus +
           '<span style="font-size:9px;color:var(--tx3)">' + esc(bit.by||'') + ' &middot; ' + msgTs(bit.ts) + '</span>' +
         '</div>' +
+      '</div>';
+    }
+    // Caja de "Cambiar articulo", compartida por todos los renglones (se
+    // abre/cierra segun cual boton 🔄 se toque — ver _bodCambiarArtBi mas
+    // abajo). Jefe-only, igual que el boton que la abre; se queda oculta
+    // para el resto de roles.
+    if (role === 'jefe') {
+      bodegaHtml += '<div id="bod-cambiar-art-box" style="display:none;background:var(--bg4);border:2px solid var(--ac);border-radius:var(--rs);padding:10px;margin-bottom:8px">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--ac);margin-bottom:6px">&#128260; Cambiar articulo de "<span id="bod-cambiar-art-actual"></span>"</div>' +
+        '<div style="position:relative">' +
+          '<input id="bod-cambiar-art-inp" class="cin" autocomplete="off" placeholder="Busca el articulo correcto en el catalogo..." style="width:100%;border:2px solid var(--ac);background:var(--bg2)">' +
+          '<div id="bod-cambiar-art-sugg" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);max-height:220px;overflow-y:auto;z-index:60;box-shadow:0 4px 10px rgba(0,0,0,.25)"></div>' +
+        '</div>' +
+        '<button id="btn-bod-cambiar-art-cancelar" style="margin-top:8px;width:100%;padding:6px;border-radius:var(--rs);background:none;border:1px solid var(--bd);color:var(--tx2);font-size:11px;cursor:pointer">Cancelar</button>' +
       '</div>';
     }
     if (canAddBodega) {
@@ -4048,6 +4128,82 @@ function openDrw(id) {
       });
     })(bodEditBtns[bei]);
   }
+  // "Cambiar articulo" (30 sep 2026): reemplaza desc+codigo de un renglon
+  // existente por uno real del catalogo, sin tocar cantidad/especificacion
+  // ni borrar la solicitud. Reusa el mismo buscador y la misma regla de
+  // "obligar variante especifica" que ya tiene "+ Solicitar" (ver
+  // _bodVariantesDeGenerico/_bodEsGenericoDeVariantes arriba), para que el
+  // codigo SKU que quede sea siempre real, no un texto corregido a mano.
+  var _bodCambiarArtBi = null;
+  var cambiarArtBox = document.getElementById('bod-cambiar-art-box');
+  var cambiarArtActualSpan = document.getElementById('bod-cambiar-art-actual');
+  var cambiarArtInp = document.getElementById('bod-cambiar-art-inp');
+  var cambiarArtSugg = document.getElementById('bod-cambiar-art-sugg');
+  var cambiarArtBtns = body.querySelectorAll('.btn-bod-cambiar-art');
+  for (var cai = 0; cai < cambiarArtBtns.length; cai++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede cambiar el articulo'); return; }
+        var biC = parseInt(this.getAttribute('data-bi'));
+        var oxC = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { oxC = orders[i]; break; } }
+        if (!oxC || !oxC.bodega || !oxC.bodega[biC]) return;
+        if (oxC.bodega[biC].despachado) { toast('Ya fue despachado — no se puede cambiar'); return; }
+        _bodCambiarArtBi = biC;
+        if (cambiarArtActualSpan) cambiarArtActualSpan.textContent = oxC.bodega[biC].desc || '';
+        if (cambiarArtInp) cambiarArtInp.value = '';
+        if (cambiarArtSugg) { cambiarArtSugg.innerHTML = ''; cambiarArtSugg.style.display = 'none'; }
+        if (cambiarArtBox) { cambiarArtBox.style.display = 'block'; if (cambiarArtBox.scrollIntoView) cambiarArtBox.scrollIntoView({block: 'nearest'}); }
+        if (cambiarArtInp) cambiarArtInp.focus();
+      });
+    })(cambiarArtBtns[cai]);
+  }
+  if (cambiarArtInp && cambiarArtSugg) {
+    _cargarCatalogoBodega();
+    var renderCambiarArtSugg = function(soloVariantesDe) {
+      var matchesC = soloVariantesDe ? _bodVariantesDeGenerico(soloVariantesDe, cambiarArtInp.value) : _buscarEnCatalogoBodega(cambiarArtInp.value);
+      if (!matchesC.length) { cambiarArtSugg.style.display = 'none'; cambiarArtSugg.innerHTML = ''; return; }
+      cambiarArtSugg.innerHTML = (soloVariantesDe ? '<div style="padding:7px 10px;font-size:10px;color:var(--or);font-weight:600">&#9888; Elige exactamente cual:</div>' : '') +
+        matchesC.map(function(it) {
+          var esGenericoC = !soloVariantesDe && _bodEsGenericoDeVariantes(it, matchesC);
+          return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '"' + (esGenericoC ? ' data-sincodigo="1"' : '') + ' style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
+            '<div style="font-weight:600">' + esc(it.nombre || '') + '</div>' +
+            '<div style="font-size:10px;color:var(--tx3)">' + esc(it.sku || '') + (it.categoria ? ' &middot; ' + esc(it.categoria) : '') + '</div>' +
+          '</div>';
+        }).join('');
+      cambiarArtSugg.style.display = 'block';
+    };
+    cambiarArtInp.addEventListener('input', function() { renderCambiarArtSugg(null); });
+    cambiarArtSugg.addEventListener('click', function(e) {
+      var itemEl = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
+      if (!itemEl) return;
+      var esGenericoC2 = itemEl.getAttribute('data-sincodigo') === '1';
+      if (esGenericoC2) { renderCambiarArtSugg(itemEl.getAttribute('data-nombre')); return; }
+      var oxC2 = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { oxC2 = orders[i]; break; } }
+      if (!oxC2 || _bodCambiarArtBi === null || !oxC2.bodega || !oxC2.bodega[_bodCambiarArtBi]) return;
+      var itemC = oxC2.bodega[_bodCambiarArtBi];
+      var antesC = itemC.desc || '';
+      var nuevoNombreC = itemEl.getAttribute('data-nombre') || '';
+      var nuevoSkuC = itemEl.getAttribute('data-sku') || '';
+      var who = ROLES[role] ? ROLES[role].label : role;
+      itemC.desc = esc(nuevoNombreC);
+      itemC.codigo = esc(nuevoSkuC);
+      delete itemC.etiqueta;
+      oxC2.msgs = oxC2.msgs || [];
+      oxC2.msgs.push({who:who, txt:'&#128260; Articulo de bodega cambiado: "' + esc(antesC) + '" &rarr; "' + esc(nuevoNombreC) + '" (' + esc(nuevoSkuC) + ')', ts:Date.now(), type:'system'});
+      save(); toast('Articulo actualizado');
+      _bodCambiarArtBi = null;
+      openDrw(id);
+    });
+  }
+  var cambiarArtCancelBtn = document.getElementById('btn-bod-cambiar-art-cancelar');
+  if (cambiarArtCancelBtn) {
+    cambiarArtCancelBtn.addEventListener('click', function() {
+      _bodCambiarArtBi = null;
+      if (cambiarArtBox) cambiarArtBox.style.display = 'none';
+    });
+  }
   var addBodBtn = document.getElementById('btn-add-bod');
   if (addBodBtn) {
     // Confirma que el tecnico ya paso por el catalogo antes de mandar texto
@@ -4124,11 +4280,7 @@ function openDrw(id) {
           // color real lo define Mario al despachar, no el orden del
           // buscador); queda como texto libre y Bodega Virtual lo resuelve
           // por su propio sistema de alias, igual que antes de este cambio.
-          var esGenericoDeVariantes = (it.nombre || '') && matches.some(function(otro) {
-            if (otro === it) return false;
-            var n1 = (it.nombre || '').toLowerCase(), n2 = (otro.nombre || '').toLowerCase();
-            return n2.indexOf(n1) === 0 && n2 !== n1;
-          });
+          var esGenericoDeVariantes = _bodEsGenericoDeVariantes(it, matches);
           return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '"' + (esGenericoDeVariantes ? ' data-sincodigo="1"' : '') + ' style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
             '<div style="font-weight:600">' + esc(it.nombre || '') + '</div>' +
             '<div style="font-size:10px;color:var(--tx3)">' + esc(it.sku || '') + (it.categoria ? ' &middot; ' + esc(it.categoria) : '') + '</div>' +
@@ -4157,12 +4309,33 @@ function openDrw(id) {
       bodSugg.addEventListener('click', function(e) {
         var itemEl = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
         if (itemEl) {
-          bodDescInp.value = itemEl.getAttribute('data-nombre') || '';
           var esGenerico = itemEl.getAttribute('data-sincodigo') === '1';
+          // Elegir el generico (30 sep 2026, pedido de Byron) YA NO lo deja
+          // pasar sin codigo -- en vez de eso, se re-filtra el MISMO
+          // desplegable a solo las variantes especificas detectadas en esta
+          // busqueda (mismo criterio de "generico" que ya existia, asi que
+          // cubre Refrigerante, Aceite o cualquier otro material con este
+          // mismo patron, sin tener que listarlos a mano). El tecnico tiene
+          // que tocar una variante real para que el campo se llene.
+          if (esGenerico) {
+            var variantes = _bodVariantesDeGenerico(itemEl.getAttribute('data-nombre'), bodDescInp.value);
+            if (variantes.length) {
+              bodSugg.innerHTML = '<div style="padding:7px 10px;font-size:10px;color:var(--or);font-weight:600">&#9888; Elige exactamente cual:</div>' +
+                variantes.map(function(it) {
+                  return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '" style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
+                    '<div style="font-weight:600">' + esc(it.nombre || '') + '</div>' +
+                    '<div style="font-size:10px;color:var(--tx3)">' + esc(it.sku || '') + (it.categoria ? ' &middot; ' + esc(it.categoria) : '') + '</div>' +
+                  '</div>';
+                }).join('');
+              bodSugg.style.display = 'block';
+              if (bodSugg.scrollIntoView) bodSugg.scrollIntoView({block: 'nearest'});
+              return;
+            }
+            // Sin variantes detectables (caso raro) -- cae al comportamiento
+            // de siempre: generico sin codigo, confirmado como paso real.
+          }
+          bodDescInp.value = itemEl.getAttribute('data-nombre') || '';
           if (bodCodigoInp) bodCodigoInp.value = esGenerico ? '' : (itemEl.getAttribute('data-sku') || '');
-          // elegir un generico (sin codigo a proposito, ver comentario
-          // arriba) tambien cuenta como paso real por el catalogo — no debe
-          // bloquear el envio como si fuera texto libre sin revisar.
           bodTextoLibreConfirmado = esGenerico;
         } else if (e.target && e.target.closest && e.target.closest('.bod-sugg-otro')) {
           bodTextoLibreConfirmado = true;
