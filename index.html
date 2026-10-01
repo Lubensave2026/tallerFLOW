@@ -2307,23 +2307,24 @@ var SERVICIO_BODEGA_INTERMEDIO_EXTRA = [
 var SERVICIO_BODEGA_MAYOR_EXTRA = [
   { desc: 'Liquido de frenos', codigo: 'A031729.' },
 ];
-// Color de Refrigerante en Servicio Mayor (30 sep 2026, pedido de Byron):
-// 3 opciones (Azul/Rosado/No estoy seguro) en vez de dejarlo siempre
-// generico — nunca bloquea aplicar la plantilla, "No estoy seguro" deja el
-// mismo generico de siempre (RVCG33), corregible despues desde Despacho
-// Bodega (ver el boton de editar articulo, _buildEditarBodArticuloHtml).
-// Codigos confirmados contra el catalogo real (mismos que ya ve el tecnico
-// en el buscador de Despacho Bodega).
+// Color de Refrigerante en Servicio Mayor (30 sep 2026, pedido de Byron;
+// renombrado 1 oct 2026): 3 colores reales del catalogo — Azul, Rosado y
+// Verde (RVCG33, confirmado por Byron que NO es un generico/comodin, es un
+// color real) — nunca bloquea aplicar la plantilla: cualquier respuesta que
+// no sea exactamente "1" o "2" cae en Verde por default, corregible despues
+// desde Despacho Bodega (ver el boton 🔄 Cambiar articulo). Codigos
+// confirmados contra el catalogo real (mismos que ya ve el tecnico en el
+// buscador de Despacho Bodega).
 var SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES = {
   '1': { desc: 'Refrigerante Azul Artic (Galon)', codigo: 'RACG50' },
   '2': { desc: 'Refrigerante Rosado Artic (Galon)', codigo: 'RRECG50' },
-  generico: { desc: 'Refrigerante', codigo: 'RVCG33' }
+  '3': { desc: 'Refrigerante Verde', codigo: 'RVCG33' }
 };
 function _refrigeranteMayorDescsPosibles() {
   return [
     SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES['1'].desc,
     SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES['2'].desc,
-    SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES.generico.desc
+    SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES['3'].desc
   ];
 }
 // Pregunta el color UNA vez al entrar a Mayor (si no esta ya agregado desde
@@ -2335,8 +2336,8 @@ function _preguntarColorRefrigeranteMayor(o, who) {
   var descsPosibles = _refrigeranteMayorDescsPosibles();
   var yaEsta = o.bodega.some(function(bd) { return bd.desdeServicioPlantilla && descsPosibles.indexOf(bd.desc) !== -1; });
   if (yaEsta) return;
-  var resp = prompt('¿De que color es el Refrigerante para este vehiculo?\n\nEscribe 1, 2 o 3:\n1 = Azul\n2 = Rosado\n3 = No estoy seguro todavia (se agrega generico, se corrige despues)');
-  var opt = SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES[resp === '1' ? '1' : resp === '2' ? '2' : 'generico'];
+  var resp = prompt('¿De que color es el Refrigerante para este vehiculo?\n\nEscribe 1, 2 o 3:\n1 = Azul\n2 = Rosado\n3 = Verde');
+  var opt = SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES[resp === '1' ? '1' : resp === '2' ? '2' : '3'];
   o.bodega.push({cantidad:'', desc: esc(opt.desc), codigo: esc(opt.codigo), by: who, ts: Date.now(), vobo:false, despachado:false, desdeServicioPlantilla: true});
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt:'&#10052; ' + esc(opt.desc) + ' (' + esc(opt.codigo) + ') agregado a Despacho Bodega al aplicar Mayor', ts:Date.now(), type:'system'});
