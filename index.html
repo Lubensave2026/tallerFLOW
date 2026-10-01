@@ -2801,9 +2801,21 @@ function openDrw(id) {
           // tratamiento que la vista de solo lectura de estos 2 montos (ver
           // arriba) y que el cuadro de "Tiempo calculado" — para ubicarlos
           // facil tambien al editar.
-          '<div class="fr2" style="margin-bottom:6px;border:2px solid #eab308;border-radius:var(--rs);background:var(--bg);padding:8px 10px">' +
-            '<div class="fg"><label class="fl">Total autorizado (Q)</label><input class="fi" id="e-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '"></div>' +
-            '<div class="fg"><label class="fl">Mano de obra (Q)</label><input class="fi" id="e-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '"></div>' +
+          '<div style="margin-bottom:6px;border:2px solid #eab308;border-radius:var(--rs);background:var(--bg);padding:8px 10px">' +
+            '<div class="fr2">' +
+              '<div class="fg"><label class="fl">Total autorizado (Q)</label><input class="fi" id="e-total" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoTotal||'') + '"></div>' +
+              '<div class="fg"><label class="fl">Mano de obra (Q)</label><input class="fi" id="e-mo" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoMO||'') + '"></div>' +
+            '</div>' +
+            // Monto cotizado (1 oct 2026, pedido de Byron): caso real —
+            // cerro una orden con el monto cotizado equivocado y no habia
+            // forma de corregirlo despues, asi que el % de aprobacion de esa
+            // orden (y el agregado del mes) quedaba mintiendo. Solo Jefe,
+            // solo mientras la orden siga CERRADA EN EL TABLERO (todavia no
+            // archivada) — una vez archivada a Historial hace falta otro
+            // control aparte (openHistDetail es de solo lectura).
+            (role === 'jefe' && o.phase === 'cer'
+              ? '<div class="fg" style="margin-top:6px"><label class="fl">Monto cotizado (Q)</label><input class="fi" id="e-cotizado" type="number" min="0" step="0.01" placeholder="0.00" value="' + (o.montoCotizado||'') + '"></div>'
+              : '') +
           '</div>'
         : '') +
         (role === 'jefe' ?
@@ -4552,6 +4564,8 @@ function openDrw(id) {
       var newLoc    = eLocEl ? eLocEl.value : null;
       var eKmEl     = document.getElementById('e-km');
       var newKm     = eKmEl && eKmEl.value ? parseInt(eKmEl.value, 10) : null;
+      var eCotEl    = document.getElementById('e-cotizado');
+      var newCot    = eCotEl && eCotEl.value ? parseFloat(eCotEl.value) : null;
       if (eTech1El && eTech2El && newTech2 && newTech2 === newTech1) { toast('No puedes asignar el mismo tecnico dos veces'); return; }
       if (eTotalEl && eMoEl && newMO > newTotal && newTotal > 0) { toast('La M.O. no puede superar el total'); return; }
       if (!newPlate || !newModel || !newClient) { toast('Placa, vehiculo y cliente son requeridos'); return; }
@@ -4568,6 +4582,7 @@ function openDrw(id) {
       if (ePrioEl && (ox.prio||'normal') !== newPrio) changes.push('Prioridad: ' + (PRIO_LABELS[ox.prio]||'Normal') + ' -> ' + (PRIO_LABELS[newPrio]||'Normal'));
       if (eLocEl && (ox.loc||'') !== newLoc) changes.push('Sucursal: ' + esc(ox.loc||'—') + ' -> ' + esc(newLoc));
       if (eKmEl && (ox.km!=null?ox.km:null) !== newKm) changes.push('Kilometraje: ' + (ox.km!=null ? ox.km.toLocaleString('es-GT') : '—') + ' -> ' + (newKm!=null ? newKm.toLocaleString('es-GT') : '—'));
+      if (eCotEl && (ox.montoCotizado||null) !== newCot) changes.push('Monto cotizado: Q.' + (ox.montoCotizado||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' -> Q.' + (newCot||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}));
       ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
       ox.numFisico = newNum; ox.colorFisico = newColor;
       if (eTotalEl) ox.montoTotal = newTotal || null;
@@ -4577,6 +4592,7 @@ function openDrw(id) {
       if (ePrioEl) ox.prio = newPrio;
       if (eLocEl) ox.loc = newLoc;
       if (eKmEl) ox.km = newKm;
+      if (eCotEl) ox.montoCotizado = newCot || null;
       var hrsEl = document.getElementById('e-hrs');
       _fijarHrsEstimado(ox, hrsEl && hrsEl.value ? parseFloat(hrsEl.value) : null);
       if (changes.length) {
@@ -6698,16 +6714,17 @@ function buildRepContent() {
   if (isMgmtView) {
     // Vista de gestion (Jefe/Asesor/Partes): en vez de Total/Hoy/Urgentes/
     // Detenidas (poco accionables dia a dia), se muestran indicadores
-    // operativos globales del taller. Reprocesos/Presupuesto/% aprobacion
-    // se acotan al MES QUE SE ESTE CONSULTANDO (_repCerradoMonthOffset,
-    // mismas flechas que "Ya cerrado este mes" — pedido de Byron 3 sep
-    // 2026). "Cerradas (mes)" y "Productividad cerrados" quedan a
-    // proposito ANCLADOS al mes en curso real (Byron no pidio moverlos, y
-    // sirven como pulso de "como vamos ahora" sin depender de que mes se
-    // este navegando aparte) — usan nowKpi2 (mas abajo) en vez de nowKpi.
-    // "Activas", "Productividad en proceso" y "Repuestos pendientes" son
-    // conteos en vivo del estado actual (no hay nada que "acumular" en un
-    // mes), asi que tampoco aplica corte mensual para esos tres.
+    // operativos globales del taller. Los 5 que tienen un "evento de cierre"
+    // real (Cerradas, Productividad cerrados, Reprocesos, Presupuesto, % de
+    // aprobacion) se acotan al MES QUE SE ESTE CONSULTANDO
+    // (_repCerradoMonthOffset, mismas flechas que "Ya cerrado este mes").
+    // Hasta el 30 sep 2026, "Cerradas (mes)" y "Productividad cerrados"
+    // quedaban a proposito ANCLADOS al mes en curso real — Byron (1 oct
+    // 2026) pidio que los 5 se movieran juntos, revirtiendo esa decision:
+    // "quiero que aparezcan los del mes que estoy consultando". "Activas",
+    // "Productividad en proceso" y "Repuestos pendientes" son conteos en
+    // vivo del estado actual (no hay nada que "acumular" en un mes), asi que
+    // esos 3 siguen sin corte mensual — Byron no pidio moverlos.
     var nowKpi = new Date(new Date().getFullYear(), new Date().getMonth() - _repCerradoMonthOffset, 1);
     var curYKpi = nowKpi.getFullYear(), curMKpi = nowKpi.getMonth();
     var _eventInCurrentMonth = function(ts) {
@@ -6725,15 +6742,17 @@ function buildRepContent() {
     // "Ya facturada"), lo que daba un % muy distinto (16% vs. el ~60% real
     // de la tabla) — ver reporte del usuario. Reusar la funcion ya probada
     // garantiza que ambos numeros siempre coincidan.
+    // Sigue el mes que se este consultando (1 oct 2026, pedido de Byron —
+    // revierte la decision del 3 sep de dejarla anclada al mes en curso
+    // real): usa curYKpi/curMKpi (el mismo mes navegado con
+    // _repCerradoMonthOffset que ya usan Reprocesos/Presupuesto/%
+    // aprobacion), ya no un new Date() fresco.
     var prodCerHoras = 0, prodCerCom = 0;
-    (function() {
-      var nowKpi2 = new Date();
-      for (var pti = 0; pti < _TEC_NAMES_PROD.length; pti++) {
-        var agg = _calcTecHorasCerradasEnMes(_TEC_NAMES_PROD[pti], nowKpi2.getFullYear(), nowKpi2.getMonth());
-        prodCerHoras += agg.real;
-        prodCerCom += agg.flat;
-      }
-    })();
+    for (var pti = 0; pti < _TEC_NAMES_PROD.length; pti++) {
+      var agg = _calcTecHorasCerradasEnMes(_TEC_NAMES_PROD[pti], curYKpi, curMKpi);
+      prodCerHoras += agg.real;
+      prodCerCom += agg.flat;
+    }
     var prodCerPct = prodCerHoras > 0 ? Math.round(prodCerCom / prodCerHoras * 100) : null;
 
     // Productividad EN PROCESO: SIN corte mensual — a diferencia de
@@ -6827,7 +6846,7 @@ function buildRepContent() {
 
     html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + active + '</div><div class="kpi-l">Activas</div></div>' +
-      '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + semData.countCerradas + '</div><div class="kpi-l">Cerradas (mes)</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + semCerradoData.countCerradas + '</div><div class="kpi-l">Cerradas (mes)</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:' + (prodCerPct !== null ? _productividadColor(prodCerPct) : 'var(--tx3)') + '">' + (prodCerPct !== null ? prodCerPct + '%' : '—') + '</div><div class="kpi-l">Productividad cerrados</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:#888888">' + (prodActPct !== null ? prodActPct + '%' : '—') + '</div><div class="kpi-l">Productividad en proceso</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repuestosPendientesCount + '</div><div class="kpi-l">Repuestos pendientes</div></div>' +
@@ -6850,10 +6869,9 @@ function buildRepContent() {
   // de repuestos — REQ002: ambos perfiles ven exactamente los mismos indicadores)
   if (role === 'jefe' || role === 'asesor' || role === 'partes') {
     // Dato de la tarjeta "Ya cerrado este mes": semCerradoData ya se
-    // calculo mas arriba (junto a semData), donde tambien alimenta 3 de
-    // los KPI del grid de arriba (Reprocesos/Presupuesto/% aprobacion) —
-    // "Cerradas (mes)" y "Productividad cerrados" siguen usando semData/
-    // nowKpi2 (siempre mes en curso real), sin moverse con estas flechas.
+    // calculo mas arriba (junto a semData), donde tambien alimenta los 5
+    // KPI del grid de arriba que siguen el mes consultado (Cerradas,
+    // Productividad cerrados, Reprocesos, Presupuesto, % aprobacion).
     var monthLabelCerrado = semCerradoData.monthLabel.charAt(0).toUpperCase() + semCerradoData.monthLabel.slice(1);
     var potTotal = 0, potMO = 0, conMonto = 0;
     for (var ki=0; ki<orders.length; ki++) {
@@ -7154,7 +7172,18 @@ function buildRepContent() {
     // no firma "Prueba de ruta"), el Reporte General muestra "Vehiculo en
     // ruta" en vez de la etiqueta generica de la fase — sin mutar
     // PHASE_COLORS (compartido con el resto de la app).
-    var pcLabel = (o.phase === 'prb' && o.rutaSalidaTs && !(o.sigs && o.sigs.jefe)) ? 'Vehiculo en ruta' : pc.label;
+    // Insp. Final (Tecnico) (1 oct 2026, pedido de Byron): una vez el Jefe
+    // ya firmo "Prueba de ruta" pero el tecnico todavia no firma "Inspeccion
+    // final" (su firma no es obligatoria para que el Jefe mueva la orden,
+    // ver gateOverride de 'prb' en openDrw — puede quedar varias horas en
+    // este limbo), el reporte mostraba la etiqueta generica "PRUEBA/
+    // INSP.FINAL" igual que si nadie hubiera firmado nada. Mismo criterio
+    // que ya usa la pastilla de la tarjeta del tablero (ver prbLabel en
+    // renderBoard) — reusa exactamente el mismo texto para no inventar
+    // vocabulario nuevo.
+    var pcLabel = (o.phase === 'prb' && o.rutaSalidaTs && !(o.sigs && o.sigs.jefe)) ? 'Vehiculo en ruta'
+      : (o.phase === 'prb' && (o.sigs && o.sigs.jefe) && !(o.sigs && o.sigs.tecnico)) ? 'Insp. Final (Tecnico)'
+      : pc.label;
     var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
     // Split client name into nombre/apellido
     var clientParts = (o.client || '').trim().split(' ');
