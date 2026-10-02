@@ -1724,12 +1724,15 @@ function doLogin(rk) {
   // en la casilla al entrar (normalmente vacia, o sea oculta).
   _updateSrchClear();
   showSc('ap');
+  // Temporizador de Detenido: se pone al dia apenas alguien entra (por si
+  // se vencio mientras nadie tenia la app abierta), sin esperar los 60s.
+  _checkDetenidosVencidos();
   // Ensure screen is visible then render
   setTimeout(function() { renderBoard(); updateNDot(); }, 100);
   setTimeout(function() { renderBoard(); updateNDot(); }, 600);
   setTimeout(function() { renderBoard(); updateNDot(); }, 2000);
   if (window._ri) clearInterval(window._ri);
-  window._ri = setInterval(function() { if (role) { renderBoard(); updateNDot(); } }, 60000);
+  window._ri = setInterval(function() { if (role) { _checkDetenidosVencidos(); renderBoard(); updateNDot(); } }, 60000);
   _aplicarPrefillNuevaOrdenDesdeURL();
 }
 
@@ -1975,6 +1978,12 @@ function renderBoard() {
         var largaDuracionHtml = (o.phase === 'det' && o.detLargaDuracion)
           ? '<div style="font-size:9px;color:var(--tx3);margin-top:1px">&#9203; Larga duracion — no cuenta en Capacidad</div>'
           : '';
+        // Temporizador de Detenido (2 oct 2026): a simple vista en el
+        // tablero, para que se note cual Detenido ya tiene regreso
+        // automatico programado y no haga falta acordarse de moverlo.
+        var detTimerHtml = (o.phase === 'det' && o.detVenceTs && o.detDestino)
+          ? '<div style="font-size:9px;color:var(--ac);margin-top:1px">&#9203; Regresa sola a ' + (NL[o.detDestino] || o.detDestino) + ' — ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>'
+          : '';
         var pendingHtml = (o.pendingConfirm && role === 'jefe')
           ? '<div style="font-size:9px;color:var(--or);margin-top:2px">&#9888; Pendiente confirmar</div>'
           : '';
@@ -2067,7 +2076,7 @@ function renderBoard() {
           '</div>' +
           spHtml + numHtml +
           '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + misTrabHtml + '</div>' +
-          motivoHtml + largaDuracionHtml +
+          motivoHtml + largaDuracionHtml + detTimerHtml +
           '<div class="card-sg">' + sigHtml + '</div>' +
           prodBadgeHtml;
         card.appendChild(inner);
@@ -2948,6 +2957,15 @@ function openDrw(id) {
       ? (role === 'jefe'
           ? '<div class="irow" style="align-items:center"><span class="ik">&#9203; Larga duracion</span><span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:var(--tx2)"><input type="checkbox" id="chk-larga-duracion"' + (o.detLargaDuracion ? ' checked' : '') + ' onchange="toggleLargaDuracion(' + id + ', this.checked)" style="width:15px;height:15px;cursor:pointer"> No contar en Capacidad del taller</label></span></div>'
           : (o.detLargaDuracion ? '<div class="irow"><span class="ik" style="color:var(--tx3)">&#9203; Larga duracion</span><span style="color:var(--tx3)">Si — no cuenta en Capacidad del taller</span></div>' : ''))
+      : '') +
+    // Temporizador de Detenido (2 oct 2026, pedido de Byron): visible para
+    // cualquier rol (transparencia — que no parezca que la orden se movio
+    // "sola" sin explicacion), pero solo el Jefe lo puso y solo el Jefe lo
+    // puede cancelar (mismo candado que Larga duracion arriba).
+    (o.phase === 'det' && o.detVenceTs && o.detDestino
+      ? '<div class="irow" style="align-items:center"><span class="ik" style="color:var(--ac)">&#9203; Regresa sola</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="color:var(--ac);font-size:11px">' + (NL[o.detDestino] || o.detDestino) + ' — ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>' +
+          (role === 'jefe' ? '<button onclick="cancelarTemporizadorDetenido(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Cancelar</button>' : '') +
+        '</span></div>'
       : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
     cmRowHtml +
@@ -5128,6 +5146,24 @@ function toggleLargaDuracion(id, checked) {
   openDrw(id);
 }
 
+// Cancela el temporizador de Detenido (2 oct 2026) — la orden se queda
+// Detenida igual, solo deja de tener fecha de regreso automatico. Solo
+// Jefe, mismo candado que lo puso (ver advance()).
+function cancelarTemporizadorDetenido(id) {
+  if (role !== 'jefe') { toast('Solo el Jefe puede cancelar esto'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || o.phase !== 'det') return;
+  delete o.detVenceTs;
+  delete o.detDestino;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#9203; Temporizador de Detenido cancelado — ya no regresa sola', ts:Date.now(), type:'system'});
+  save();
+  toast('Temporizador cancelado');
+  openDrw(id);
+}
+
 function saveDesc(id) {
   if (role !== 'jefe' && role !== 'asesor') return;
   var o = null;
@@ -5620,8 +5656,32 @@ function advance(id, newPhase) {
     var motivo = prompt('Motivo por el que se detiene la orden ' + o.plate + ':');
     if (!motivo || !motivo.trim()) { toast('Debes ingresar un motivo para detener la orden'); return; }
     o.detMotivo = motivo.trim();
+    // Temporizador opcional de Detenido (2 oct 2026, pedido de Byron): caso
+    // real — una orden se queda Detenida y se les olvida regresarla. Solo
+    // el Jefe pone tiempo/destino (confirmado explicitamente por Byron — el
+    // tecnico solo detiene y da el motivo, igual que siempre); nunca
+    // bloquea el avance a Detenido si se cancela o se deja en blanco, la
+    // orden simplemente se queda Detenida hasta moverla a mano, como hoy.
+    // El chequeo periodico que la regresa sola vive aparte en
+    // _checkDetenidosVencidos/_autoAdvanceDetenido, sin tocar esta funcion.
+    if (role === 'jefe') {
+      var tiempoInput = prompt('¿Por cuanto tiempo (en horas) va a estar detenida "' + o.plate + '"?\n\nDejalo en blanco para que se quede Detenida hasta que la muevas tu mismo.');
+      if (tiempoInput !== null && tiempoInput.trim() !== '') {
+        var horasDet = parseFloat(tiempoInput);
+        if (horasDet > 0) {
+          var destResp = prompt('¿A donde deberia pasar "' + o.plate + '" cuando se venza el tiempo?\n\nEscribe 1 o 2:\n1 = Trabajando (lo normal)\n2 = Espera-asignacion (si vas a reasignar algo urgente)');
+          var destinoDet = (destResp === '2') ? 'aa' : 'ab';
+          o.detVenceTs = Date.now() + horasDet * 3600000;
+          o.detDestino = destinoDet;
+        } else {
+          toast('Numero invalido — la orden se queda Detenida hasta que la muevas tu mismo');
+        }
+      }
+    }
   } else {
     o.detMotivo = null;
+    delete o.detVenceTs;
+    delete o.detDestino;
   }
   var oldLbl = o.phase, newLbl = newPhase;
   for (var i = 0; i < LANES.length; i++) {
@@ -5715,6 +5775,58 @@ function advance(id, newPhase) {
   if (usedCloseOverrideNow && role === 'jefe' && !o.montoFacturadoTotal) {
     showFreezeReminderModal(id);
   }
+}
+
+// Temporizador de Detenido (2 oct 2026, pedido de Byron): mueve SOLA una
+// orden Detenida cuyo tiempo (o.detVenceTs/o.detDestino, puestos solo por el
+// Jefe al detenerla — ver advance()) ya se vencio. Deliberadamente NO reusa
+// advance() -- esa funcion tiene pasos pensados para alguien mirando la
+// pantalla (prompt() de horas estimadas al entrar a Trabajando, el candado
+// de "un tecnico, un vehiculo a la vez" basado en el rol de quien este
+// conectado en ESE celular) que no tienen sentido para un cambio que ocurre
+// sin que nadie este viendo el telefono en ese momento. Aqui se replica solo
+// el registro minimo de bitacora que aplica para una salida de 'det' hacia
+// 'ab'/'aa' (nunca 'cer'/'prb'/reproceso, asi que no hace falta nada de esa
+// logica mas compleja de advance()).
+function _autoAdvanceDetenido(o) {
+  if (!o || o.phase !== 'det' || !o.detVenceTs || !o.detDestino) return;
+  if (Date.now() < o.detVenceTs) return;
+  var newPhase = o.detDestino;
+  var newLbl = NL[newPhase] || newPhase;
+  var outgoingDetMotivo = o.detMotivo;
+  if (!o.phaseLog) o.phaseLog = [];
+  var phaseFrom = (o.timestamps && o.timestamps.det) ? o.timestamps.det : (o.cat || Date.now());
+  var phaseTo = Date.now();
+  o.phaseLog.push({phase:'det', label:'DETENIDO', from:phaseFrom, to:phaseTo, minutes:_minutosFase('det', phaseFrom, phaseTo), motivo: outgoingDetMotivo || null});
+  o.phase = newPhase;
+  o.sigs = {};
+  o.sigsTs = {};
+  o.detMotivo = null;
+  delete o.detVenceTs;
+  delete o.detDestino;
+  if (!o.timestamps) o.timestamps = {};
+  o.timestamps[newPhase] = phaseTo;
+  o.phaseStart = Date.now();
+  o.pendingConfirm = null;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:'Sistema', txt:'&#9203; Tiempo de Detenido vencido — avanzo automaticamente a: ' + newLbl, ts:Date.now(), type:'system'});
+  addNotif(o.plate + ' avanzo automaticamente a: ' + newLbl + ' (tiempo de Detenido vencido)', o.id);
+}
+// Revisa TODAS las ordenes Detenidas con temporizador vencido y las mueve —
+// enganchado al mismo ciclo de 60s que ya refresca el tablero (ver doLogin),
+// asi que corre solo mientras algun celular tenga la app abierta; si nadie
+// la tiene abierta en el momento exacto del vencimiento, se pone al dia en
+// cuanto alguien vuelva a entrar (nunca se pierde, solo se atrasa).
+function _checkDetenidosVencidos() {
+  var huboAlguno = false;
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.phase === 'det' && o.detVenceTs && o.detDestino && Date.now() >= o.detVenceTs) {
+      _autoAdvanceDetenido(o);
+      huboAlguno = true;
+    }
+  }
+  if (huboAlguno) save();
 }
 
 function sendMsg(id) {
