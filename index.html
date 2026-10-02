@@ -12738,12 +12738,18 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
     var o = allO[i];
     if (seen[o.id]) continue;
     seen[o.id] = true;
-    if (o.phase !== 'cer') continue;
     if (o.tech !== tecName && o.tech2 !== tecName && (o.tecnicosApoyo||[]).indexOf(tecName) === -1) continue;
-    var closeTs = o.timestamps && o.timestamps.cer;
-    if (!closeTs) continue;
+    // BUG REAL (Byron, 1 oct 2026, orden 5405/OT 5405): un "if (o.phase !==
+    // 'cer') continue" aqui arriba descartaba la orden COMPLETA apenas se
+    // reabria (ej. a "Listo p/entrega" porque el vehiculo todavia no se
+    // habia entregado, aunque ya se hubiera congelado "Ya Facturada" para
+    // septiembre) — las horas de comision del tecnico desaparecian del mes
+    // donde SI se congelaron, aunque el monto facturado (semComputeFromOrders,
+    // que nunca tuvo este candado de fase) seguia contando bien. Ahora el
+    // snapshot congelado se revisa SIEMPRE, sin importar la fase actual —
+    // solo el tramo "en vivo" (closeTs/currentHoras) sigue exigiendo que la
+    // orden siga Cerrada ahora mismo.
     var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
-    var currentHoras = calcTecHoras(o, tecName);
     var eventInMonth = false;
     if (frozenHoras) {
       var fd = new Date(o.horasFacturadoSnapshot.ts);
@@ -12752,12 +12758,18 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
         eventInMonth = true;
       }
     }
-    var cd = new Date(closeTs);
-    if (cd.getFullYear() === yearTarget && cd.getMonth() === monthTarget) {
-      real += currentHoras.real - (frozenHoras ? frozenHoras.real : 0);
-      flat += currentHoras.flat - (frozenHoras ? frozenHoras.flat : 0);
-      abVeces += currentHoras.abVeces - (frozenHoras ? frozenHoras.abVeces : 0);
-      eventInMonth = true;
+    if (o.phase === 'cer') {
+      var closeTs = o.timestamps && o.timestamps.cer;
+      if (closeTs) {
+        var currentHoras = calcTecHoras(o, tecName);
+        var cd = new Date(closeTs);
+        if (cd.getFullYear() === yearTarget && cd.getMonth() === monthTarget) {
+          real += currentHoras.real - (frozenHoras ? frozenHoras.real : 0);
+          flat += currentHoras.flat - (frozenHoras ? frozenHoras.flat : 0);
+          abVeces += currentHoras.abVeces - (frozenHoras ? frozenHoras.abVeces : 0);
+          eventInMonth = true;
+        }
+      }
     }
     if (eventInMonth) count++;
   }
