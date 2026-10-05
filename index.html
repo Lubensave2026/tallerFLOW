@@ -6781,19 +6781,17 @@ function buildRepContent() {
   var sorted;
   if (vistaCerradas) {
     var seenTecClosedIds = {};
+    // BUG REAL (Byron, 5 oct 2026, caso real ordenes 5355/5411): antes esta
+    // fila exigia o.phase==='cer' ANTES de siquiera revisar el
+    // horasFacturadoSnapshot -- una orden "Ya Facturada" (congelada para
+    // septiembre) y LUEGO reabierta ya contaba bien en el agregado de
+    // arriba (_calcTecHorasCerradasEnMes, corregido el 1 oct) pero
+    // desaparecia de esta tabla por completo. Ahora reusa
+    // _tecOrdenCuentaEnMes (misma regla en los 3 lugares que la necesitan).
     sorted = orders.concat(archived || []).filter(function(o) {
       if (seenTecClosedIds[o.id]) return false;
       seenTecClosedIds[o.id] = true;
-      if (!((o.tech === tecActivo || o.tech2 === tecActivo || (o.tecnicosApoyo||[]).indexOf(tecActivo) !== -1) && o.phase === 'cer')) return false;
-      var closeTsFilt = o.timestamps && o.timestamps.cer;
-      if (!closeTsFilt) return false;
-      var frozenHorasFilt = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecActivo];
-      if (frozenHorasFilt) {
-        var fdFilt = new Date(o.horasFacturadoSnapshot.ts);
-        if (fdFilt.getFullYear() === curYc && fdFilt.getMonth() === curMc) return true;
-      }
-      var cdFilt = new Date(closeTsFilt);
-      return cdFilt.getFullYear() === curYc && cdFilt.getMonth() === curMc;
+      return _tecOrdenCuentaEnMes(o, tecActivo, curYc, curMc) !== null;
     }).sort(function(a,b) { return (parseInt(b.ot||0) || 0) - (parseInt(a.ot||0) || 0); });
   } else {
     sorted = repOrders.filter(function(o){ return o.phase !== 'cer'; }).sort(function(a,b) {
@@ -7321,7 +7319,14 @@ function buildRepContent() {
       // calcTecHoras() ya reparte las horas Trabajando entre 2 tecnicos por
       // "regla de 3" (proporcional a su % de horas de comision) — reusa la
       // misma fuente que "Mi productividad" en vez de duplicar el calculo.
-      var tecHorasRow = calcTecHoras(o, tecActivo);
+      // En vistaCerradas, si la orden tiene horas congeladas para ESTE mes
+      // (Ya Facturada + reabierta, ver _tecOrdenCuentaEnMes), se muestran
+      // esas — NO las de calcTecHoras en vivo, que reflejarian el trabajo
+      // de HOY, no lo que de verdad se congelo para el mes que se esta
+      // viendo (BUG REAL, Byron 5 oct 2026, ordenes 5355/5411).
+      var tecHorasRow = vistaCerradas
+        ? (_tecOrdenCuentaEnMes(o, tecActivo, curYc, curMc) || calcTecHoras(o, tecActivo))
+        : calcTecHoras(o, tecActivo);
       var abHorasRow = tecHorasRow.real;
       var hrsComRow = tecHorasRow.flat;
       tecRowCells =
@@ -11104,6 +11109,40 @@ function calcTecHoras(o, tecName) {
   return {real: abHoras, flat: flat, abVeces: abVeces};
 }
 
+// BUG REAL (Byron, 5 oct 2026, caso real ordenes 5355/5411): decide si una
+// orden cuenta como "cerrada de este tecnico, en este mes" y con que horas
+// mostrarla — centraliza una logica que vivia copiada en 3 lugares
+// (_calcTecHorasCerradasEnMes, la fila de la tabla "Cerradas de un
+// tecnico" en buildRepContent, y exportTodosTecnicosCerradosCSV) y que por
+// eso se desincronizo: _calcTecHorasCerradasEnMes ya se habia corregido
+// (1 oct 2026) para revisar el snapshot congelado SIN importar la fase
+// actual, pero los otros 2 todavia exigian o.phase==='cer' ANTES de
+// siquiera mirar el congelamiento — asi que una orden como 5355/5411
+// (cerrada, "Ya Facturada" congelada para septiembre, y LUEGO reabierta)
+// ya contaba bien en el agregado de arriba (la tarjeta), pero no aparecia
+// como fila en la tabla ni en el export, y si aparecia, hubiera mostrado
+// las horas EN VIVO (de hoy) en vez de las que de verdad se congelaron
+// para ese mes. Devuelve null si la orden no cuenta para tecName en ese
+// mes, o {real,flat,abVeces} con las horas que SI le corresponden a ese
+// mes (congeladas si hay snapshot para ese mes, o las de calcTecHoras si
+// la orden sigue cerrada ahora mismo con su cierre en ese mes).
+function _tecOrdenCuentaEnMes(o, tecName, yearTarget, monthTarget) {
+  if (o.tech !== tecName && o.tech2 !== tecName && (o.tecnicosApoyo||[]).indexOf(tecName) === -1) return null;
+  var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
+  if (frozenHoras) {
+    var fd = new Date(o.horasFacturadoSnapshot.ts);
+    if (fd.getFullYear() === yearTarget && fd.getMonth() === monthTarget) return frozenHoras;
+  }
+  if (o.phase === 'cer') {
+    var closeTs = o.timestamps && o.timestamps.cer;
+    if (closeTs) {
+      var cd = new Date(closeTs);
+      if (cd.getFullYear() === yearTarget && cd.getMonth() === monthTarget) return calcTecHoras(o, tecName);
+    }
+  }
+  return null;
+}
+
 // Color segun el % de productividad de una orden en Trabajando (hrs. de
 // comision vs hrs. reales) — misma escala de 4 niveles en la tarjeta del
 // board y en la ficha (seccion Informacion): 0-49% rojo, 50-65% amarillo,
@@ -12800,26 +12839,24 @@ function exportTodosTecnicosCerradosCSV() {
     // facturada" de ESTE tecnico si su fecha cae en el mes, o si no, la
     // fecha de cierre real de la orden.
     var seenIds = {};
+    // BUG REAL (Byron, 5 oct 2026, caso real ordenes 5355/5411): mismo
+    // candado de o.phase==='cer' antes de revisar el congelamiento,
+    // corregido aqui tambien — ver _tecOrdenCuentaEnMes (misma regla que ya
+    // corregida arriba en buildRepContent).
     var ordenesTec = orders.concat(archived || []).filter(function(o) {
       if (seenIds[o.id]) return false;
       seenIds[o.id] = true;
-      if (!((o.tech === tecName || o.tech2 === tecName || (o.tecnicosApoyo||[]).indexOf(tecName) !== -1) && o.phase === 'cer')) return false;
-      var closeTs = o.timestamps && o.timestamps.cer;
-      if (!closeTs) return false;
-      var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
-      if (frozenHoras) {
-        var fd = new Date(o.horasFacturadoSnapshot.ts);
-        if (fd.getFullYear() === curYc && fd.getMonth() === curMc) return true;
-      }
-      var cd = new Date(closeTs);
-      return cd.getFullYear() === curYc && cd.getMonth() === curMc;
+      return _tecOrdenCuentaEnMes(o, tecName, curYc, curMc) !== null;
     }).sort(function(a,b) { return (parseInt(b.ot||0)||0) - (parseInt(a.ot||0)||0); });
 
     for (var oi = 0; oi < ordenesTec.length; oi++) {
       var o = ordenesTec[oi];
       var pc = PHASE_COLORS[o.phase] || {label: o.phase};
       var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT', {day:'2-digit', month:'2-digit', year:'numeric'}) : '';
-      var tecHoras = calcTecHoras(o, tecName);
+      // Horas congeladas para este mes si aplica (Ya Facturada + reabierta),
+      // nunca las de calcTecHoras en vivo en ese caso — mismo criterio que
+      // la tabla en pantalla.
+      var tecHoras = _tecOrdenCuentaEnMes(o, tecName, curYc, curMc) || calcTecHoras(o, tecName);
       var pctTec = tecHoras.real > 0 ? Math.round(tecHoras.flat / tecHoras.real * 100) : null;
       rows.push([
         tecName, o.ot || '', fecha, pc.label || o.phase, o.client || '', o.model || '',
