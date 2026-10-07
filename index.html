@@ -11671,6 +11671,15 @@ function buildPresqPendContent() {
           '<span style="font-size:12px;font-weight:800;font-family:var(--mo);color:#8B5CF6;background:rgba(139,92,246,.15);border:1px solid #8B5CF6;border-radius:6px;padding:2px 8px">OT ' + esc(po2.ot||'—') + '</span>' +
           '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px">' + esc(po2.plate) + '</span>' +
           '<span style="font-size:11px;color:var(--tx2)">' + esc(po2.model) + '</span>' +
+          // Pedido de Byron (7 oct 2026): corregir cuando marco "queda
+          // presupuesto pendiente" por error (ej. ya se le habia enviado al
+          // cliente) — una vez la orden ya esta Cerrada, la casilla de
+          // origen (ficha, fase Entregado) ya no es alcanzable, asi que esta
+          // es la UNICA forma de sacarla de este listado. Solo el Jefe,
+          // mismo rol que la marco originalmente.
+          (role === 'jefe'
+            ? '<button class="btn-presq-quitar" data-oid="' + po2.id + '" title="Quitar de este listado (se marco por error)" style="margin-left:auto;background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:3px 9px;font-size:10px;cursor:pointer;white-space:nowrap">&#x2715; Quitar del listado</button>'
+            : '') +
         '</div>' +
         '<div style="font-size:11px;color:var(--tx2);margin-bottom:10px">&#128295; Tecnico: <b>' + esc(po2.tech || 'Sin asignar') + (po2.tech2 ? ' + ' + esc(po2.tech2) : '') + '</b></div>';
       for (var pri = 0; pri < poRepList.length; pri++) {
@@ -11777,6 +11786,24 @@ function buildPresqPendContent() {
         save(); toast('Item eliminado'); buildPresqPendContent();
       });
     })(presqDelBtns[pdi]);
+  }
+  var presqQuitarBtns = body.querySelectorAll('.btn-presq-quitar');
+  for (var pqi2 = 0; pqi2 < presqQuitarBtns.length; pqi2++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede quitar un presupuesto de este listado'); return; }
+        var oidQ = parseInt(this.getAttribute('data-oid'));
+        var oxQ = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidQ) { oxQ = orders[j]; break; } }
+        if (!oxQ) return;
+        if (!confirm('¿Quitar esta orden de "Presupuestos pendientes"? Esto no borra los items que ya tenga, solo deja de mostrarla aqui — no hay forma de deshacerlo desde este panel (la orden ya esta Cerrada).')) return;
+        oxQ.presupuestoPendiente = false;
+        var whoQ = ROLES[role] ? ROLES[role].label : role;
+        oxQ.msgs = oxQ.msgs || [];
+        oxQ.msgs.push({who:whoQ, txt:'&#x2715; Se quito de "Presupuestos pendientes" (marcado por error)', ts:Date.now(), type:'system'});
+        save(); toast('Quitado del listado'); buildPresqPendContent();
+      });
+    })(presqQuitarBtns[pqi2]);
   }
   // Enlace de Clear Mechanic desde la tarjeta de presupuesto pendiente —
   // mismo flujo (prompt + campo o.cmUrl) que btn-cm-link en la ficha de la
