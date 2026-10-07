@@ -209,11 +209,6 @@ button{cursor:pointer}
 .cin{flex:1;font-size:12px;padding:8px 10px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none}
 .cin:focus{border-color:var(--ac)}
 .btn-snd{width:36px;height:36px;border-radius:var(--rs);background:var(--ac);border:none;color:#fff;font-size:15px}
-.sp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px}
-.sp-cell{padding:10px 4px;border-radius:var(--rs);border:1.5px solid var(--bd);background:var(--bg3);color:var(--tx3);font-size:14px;font-weight:600;text-align:center;font-family:var(--mo);cursor:pointer;transition:all .15s}
-.sp-cell:hover{border-color:var(--ac);color:var(--ac)}
-.sp-cell.mine{border-color:var(--gnbd);background:var(--gnbg);color:var(--gn)}
-.sp-cell.occ{opacity:.4;cursor:not-allowed}
 
 /* MODALS */
 .mwrap{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
@@ -293,7 +288,6 @@ button{cursor:pointer}
 .l-det .lt,.l-det .lc{color:#FF4444}
 .t-det{background:#1a0a0a;color:#FF4444;border:1px solid #8B0000;font-weight:700}
 
-.brand-logo{display:inline-block}.brand-logo[src=""]{display:none}
 /* Barra mas visible (16 sep 2026, pedido de Byron: "se pierden un poco") —
    antes el thumb (--bd2, #3A4060) quedaba muy cerca en tono del track
    (--bg2), casi sin contraste entre ambos aunque el fondo alrededor
@@ -2633,6 +2627,65 @@ function agregarServicioSolicitadoRetro(id, nivel) {
   openDrw(id);
 }
 
+// Quejas de clientes (pedido de Byron, 8 oct 2026): metrica para el Asesor
+// de servicio — registrar cuando un cliente se queja (atraso, cobro
+// indebido, falta de seguimiento, etc.), acumulado por orden y agregado por
+// mes junto a "% de aprobacion" en el Reporte General. Solo el Jefe la
+// registra (el es quien recibe la queja). o.quejas[] = {categoria, texto,
+// who, ts} — ademas de guardarse ahi, cada registro deja tambien un
+// mensaje de sistema normal (o.msgs), asi que aparece automaticamente en
+// "Mensajes internos" sin tener que duplicar nada.
+var QUEJA_CATEGORIAS = ['Atraso', 'Seguimiento', 'Cobro indebido', 'Consulta sin respuesta', 'Mala atencion', 'Precio', 'Otro'];
+// Panel propio, colapsado/expandido independiente de la seccion "01
+// Informacion" (para no agrandarla) — mismo patron que _drwOpenSections
+// pero aparte, porque este NO es un secBox numerado. No se reinicia al
+// abrir una orden distinta (mismo comportamiento ya establecido de
+// _drwOpenSections en este archivo: el estado de los acordeones de la
+// ficha persiste entre una orden y otra, no es por-orden).
+var _drwQuejasOpen = false;
+
+function toggleQuejasBlock() {
+  _drwQuejasOpen = !_drwQuejasOpen;
+  openDrw(openId);
+}
+
+function _buildQuejasBlock(o) {
+  if (role !== 'jefe') return '';
+  var quejas = o.quejas || [];
+  var html = '<div style="margin-bottom:14px">' +
+    '<button id="btn-quejas-toggle" onclick="toggleQuejasBlock()" style="display:flex;align-items:center;gap:6px;background:' + (_drwQuejasOpen ? '#D4537E' : '#2e1626') + ';border:1px solid #D4537E;color:' + (_drwQuejasOpen ? '#2e1626' : '#F4C0D1') + ';border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">' +
+      '&#128227; Registrar queja de cliente' +
+      (quejas.length ? '<span style="background:' + (_drwQuejasOpen ? '#2e1626' : '#D4537E') + ';color:' + (_drwQuejasOpen ? '#F4C0D1' : '#2e1626') + ';border-radius:10px;padding:1px 7px;font-size:10px;font-weight:800;margin-left:4px">' + quejas.length + '</span>' : '') +
+      '<span style="margin-left:4px">' + (_drwQuejasOpen ? '&#9652;' : '&#9662;') + '</span>' +
+    '</button>';
+  if (_drwQuejasOpen) {
+    html += '<div style="margin-top:8px">';
+    if (!quejas.length) {
+      html += '<div style="font-size:11px;color:var(--tx3);margin-bottom:8px">Aun sin quejas registradas para esta orden.</div>';
+    }
+    for (var qi = 0; qi < quejas.length; qi++) {
+      var q = quejas[qi];
+      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 9px;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:flex-start">' +
+        '<div style="min-width:0"><span style="font-size:10px;font-weight:700;background:#D4537E;color:#2e1626;border-radius:8px;padding:1px 7px;margin-right:6px;white-space:nowrap;display:inline-block;margin-bottom:2px">' + esc(q.categoria) + '</span><div style="font-size:12px;color:var(--tx)">' + q.texto + '</div><div style="font-size:9px;color:var(--tx3);margin-top:3px">' + msgTs(q.ts) + ' &middot; ' + esc(q.who) + '</div></div>' +
+        '<button class="btn-queja-del" data-qi="' + qi + '" title="Eliminar queja" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;flex-shrink:0">&#x2715;</button>' +
+      '</div>';
+    }
+    var catOptions = '';
+    for (var ci = 0; ci < QUEJA_CATEGORIAS.length; ci++) { catOptions += '<option value="' + esc(QUEJA_CATEGORIAS[ci]) + '">' + esc(QUEJA_CATEGORIAS[ci]) + '</option>'; }
+    html += '<div style="background:var(--bg3);border:1px solid #D4537E;border-radius:var(--rs);padding:10px 12px">' +
+      '<div style="font-size:10px;color:var(--tx3);margin-bottom:6px">Nueva queja</div>' +
+      '<select id="queja-cat" class="cin" style="margin-bottom:8px;width:100%">' + catOptions + '</select>' +
+      '<textarea id="queja-txt" class="cin" placeholder="Describe lo que dijo el cliente..." style="width:100%;min-height:50px;resize:vertical;margin-bottom:8px;box-sizing:border-box"></textarea>' +
+      '<div style="display:flex;justify-content:flex-end">' +
+        '<button id="btn-queja-add" style="background:#D4537E;border:none;color:#2e1626;font-weight:700;font-size:12px;padding:6px 14px;border-radius:var(--rs);cursor:pointer">Guardar queja</button>' +
+      '</div>' +
+    '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
 function openDrw(id) {
   var confirmBadge = '';
   var o = null;
@@ -3931,6 +3984,7 @@ function openDrw(id) {
 
   body.innerHTML =
     secBox('01', 'Informacion', infoHtml, 'info') +
+    _buildQuejasBlock(o) +
     secBox('02', 'Firmas y cambios de fase', firmasHtml, 'firmas') +
     secBox(null, 'Mensajes internos', msgsBoxInner, null) +
     secBox('03', 'Solicitud de repuestos y subcontratos', repuestosHtml, 'reps') +
@@ -4500,6 +4554,45 @@ function openDrw(id) {
         save(); toast('Trabajo eliminado'); openDrw(id);
       });
     })(delTrabBtns[dti]);
+  }
+  var btnQuejaAdd = document.getElementById('btn-queja-add');
+  if (btnQuejaAdd) {
+    btnQuejaAdd.addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede registrar quejas'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      var catEl = document.getElementById('queja-cat');
+      var txtEl = document.getElementById('queja-txt');
+      var catQ = catEl ? catEl.value : '';
+      var txtQ = txtEl ? txtEl.value.trim() : '';
+      if (!txtQ) { toast('Describe la queja del cliente'); return; }
+      var whoQ = ROLES[role] ? ROLES[role].label : role;
+      ox.quejas = ox.quejas || [];
+      ox.quejas.push({categoria: catQ, texto: esc(txtQ), who: whoQ, ts: Date.now()});
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:whoQ, txt:'&#128227; Queja de cliente registrada (' + esc(catQ) + '): "' + esc(txtQ) + '"', ts:Date.now(), type:'system'});
+      save(); toast('Queja registrada'); openDrw(id);
+    });
+  }
+  var delQuejaBtns = body.querySelectorAll('.btn-queja-del');
+  for (var dqi = 0; dqi < delQuejaBtns.length; dqi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar quejas'); return; }
+        var qiD = parseInt(this.getAttribute('data-qi'));
+        var oxQ = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { oxQ = orders[i]; break; } }
+        if (!oxQ || !oxQ.quejas || !oxQ.quejas[qiD]) return;
+        var descDelQ = oxQ.quejas[qiD].texto;
+        if (!confirm('¿Eliminar esta queja registrada? Esta accion no se puede deshacer.')) return;
+        oxQ.quejas.splice(qiD, 1);
+        var whoD = ROLES[role] ? ROLES[role].label : role;
+        oxQ.msgs = oxQ.msgs || [];
+        oxQ.msgs.push({who:whoD, txt:'&#x2715; Queja de cliente eliminada: "' + esc(descDelQ) + '"', ts:Date.now(), type:'system'});
+        save(); toast('Queja eliminada'); openDrw(id);
+      });
+    })(delQuejaBtns[dqi]);
   }
   var addTrabBtn = document.getElementById('btn-add-trab');
   if (addTrabBtn) {
@@ -6989,6 +7082,21 @@ function buildRepContent() {
     }
     var presupPromedioHoras = presupCount ? (presupSumHoras / presupCount) : null;
 
+    // Quejas de clientes (mes) — pedido de Byron 8 oct 2026, metrica para el
+    // Asesor de servicio. Cuenta TODAS las quejas registradas (o.quejas[])
+    // cuya fecha de registro caiga en el mes consultado, en CUALQUIER orden
+    // (activa, cerrada o archivada) — por la fecha de la queja, no por el
+    // estado de la orden ni su fecha de cierre (asi una queja sobre una
+    // orden que todavia sigue activa, o sobre una ya archivada hace meses,
+    // sigue contando en el mes real en que se recibio).
+    var quejasCount = 0;
+    var _ordenesParaQuejas = orders.concat(archived || []);
+    for (var qci = 0; qci < _ordenesParaQuejas.length; qci++) {
+      var _qjs = _ordenesParaQuejas[qci].quejas;
+      if (!_qjs) continue;
+      for (var qcj = 0; qcj < _qjs.length; qcj++) { if (_eventInCurrentMonth(_qjs[qcj].ts)) quejasCount++; }
+    }
+
     html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--gn)">' + active + '</div><div class="kpi-l">Activas</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--ac)">' + semCerradoData.countCerradas + '</div><div class="kpi-l">Cerradas (mes)</div></div>' +
@@ -6998,6 +7106,7 @@ function buildRepContent() {
       '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + reprocesosCount + '</div><div class="kpi-l">Reprocesos</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:#E67E22">' + (presupPromedioHoras !== null ? presupPromedioHoras.toFixed(1) + 'h' : '—') + '</div><div class="kpi-l">Prom. en Presupuesto (mes)</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:' + (semCerradoData.pctAprobacion !== null ? _productividadColor(Math.round(semCerradoData.pctAprobacion)) : 'var(--tx3)') + '">' + (semCerradoData.pctAprobacion !== null ? semCerradoData.pctAprobacion.toFixed(0) + '%' : '—') + '</div><div class="kpi-l">% de aprobacion (mes)</div></div>' +
+      '<div class="kpi"><div class="kpi-n" style="color:' + (quejasCount > 0 ? '#D4537E' : 'var(--tx3)') + '">' + quejasCount + '</div><div class="kpi-l">Quejas de clientes (mes)</div></div>' +
     '</div>';
   } else {
     html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
@@ -10489,9 +10598,6 @@ var asistencia = {};
 function _tecnicoAusenteHoy(nombre) {
   var hoy = asistencia[_todayKey()];
   return !!(hoy && hoy[nombre]);
-}
-function _tecnicosPresentesHoy() {
-  return TEC_NAMES.filter(function(n){ return !_tecnicoAusenteHoy(n) && !_tecnicoInhabilitado(n); });
 }
 function toggleAsistenciaTecnico(nombre) {
   if (role !== 'jefe' && role !== 'asesor') { toast('Solo el Jefe o el Asesor pueden marcar asistencia'); return; }
