@@ -514,7 +514,7 @@ button{cursor:pointer}
     <div class="lg-sec-t">Tecnicos</div>
     <div class="lg-grid">
       <button class="lg-btn" onclick="goPin('tec_gerson')"><span class="ico">🔩</span>Gerson<span class="sub">Rodas</span></button>
-      <button class="lg-btn" onclick="goPin('tec_dany')"><span class="ico">🔩</span>Kevin<span class="sub">Sulecio</span></button>
+      <button class="lg-btn" onclick="goPin('tec_dany')"><span class="ico">🔩</span>TECNICO<span class="sub">6</span></button>
       <button class="lg-btn" onclick="goPin('tec_henry')"><span class="ico">🔩</span>Henry<span class="sub">Barillas</span></button>
       <button class="lg-btn" onclick="goPin('tec_gabriel')"><span class="ico">🔩</span>Gabriel<span class="sub">Rodas</span></button>
       <button class="lg-btn" onclick="goPin('tec_pablo')"><span class="ico">🔩</span>Pablo<span class="sub">Jolon</span></button>
@@ -1088,6 +1088,14 @@ function initFirebase() {
         _scheduleRender();
       });
 
+      // Tecnicos inhabilitados (ver nota junto a tecInhabilitados mas abajo)
+      // — a diferencia de asistencia, NO es por fecha: es un interruptor que
+      // se queda puesto hasta que alguien lo apague a mano.
+      db.ref('taller/tecInhabilitados').on('value', function(snap) {
+        tecInhabilitados = snap.val() || {};
+        _scheduleRender();
+      });
+
       // '.info/connected' es un path especial de Firebase: true mientras el
       // cliente tiene conexion real con el servidor (no solo con internet).
       // En cuanto vuelve a true, si quedo un guardado fallido pendiente (ver
@@ -1170,9 +1178,16 @@ var PINS = {
   // tec_dany: usuario reasignado de Dany Acalon (baja) a Kevin Sulecio
   // (nuevo ingreso), 16 sep 2026 — mismo patron que tec_luisc/Wilmer: se
   // conserva la LLAVE del rol (tec_dany) tal cual, solo cambian PIN/label/tn.
-  // Ojo: este Kevin Sulecio NO es el mismo Kevin que antes estuvo en
-  // bodega — nombre nuevo, sin relacion con ese.
-  tec_gerson:'75181915', tec_dany:'11522919', tec_henry:'85141825',
+  // 6 oct 2026: Kevin Sulecio tambien de baja — a pedido de Byron esta vez
+  // NO se espera a tener un reemplazo con nombre real: se deja el mismo
+  // usuario activo ya mismo con un nombre generico "TECNICO 6" (ver
+  // ROLES.tec_dany/TEC_NAMES), para que Byron pueda entrar con este PIN a
+  // hacer sus pruebas como tecnico, y luego dárselo tal cual al proximo
+  // ingreso durante su periodo de prueba — el nombre real solo se pone si
+  // Byron decide quedarse con esa persona. El PIN de Kevin queda
+  // inhabilitado (ya no es este numero); "Kevin Sulecio" se agrego a
+  // TEC_NAMES_HISTORICOS para poder seguir consultando su historial.
+  tec_gerson:'75181915', tec_dany:'48930217', tec_henry:'85141825',
   // tec_luisc: usuario reasignado de Luis Caceres (transferido a Aguilar
   // Batres) a Wilmer, 2 sep 2026 — mismo PIN que ya usa como Lavador, para
   // que solo tenga que recordar un numero aunque tenga 2 usuarios distintos
@@ -1187,7 +1202,10 @@ var ROLES = {
   lavador:    {label:'Wilmer - Lavador',         ico:'💧',  tec:false, lanes:['lav']},
   mensajero:  {label:'William - Mensajero',      ico:'🛵',  tec:false, lanes:['er']},
   tec_gerson: {label:'Gerson Rodas',             ico:'🔩',  tec:true,  tn:'Gerson Rodas',  lanes:['aa','ab','prb','er']},
-  tec_dany:   {label:'Kevin Sulecio',            ico:'🔩',  tec:true,  tn:'Kevin Sulecio', lanes:['aa','ab','prb','er']},
+  // tec_dany: ver comentario junto a su PIN arriba — 6 oct 2026, renombrado
+  // de "Kevin Sulecio" a un generico "TECNICO 6" (baja + usuario reservado
+  // para el siguiente ingreso, sin esperar a saber su nombre).
+  tec_dany:   {label:'TECNICO 6',                ico:'🔩',  tec:true,  tn:'TECNICO 6',     lanes:['aa','ab','prb','er']},
   tec_henry:  {label:'Henry Barillas',           ico:'🔩',  tec:true,  tn:'Henry Barillas',lanes:['aa','ab','prb','er']},
   tec_gabriel:{label:'Gabriel Rodas',            ico:'🔩',  tec:true,  tn:'Gabriel Rodas', lanes:['aa','ab','prb','er']},
   tec_pablo:  {label:'Pablo Jolon',              ico:'🔩',  tec:true,  tn:'Pablo Jolon',   lanes:['aa','ab','prb','er']},
@@ -1208,12 +1226,13 @@ var ROLES = {
 // no aparece para esa persona hasta llenarlo aqui.
 var WA_PHONES = {
   jefe:'', asesor:'50254137857', partes:'', mensajero:'50248428251', lavador:'50246925588',
-  // 'Dany Acalon' se deja (dato historico, ya no inicia sesion con ese
-  // nombre) — 'Kevin Sulecio' es su reemplazo, numero pendiente de que
-  // Byron lo pase (vacio = el boton de recordatorio simplemente no aparece
-  // para el, igual que cualquier otro sin numero todavia).
+  // 'Dany Acalon' y 'Kevin Sulecio' se dejan (dato historico, ya ninguno
+  // de los dos inicia sesion con ese nombre — ver TEC_NAMES_HISTORICOS).
+  // 'TECNICO 6' es el usuario generico que los reemplaza (ver ROLES.tec_dany),
+  // sin numero todavia (vacio = el boton de recordatorio simplemente no
+  // aparece para el, igual que cualquier otro sin numero todavia).
   'Gerson Rodas':'50255542764', 'Dany Acalon':'50236557803', 'Henry Barillas':'50250275414',
-  'Kevin Sulecio':'',
+  'Kevin Sulecio':'', 'TECNICO 6':'',
   // 'Wilmer' aqui es su lado tecnico (o.tech='Wilmer') — mismo numero que
   // ya tiene arriba como 'lavador', se repite porque este mapa busca por
   // NOMBRE de tecnico, no por rol.
@@ -1270,7 +1289,7 @@ var LANES = [
 // lugares (asignacion en la ficha, panel Editar, Nueva Orden, filtro del
 // tablero y filtro del reporte), asi que agregar o quitar a alguien obligaba
 // a acordarse de los 5.
-var TEC_NAMES = ['Gerson Rodas','Kevin Sulecio','Henry Barillas','Gabriel Rodas','Pablo Jolon','Wilmer'];
+var TEC_NAMES = ['Gerson Rodas','TECNICO 6','Henry Barillas','Gabriel Rodas','Pablo Jolon','Wilmer'];
 
 // A quien se le puede ASIGNAR una orden. Ademas de los tecnicos incluye
 // "T. Externo", para las ordenes que no trabaja nadie de la casa sino un
@@ -1294,7 +1313,11 @@ var TEC_ASIGNABLES = TEC_NAMES.concat([TEC_EXTERNO]);
 // filtro de tecnico del Reporte General (ver esa seccion), que ya usa
 // _calcTecHorasCerradasEnMes/calcTecHoras — ambas funciones puramente por
 // nombre de texto, sin depender de que el nombre siga en TEC_NAMES.
-var TEC_NAMES_HISTORICOS = ['Dany Acalon'];
+// 'Kevin Sulecio' se agrego 6 oct 2026 (ver ROLES.tec_dany): su usuario se
+// renombro a "TECNICO 6" en vez de moverse aqui, asi que su historial de
+// ordenes ya cerradas (guardado con su nombre de texto de entonces) habria
+// quedado inconsultable sin este registro aparte.
+var TEC_NAMES_HISTORICOS = ['Dany Acalon', 'Kevin Sulecio'];
 
 // Rellena un <select> del documento con los tecnicos asignables, conservando
 // su primera opcion (el "Sin asignar" / "Todos los tecnicos" que ya trae).
@@ -6861,9 +6884,16 @@ function buildRepContent() {
     // real): usa curYKpi/curMKpi (el mismo mes navegado con
     // _repCerradoMonthOffset que ya usan Reprocesos/Presupuesto/%
     // aprobacion), ya no un new Date() fresco.
+    // Incluye tambien TEC_NAMES_HISTORICOS (6 oct 2026, mismo caso real que
+    // exportTodosTecnicosCerradosCSV): un tecnico dado de baja a mitad de
+    // mes puede tener ordenes cerradas/Ya Facturadas de ESTE mes bajo su
+    // nombre de entonces — sin esto, el KPI del taller completo bajaba solo
+    // porque alguien dejo de estar en TEC_NAMES, no porque de verdad
+    // trabajara menos ese mes.
+    var _tecsParaKpiCerrados = TEC_NAMES.concat(TEC_NAMES_HISTORICOS);
     var prodCerHoras = 0, prodCerCom = 0;
-    for (var pti = 0; pti < _TEC_NAMES_PROD.length; pti++) {
-      var agg = _calcTecHorasCerradasEnMes(_TEC_NAMES_PROD[pti], curYKpi, curMKpi);
+    for (var pti = 0; pti < _tecsParaKpiCerrados.length; pti++) {
+      var agg = _calcTecHorasCerradasEnMes(_tecsParaKpiCerrados[pti], curYKpi, curMKpi);
       prodCerHoras += agg.real;
       prodCerCom += agg.flat;
     }
@@ -6880,9 +6910,10 @@ function buildRepContent() {
     // recorte al mes, lo que daba una diferencia real: 76% vs. el 80% de
     // esa tabla en cuanto alguna orden activa llevaba abierta desde el mes
     // anterior).
+    var _tecsParaKpiActivas = TEC_NAMES.concat(TEC_NAMES_HISTORICOS);
     var prodActHoras = 0, prodActCom = 0;
-    for (var pti2 = 0; pti2 < _TEC_NAMES_PROD.length; pti2++) {
-      var aggAct = _calcTecHorasAgregado(_TEC_NAMES_PROD[pti2], 'activas');
+    for (var pti2 = 0; pti2 < _tecsParaKpiActivas.length; pti2++) {
+      var aggAct = _calcTecHorasAgregado(_tecsParaKpiActivas[pti2], 'activas');
       prodActHoras += aggAct.real;
       prodActCom += aggAct.flat;
     }
@@ -8586,11 +8617,20 @@ function _getPendingAutorizaciones() {
   return reps.concat(bods).sort(function(a, b){ return a.ts - b.ts; });
 }
 
+// Mario (partes) y William (mensajero) tambien ven este aviso (pedido de
+// Byron, 7 oct 2026) — puramente INFORMATIVO, para que si Byron no se da
+// cuenta rapido ellos sepan que algo esta esperando su Vo.Bo. y puedan
+// avisarle o estar pendientes de despachar en cuanto lo de — nunca pueden
+// dar el Vo.Bo. ellos mismos (ver el candado `role !== 'jefe'` dentro del
+// click handler en buildAutorizContent, y que el boton "Dar Vo.Bo." ahi
+// mismo solo se dibuja para el Jefe).
+var _AUTORIZ_ROLES_VISIBLES = ['jefe', 'partes', 'mensajero'];
+
 function updateAutorizBadge() {
   var btn = document.getElementById('btn-autoriz');
   var badge = document.getElementById('autoriz-count');
   if (!btn || !badge) return;
-  if (role !== 'jefe') { btn.style.display = 'none'; return; }
+  if (_AUTORIZ_ROLES_VISIBLES.indexOf(role) === -1) { btn.style.display = 'none'; return; }
   var pend = _getPendingAutorizaciones();
   if (!pend.length) {
     btn.style.display = 'none';
@@ -8605,9 +8645,10 @@ function updateAutorizBadge() {
   var hasOld = pend.some(function(p) { return p.ts && businessMinutes(p.ts, Date.now()) > 60; });
   badge.className = 'nb-dot on' + (hasOld ? ' sig-urgent' : '');
   badge.style.background = hasOld ? 'var(--rd)' : 'var(--or)';
+  var esJefe = role === 'jefe';
   btn.title = hasOld
-    ? '⚠ Hay solicitudes de tecnicos esperando tu Vo.Bo. hace mas de 1 hora'
-    : 'Solicitudes de tecnicos esperando tu Vo.Bo.';
+    ? (esJefe ? '⚠ Hay solicitudes de tecnicos esperando tu Vo.Bo. hace mas de 1 hora' : '⚠ Hay solicitudes esperando el Vo.Bo. del Jefe hace mas de 1 hora')
+    : (esJefe ? 'Solicitudes de tecnicos esperando tu Vo.Bo.' : 'Solicitudes esperando el Vo.Bo. del Jefe');
   // Si el panel esta abierto, refrescarlo tambien — asi una solicitud que
   // acaba de entrar desde el celular de un tecnico aparece sola, sin cerrar
   // y volver a abrir (updateNDot corre con cada cambio que llega de Firebase
@@ -8617,7 +8658,9 @@ function updateAutorizBadge() {
 }
 
 function openAutoriz() {
-  if (role !== 'jefe') { toast('Solo el Jefe de taller autoriza estas solicitudes'); return; }
+  if (_AUTORIZ_ROLES_VISIBLES.indexOf(role) === -1) { toast('Solo el Jefe, Partes o Mensajero pueden ver estas solicitudes'); return; }
+  var t = document.getElementById('autoriz-modal-title');
+  if (t) t.textContent = role === 'jefe' ? '🔒 Esperando tu autorizacion' : '🔒 Esperando Vo.Bo. del Jefe';
   buildAutorizContent();
   document.getElementById('m-autoriz').classList.add('on');
 }
@@ -8626,13 +8669,14 @@ function closeAutoriz() { document.getElementById('m-autoriz').classList.remove(
 function buildAutorizContent() {
   var body = document.getElementById('autoriz-body');
   if (!body) return;
+  var esJefe = role === 'jefe';
   var pend = _getPendingAutorizaciones();
   if (!pend.length) {
-    body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Nada pendiente de autorizar</div>';
+    body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Nada pendiente' + (esJefe ? ' de autorizar' : '') + '</div>';
     return;
   }
   var html = '<div style="font-size:11px;color:var(--tx3);margin-bottom:10px">' +
-    pend.length + ' solicitud(es) de tecnicos esperando tu Vo.Bo. — de la mas antigua a la mas reciente.</div>';
+    pend.length + ' solicitud(es) ' + (esJefe ? 'de tecnicos esperando tu Vo.Bo.' : 'esperando el Vo.Bo. del Jefe') + ' — de la mas antigua a la mas reciente.</div>';
   for (var i = 0; i < pend.length; i++) {
     var p = pend[i];
     var esRep = p.tipo === 'repuesto';
@@ -8642,13 +8686,19 @@ function buildAutorizContent() {
       '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
         '<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;padding:1px 7px;border-radius:8px;background:' + (esRep ? 'var(--orbg)' : '#2a1f3d') + ';color:' + (esRep ? 'var(--or)' : '#B794F6') + ';border:1px solid ' + (esRep ? 'var(--orbd)' : '#8B5CF6') + '">' + (esRep ? '&#128230; Repuesto' : '&#127981; Bodega') + '</span>' +
         '<span style="font-size:13px;font-weight:800;font-family:var(--mo)">' + esc(p.o.plate) + '</span>' +
+        '<span style="font-size:11px;color:var(--tx2)">' + esc(p.o.model) + '</span>' +
         '<span style="font-size:13px;color:var(--or);font-family:var(--mo);font-weight:500">&#35;' + esc(p.o.ot) + '</span>' +
         '<span style="font-size:10px;color:var(--tx2)">&#128295; ' + esc(p.o.tech || 'Sin tecnico') + '</span>' +
         '<span style="font-size:10px;color:' + (vieja ? 'var(--rd)' : 'var(--tx3)') + ';margin-left:auto;font-weight:' + (vieja ? '700' : '400') + '">&#9201; ' + espera + '</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
         '<div style="font-size:12px;color:var(--tx);min-width:0">' + p.desc + '</div>' +
-        '<button class="btn-autoriz-ok" data-tipo="' + p.tipo + '" data-oid="' + p.o.id + '" data-ri="' + p.ri + '" style="font-size:11px;padding:5px 12px;border-radius:10px;border:1px solid var(--orbd);background:var(--or);color:#000;font-weight:700;cursor:pointer;white-space:nowrap">&#10003; Dar Vo.Bo.</button>' +
+        (esJefe
+          ? '<button class="btn-autoriz-ok" data-tipo="' + p.tipo + '" data-oid="' + p.o.id + '" data-ri="' + p.ri + '" style="font-size:11px;padding:5px 12px;border-radius:10px;border:1px solid var(--orbd);background:var(--or);color:#000;font-weight:700;cursor:pointer;white-space:nowrap">&#10003; Dar Vo.Bo.</button>'
+          // Mario/William: solo informativo, no pueden autorizar — sin boton,
+          // mismo patron de solo-lectura que ya usa esta app en otros paneles
+          // (ej. "Regresa sola" del temporizador de Detenido).
+          : '<span style="font-size:10px;color:var(--tx3);font-style:italic;white-space:nowrap">Pendiente del Jefe</span>') +
       '</div>' +
     '</div>';
   }
@@ -10441,7 +10491,7 @@ function _tecnicoAusenteHoy(nombre) {
   return !!(hoy && hoy[nombre]);
 }
 function _tecnicosPresentesHoy() {
-  return TEC_NAMES.filter(function(n){ return !_tecnicoAusenteHoy(n); });
+  return TEC_NAMES.filter(function(n){ return !_tecnicoAusenteHoy(n) && !_tecnicoInhabilitado(n); });
 }
 function toggleAsistenciaTecnico(nombre) {
   if (role !== 'jefe' && role !== 'asesor') { toast('Solo el Jefe o el Asesor pueden marcar asistencia'); return; }
@@ -10455,6 +10505,39 @@ function toggleAsistenciaTecnico(nombre) {
     db.ref('taller/asistencia/' + hoy).set(asistencia[hoy]).catch(function(e){ console.log('Error al guardar asistencia:', e); });
   }
   buildCapacidadContent();
+}
+
+/* ── TECNICOS INHABILITADOS ───────────────────────────────────────────────
+   Pedido de Byron 6 oct 2026: para una ausencia larga (vacaciones, etc.) no
+   quiere tener que tocar el interruptor de Asistencia todos los dias — esto
+   es un SEGUNDO interruptor, aparte de asistencia, que NO es por fecha: se
+   queda puesto hasta que alguien lo quite a mano. Un tecnico inhabilitado
+   cuenta como ausente en Capacidad del taller (no aporta capacidad) pero
+   ademas desaparece de la fila de botones "Asistencia de hoy" (no tiene
+   sentido marcarlo presente/ausente dia a dia si ya esta inhabilitado).
+   A proposito NO toca TEC_ASIGNABLES/los selectores de asignar tecnico a
+   una orden nueva — Byron pidio esto solo para Capacidad del taller, sigue
+   pudiendo asignarsele trabajo a mano si hace falta.
+   Solo el Jefe puede tocar este interruptor (a diferencia de Asistencia,
+   que tambien puede tocar el Asesor) — es una decision mas de fondo que
+   marcar una ausencia del dia.
+   Forma: tecInhabilitados[nombreTecnico] = true (inhabilitado). Igual que
+   asistencia, solo se guarda entrada para quien esta inhabilitado.        */
+var tecInhabilitados = {};
+
+function _tecnicoInhabilitado(nombre) {
+  return !!tecInhabilitados[nombre];
+}
+function toggleInhabilitarTecnico(nombre) {
+  if (role !== 'jefe') { toast('Solo el Jefe puede inhabilitar/habilitar tecnicos'); return; }
+  if (TEC_NAMES.indexOf(nombre) === -1) return;
+  if (tecInhabilitados[nombre]) delete tecInhabilitados[nombre]; // vuelve a habilitado
+  else tecInhabilitados[nombre] = true; // se inhabilita
+  try { localStorage.setItem('taller_tec_inhabilitados', JSON.stringify(tecInhabilitados)); } catch(e) {}
+  if (fbReady && db && _hasReceivedFirebaseData) {
+    db.ref('taller/tecInhabilitados').set(tecInhabilitados).catch(function(e){ console.log('Error al guardar tecnicos inhabilitados:', e); });
+  }
+  buildCapacidadContent(_capLastNowTs);
 }
 
 /* ── CAPACIDAD DEL TALLER ────────────────────────────────────────────────
@@ -10576,7 +10659,8 @@ function _capacidadCalc(nowTs) {
 
   for (var i = 0; i < TEC_NAMES.length; i++) {
     var nombre = TEC_NAMES[i];
-    var ausente = _tecnicoAusenteHoy(nombre);
+    var inhabilitado = _tecnicoInhabilitado(nombre);
+    var ausente = inhabilitado || _tecnicoAusenteHoy(nombre);
     var prod = _calcTecHorasCerradasEnMes(nombre, y, m);
     // Sin ninguna orden cerrada este mes (tecnico nuevo, o apenas arranca el
     // mes): se asume 100% en vez de 0%, para no castigarlo sin datos con
@@ -10586,7 +10670,7 @@ function _capacidadCalc(nowTs) {
     var pct = sinHistorial ? 100 : Math.min(100, Math.round((prod.flat / prod.real) * 100));
     var capacidadReal = ausente ? 0 : (jornadaHoy * pct / 100);
     var tec = {
-      nombre: nombre, ausente: ausente, pct: pct, sinHistorial: sinHistorial,
+      nombre: nombre, ausente: ausente, inhabilitado: inhabilitado, pct: pct, sinHistorial: sinHistorial,
       capacidadReal: capacidadReal, carga: 0, ordenes: [], ordenesActivas: []
     };
     tecs.push(tec);
@@ -10768,9 +10852,13 @@ var _capExpandedTec = {};
 // real siempre es null/undefined (usa la hora real), esto es solo para que
 // las pruebas con hora fija sigan siendo deterministas tras un toggle.
 var _capLastNowTs = null;
+// Panel de "Inhabilitar" tecnicos (ver toggleInhabilitarTecnico): colapsado
+// por defecto, mismo patron que _capExpandedTec.
+var _capShowInhabilitar = false;
 
 function openCapacidad() {
   _capExpandedTec = {};
+  _capShowInhabilitar = false;
   // Ajuste automatico del tiempo calculado (26 sep 2026, pedido de Byron):
   // se aplica UNA sola vez aqui, al abrir el panel (no en
   // buildCapacidadContent, que tambien corre en cada "Ver cola" de
@@ -10795,6 +10883,11 @@ function _toggleCapTec(nombre) {
   buildCapacidadContent(_capLastNowTs);
 }
 
+function _toggleInhabilitarPanel() {
+  _capShowInhabilitar = !_capShowInhabilitar;
+  buildCapacidadContent(_capLastNowTs);
+}
+
 function buildCapacidadContent(nowTs) {
   _capLastNowTs = nowTs;
   var d = _capacidadCalc(nowTs);
@@ -10803,12 +10896,35 @@ function buildCapacidadContent(nowTs) {
   html += '<div style="margin-bottom:12px">' +
     '<div style="font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Asistencia de hoy</div>' +
     '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  var _tecsInhabilitados = [];
   for (var i = 0; i < d.tecs.length; i++) {
     var t = d.tecs[i];
+    // Un tecnico inhabilitado (ver toggleInhabilitarTecnico) no se muestra
+    // aqui — no tiene sentido marcarlo presente/ausente dia a dia si ya
+    // esta fuera por un periodo largo.
+    if (t.inhabilitado) { _tecsInhabilitados.push(t.nombre); continue; }
     html += '<button onclick="toggleAsistenciaTecnico(\'' + t.nombre + '\')" style="font-size:11px;padding:5px 10px;border-radius:20px;cursor:pointer;white-space:nowrap;border:1px solid ' + (t.ausente ? 'var(--rd)' : 'var(--gnbd)') + ';background:' + (t.ausente ? 'var(--rdbg)' : 'var(--gnbg)') + ';color:' + (t.ausente ? 'var(--rd)' : 'var(--gn)') + '">' +
       (t.ausente ? '&#10005; ' : '&#10003; ') + esc(t.nombre.split(' ')[0]) + '</button>';
   }
-  html += '</div></div>';
+  html += '</div>' +
+    (_tecsInhabilitados.length ? '<div style="font-size:10px;color:var(--tx3);margin-top:6px">' + (_tecsInhabilitados.length === 1 ? '1 tecnico inhabilitado' : _tecsInhabilitados.length + ' tecnicos inhabilitados') + ' (' + _tecsInhabilitados.map(esc).join(', ') + ') — no cuentan en la capacidad de hoy</div>' : '') +
+  '</div>';
+
+  if (role === 'jefe') {
+    html += '<div style="margin-bottom:12px">' +
+      '<button onclick="_toggleInhabilitarPanel()" style="font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2)">&#128683; ' + (_capShowInhabilitar ? 'Ocultar' : 'Inhabilitar') + '</button>' +
+      (_capShowInhabilitar ? ('<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px">' +
+        '<div style="font-size:10px;color:var(--tx3);margin-bottom:2px">Para una ausencia larga (vacaciones, etc.) — se queda inhabilitado hasta que lo vuelvas a marcar aqui, sin tener que tocar Asistencia cada dia.</div>' +
+        TEC_NAMES.map(function(n) {
+          var off = _tecnicoInhabilitado(n);
+          return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--tx2)">' +
+            '<input type="checkbox"' + (off ? ' checked' : '') + ' onchange="toggleInhabilitarTecnico(\'' + n + '\')" style="width:15px;height:15px;cursor:pointer">' +
+            esc(n) + (off ? ' <span style="color:var(--rd)">(inhabilitado)</span>' : '') +
+          '</label>';
+        }).join('') +
+      '</div>') : '') +
+    '</div>';
+  }
 
   html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--tx3)">' +
     '<span>Jornada de hoy: <strong style="color:var(--tx)">' + d.jornadaHoy.toFixed(2).replace(/\.?0+$/, '') + ' hrs</strong>' +
@@ -12830,8 +12946,18 @@ function exportTodosTecnicosCerradosCSV() {
 
   var rows = [['Tecnico','OR #','Ingreso','Estatus','Cliente','Vehiculo','No.','Placa','Hrs. En Proceso','Hrs. Pagadas','% Productividad','Fact. potencial','Ya facturada']];
 
-  for (var ti = 0; ti < TEC_NAMES.length; ti++) {
-    var tecName = TEC_NAMES[ti];
+  // Incluye tambien TEC_NAMES_HISTORICOS (6 oct 2026, caso real: Kevin
+  // Sulecio de baja con ordenes Ya Facturadas-y-reabiertas que siguen
+  // contando en el mes que se congelaron — ver _tecOrdenCuentaEnMes). Sin
+  // esto, un tecnico que ya no esta en TEC_NAMES desaparecia de este
+  // export aunque "Ver cerradas de un tecnico" (que si consulta
+  // TEC_NAMES_HISTORICOS) siguiera mostrando sus ordenes de ese mes — asi
+  // que el cierre de nomina del mes podia faltarle justo las del tecnico
+  // que acababa de salir. Un historico sin ordenes este mes simplemente no
+  // agrega filas, igual que cualquier tecnico activo sin cerradas.
+  var tecsParaExport = TEC_NAMES.concat(TEC_NAMES_HISTORICOS);
+  for (var ti = 0; ti < tecsParaExport.length; ti++) {
+    var tecName = tecsParaExport[ti];
     // Mismo criterio EXACTO que la rama vistaCerradas de buildRepContent
     // (busca "PARTE 5" de test_export_todos_tecnicos.js si hace falta
     // revisar la fuente): orden cerrada AHORA MISMO (phase==='cer'), y el
@@ -13047,6 +13173,7 @@ window.addEventListener('load', function() {
   // lista de tecnicos exista en un solo lugar del codigo.
   try { pausas = JSON.parse(localStorage.getItem('taller_pausas') || '[]') || []; } catch(e) { pausas = []; }
   try { asistencia = JSON.parse(localStorage.getItem('taller_asistencia') || '{}') || {}; } catch(e) { asistencia = {}; }
+  try { tecInhabilitados = JSON.parse(localStorage.getItem('taller_tec_inhabilitados') || '{}') || {}; } catch(e) { tecInhabilitados = {}; }
   _llenarSelectTecnicos('srch-tec');
   _llenarSelectTecnicos('f-tc');
   load();
@@ -13120,7 +13247,7 @@ window.addEventListener('load', function() {
 <!-- PENDIENTES DE AUTORIZAR (Jefe) -->
 <div class="mwrap" id="m-autoriz">
   <div class="rep-modal" style="max-width:480px">
-    <div class="modal-t">&#128275; Esperando tu autorizacion
+    <div class="modal-t"><span id="autoriz-modal-title">&#128275; Esperando tu autorizacion</span>
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeAutoriz()">&#x2715;</button>
     </div>
     <div id="autoriz-body"></div>
