@@ -2706,6 +2706,25 @@ function _buildQuejasBlock(o) {
   return html;
 }
 
+// Etiqueta de "a cual tecnico le cuenta" un trabajo realizado especifico,
+// cuando la orden tiene 2 tecnicos asignados (pedido de Byron, 9 oct 2026):
+// antes solo el Jefe podia tocar el nombre para corregirlo si se registro
+// con el tecnico equivocado — ahora el tecnico asignado TAMBIEN puede
+// verlo claramente (resaltado en verde "a ti" cuando es suyo) y corregirlo
+// el mismo, por si a Byron se le pasa por alto asignarlo bien. Jefe puede
+// en cualquier fase (como ya era); el tecnico solo mientras la orden sigue
+// en Trabajando (mismo candado de fase que ya exige para verificar un
+// trabajo como realizado).
+function _trabTecLabelHtml(tw, twi, o, r, ordTecs) {
+  var esTecnicoAsignado = !!(r.tec && r.tn && (o.tech === r.tn || o.tech2 === r.tn));
+  var puedeCambiarTec = ordTecs.length === 2 && (role === 'jefe' || (esTecnicoAsignado && o.phase === 'ab'));
+  if (!puedeCambiarTec) return esc(tw.tecnico);
+  var esMiTrabajo = esTecnicoAsignado && tw.tecnico === r.tn;
+  return '<span class="btn-trab-tec" data-ti="' + twi + '" title="Toca para cambiar de tecnico" style="cursor:pointer;text-decoration:underline dotted;text-decoration-color:var(--tx3);' +
+    (esMiTrabajo ? 'color:var(--gn);font-weight:700' : 'color:var(--tx3)') + '">' +
+    (esMiTrabajo ? '&#10003; ' : '') + esc(tw.tecnico) + ' &#8635;</span>';
+}
+
 function openDrw(id) {
   var confirmBadge = '';
   var o = null;
@@ -3938,13 +3957,7 @@ function openDrw(id) {
         '</div>' +
       '</div>' +
       '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' +
-        // Jefe puede corregir a cual de los 2 tecnicos asignados corresponde
-        // este punto especifico (ej. si se registro con el tecnico
-        // equivocado) — solo tiene sentido/aparece si la orden tiene 2
-        // tecnicos, ya que con 1 solo no hay a quien reasignar.
-        ((role === 'jefe' && ordTecs.length === 2)
-          ? '<span class="btn-trab-tec jf" data-ti="' + twi2 + '" title="Toca para cambiar de tecnico (Jefe)" style="cursor:pointer;text-decoration:underline dotted;text-decoration-color:var(--tx3)">' + esc(tw.tecnico) + ' &#8635;</span>'
-          : esc(tw.tecnico)) +
+        _trabTecLabelHtml(tw, twi2, o, r, ordTecs) +
         ' · ' + msgTs(tw.ts) + (tw.verificado ? ' · <span style="color:var(--gn)">&#10003; Realizado</span>' : '') +
       '</div>' +
     '</div>';
@@ -4512,16 +4525,21 @@ function openDrw(id) {
       });
     })(hrsTrabBtns[hti]);
   }
-  var tecTrabBtns = body.querySelectorAll('.btn-trab-tec.jf');
+  var tecTrabBtns = body.querySelectorAll('.btn-trab-tec');
   for (var tti = 0; tti < tecTrabBtns.length; tti++) {
     (function(btn) {
       btn.addEventListener('click', function() {
-        if (role !== 'jefe') { toast('Solo el Jefe de taller puede cambiar el tecnico de un trabajo'); return; }
         var ti5 = parseInt(this.getAttribute('data-ti'));
         var ox = null;
         for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
         if (!ox || !ox.trabajos || !ox.trabajos[ti5]) return;
         if (!ox.tech || !ox.tech2) return; // solo aplica con 2 tecnicos asignados
+        // Jefe en cualquier fase; el tecnico asignado solo mientras la orden
+        // sigue en Trabajando (mismo candado que ya exige para verificar un
+        // trabajo como realizado) — pedido de Byron 9 oct 2026.
+        var rMe5 = ROLES[role];
+        var esTecAsignado5 = !!(rMe5 && rMe5.tec && rMe5.tn && (ox.tech === rMe5.tn || ox.tech2 === rMe5.tn));
+        if (role !== 'jefe' && !(esTecAsignado5 && ox.phase === 'ab')) { toast('Solo el Jefe, o uno de los 2 tecnicos asignados mientras la orden sigue en Trabajando, puede cambiar esto'); return; }
         var twx5 = ox.trabajos[ti5];
         var tecActual = twx5.tecnico;
         var otroTec = tecActual === ox.tech ? ox.tech2 : ox.tech;
