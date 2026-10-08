@@ -2298,11 +2298,14 @@ function _bodVariantesDeGenerico(nombreGenerico, searchTerm) {
 // Filtro de aceite — varios codigos distintos segun el modelo). Mientras
 // tanto se piden como repuesto normal; una vez se sabe cual es, Jefe o
 // Partes lo convierten a Despacho Bodega con el codigo exacto, desde el
-// mismo renglon de la solicitud (ver buildRepsContent). Lista corta a
-// proposito, solo "filtro de aceite" por ahora — agregar otro tipo despues
+// mismo renglon de la solicitud (ver buildRepsContent). "Bombilla" sumado
+// (10 oct 2026, pedido de Byron): mismo caso — un tecnico pide "Bombilla"
+// generico sin saber cual de los varios tipos que hay en inventario es,
+// Jefe o Partes eligen despues el codigo exacto. Agregar otro tipo despues
 // es solo sumar un arreglo de palabras aqui.
 var REPUESTOS_CONVERTIBLES_A_BODEGA = [
-  ['filtro', 'aceite']
+  ['filtro', 'aceite'],
+  ['bombilla']
 ];
 function _esRepuestoConvertibleABodega(desc) {
   var t = (desc || '').toLowerCase();
@@ -2347,6 +2350,20 @@ var REPUESTOS_BODEGA_RESPALDO = [
     { codigo: 'Z10-WL7570', nombre: 'Filtro de aceite WIX 51348' },
     { codigo: 'Z10-WL7572A', nombre: 'Filtro de aceite WIX 51394' },
     { codigo: 'A078879', nombre: 'Filtro de aceite (7317)' },
+  ] },
+  // Bombillas (10 oct 2026, pedido de Byron, captura real del catalogo de
+  // Bodega Virtual) — mismo respaldo que filtro de aceite, por si el
+  // catalogo en vivo falla justo cuando se necesita escoger una bombilla.
+  { grupo: ['bombilla'], items: [
+    { codigo: 'A004825', nombre: 'Bombilla cola de pez peq.' },
+    { codigo: 'A004797', nombre: 'Bombilla de placa cilindrica' },
+    { codigo: 'A003003', nombre: 'Socket para bombilla 9006/9076 Flosser 9446' },
+    { codigo: 'A004985', nombre: 'Bombilla H11 12V 55W' },
+    { codigo: 'A004851', nombre: 'Bombilla T20 1 cont ambar' },
+    { codigo: 'Z10-2190', nombre: 'Bombilla cola de pescado de 1 contacto' },
+    { codigo: 'Z10-2690', nombre: 'Bombilla cola de pescado de 2 contactos' },
+    { codigo: 'A004840', nombre: 'Bombilla 12V 21W P21W 1 contacto' },
+    { codigo: 'A004834', nombre: 'Bombilla 2 contacto' },
   ] }
 ];
 function _bodRespaldoDeRepuesto(descRepuesto, searchTerm) {
