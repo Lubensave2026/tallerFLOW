@@ -7749,6 +7749,13 @@ var _repIncluirCerradas = false;
 // sola cada 15s (ver openReps) y tras cualquier accion, asi que una var
 // local se resetearia sola a medio buscar.
 var _repConvertirBod = null;
+// Texto escrito en el buscador de esa misma caja — BUG REAL reportado por
+// Byron (10 oct 2026): el campo se prellenaba bien al abrir, pero "al
+// ratito se borraba solo" porque el refresco automatico de cada 15s
+// reconstruye el <input> desde cero (sin su value) — esta var global se
+// usa para que el HTML generado SIEMPRE lleve el texto actual horneado en
+// el atributo value, sin depender de que el input original siga vivo.
+var _repConvertirBodTexto = '';
 function setRepEstadoFilter(v) { _repEstadoFilter = v; buildRepPartsContent(); }
 function setRepOrdenFilter(v) {
   _repOrdenFilter = (v || '').toString().trim().replace(/^#+/, '');
@@ -11758,7 +11765,7 @@ function buildRepsContent() {
     convertirBodHtml = '<div id="rep-convertir-bod-box" style="display:' + (_repConvertirBodVigente ? 'block' : 'none') + ';background:var(--bg4);border:2px solid #8B5CF6;border-radius:var(--rs);padding:10px;margin-bottom:14px">' +
       '<div style="font-size:11px;font-weight:700;color:#B794F6;margin-bottom:6px">&#128230; Cambiar "<span id="rep-convertir-bod-actual">' + (_repConvertirBodVigente ? esc(repLabelText(_repConvertirBodVigente)) : '') + '</span>" a Despacho Bodega — busca el codigo exacto</div>' +
       '<div style="position:relative">' +
-        '<input id="rep-convertir-bod-inp" class="cin" autocomplete="off" placeholder="Busca el articulo correcto en el catalogo..." style="width:100%;border:2px solid #8B5CF6;background:var(--bg2)">' +
+        '<input id="rep-convertir-bod-inp" class="cin" autocomplete="off" placeholder="Busca el articulo correcto en el catalogo..." value="' + esc(_repConvertirBodTexto) + '" style="width:100%;border:2px solid #8B5CF6;background:var(--bg2)">' +
         '<div id="rep-convertir-bod-sugg" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);max-height:220px;overflow-y:auto;z-index:60;box-shadow:0 4px 10px rgba(0,0,0,.25)"></div>' +
       '</div>' +
       '<button id="btn-rep-convertir-bod-cancelar" style="margin-top:8px;width:100%;padding:6px;border-radius:var(--rs);background:none;border:1px solid var(--bd);color:var(--tx2);font-size:11px;cursor:pointer">Cancelar</button>' +
@@ -11879,7 +11886,10 @@ function buildRepsContent() {
         if (convertirActualSpan) convertirActualSpan.textContent = repLabelText(oxCv.repuestos[riCv]);
         // Prellena con la descripcion tal cual del repuesto (sin cantidad ni
         // especificacion) y muestra de una vez sus coincidencias reales.
-        if (convertirInp) convertirInp.value = oxCv.repuestos[riCv].desc || '';
+        // Se guarda tambien en _repConvertirBodTexto (no solo en el input en
+        // vivo) para que sobreviva el refresco automatico de cada 15s.
+        _repConvertirBodTexto = oxCv.repuestos[riCv].desc || '';
+        if (convertirInp) convertirInp.value = _repConvertirBodTexto;
         _cargarCatalogoBodega();
         renderConvertirSugg(null);
         if (convertirBox) { convertirBox.style.display = 'block'; if (convertirBox.scrollIntoView) convertirBox.scrollIntoView({block: 'nearest'}); }
@@ -11887,13 +11897,21 @@ function buildRepsContent() {
       });
     })(convertirBtns[cvi]);
   }
+  // Si la caja ya estaba abierta (ej. este render lo disparo el refresco
+  // automatico de cada 15s, no un click), el <input> se acaba de recrear
+  // con el texto horneado en su atributo value (ver convertirBodHtml) —
+  // pero las sugerencias de abajo todavia no, hay que volver a calcularlas
+  // contra ese mismo texto para que no se queden en blanco.
+  if (_repConvertirBod && convertirInp && convertirSugg) {
+    renderConvertirSugg(null);
+  }
   if (convertirInp && convertirSugg) {
     _cargarCatalogoBodega();
     // A diferencia de "+ Solicitar"/"Cambiar articulo", aqui NO se ofrece
     // "No esta en la lista / usar texto libre" — convertir a Bodega sin un
     // codigo real del catalogo no tendria sentido (perderia justo lo que
     // se busca: que descargue inventario solo).
-    convertirInp.addEventListener('input', function() { renderConvertirSugg(null); });
+    convertirInp.addEventListener('input', function() { _repConvertirBodTexto = convertirInp.value; renderConvertirSugg(null); });
     convertirInp.addEventListener('focus', function() { renderConvertirSugg(null); });
     convertirSugg.addEventListener('click', function(e) {
       var itemElCv = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
@@ -11923,6 +11941,7 @@ function buildRepsContent() {
       save();
       toast('Cambiado a Despacho Bodega');
       _repConvertirBod = null;
+      _repConvertirBodTexto = '';
       buildRepsContent();
     });
   }
@@ -11930,6 +11949,7 @@ function buildRepsContent() {
   if (convertirCancelBtn) {
     convertirCancelBtn.addEventListener('click', function() {
       _repConvertirBod = null;
+      _repConvertirBodTexto = '';
       if (convertirBox) convertirBox.style.display = 'none';
     });
   }
