@@ -2154,20 +2154,49 @@ function secBox(num, title, innerHtml, key) {
 // tecnico por esto, no es su problema.
 var CATALOGO_BODEGA_URL = 'https://us-central1-lube-n-save-flow.cloudfunctions.net/catalogoBodega';
 var CATALOGO_BODEGA_TTL_MS = 10 * 60 * 1000; // 10 min — con margen sobre los 5 min de cache del lado de Bodega Virtual
-var _catalogoBodega = { items: null, ts: 0, loading: false };
+var _catalogoBodega = { items: null, ts: 0, loading: false, error: false, _pendientes: [] };
 
-function _cargarCatalogoBodega() {
-  if (typeof fetch === 'undefined') return;
-  if (_catalogoBodega.loading) return;
-  if (_catalogoBodega.items && (Date.now() - _catalogoBodega.ts) < CATALOGO_BODEGA_TTL_MS) return;
+// onReady (10 oct 2026, pedido de Byron): callback opcional, llamado cuando
+// el catalogo queda listo (con datos o con error) — BUG REAL encontrado al
+// investigar: "Cambiar a Despacho Bodega" pedia el catalogo y pintaba las
+// sugerencias EN EL MISMO instante, sin esperar la respuesta (el fetch es
+// asincrono) — si el catalogo todavia no estaba en cache de una carga
+// anterior (ej. primera vez en la sesion que se toca algo de bodega), la
+// lista salia vacia aunque el catalogo si tuviera los articulos, porque la
+// respuesta llegaba despues de haber pintado. "+ Solicitar"/"Cambiar
+// articulo" nunca lo sufrieron porque ya llevaban un rato en pantalla para
+// cuando el tecnico empezaba a escribir. Los llamados que no pasan
+// callback (esos 2 lugares) siguen funcionando exactamente igual que antes.
+function _cargarCatalogoBodega(onReady) {
+  if (typeof fetch === 'undefined') { if (onReady) onReady(); return; }
+  if (_catalogoBodega.items && !_catalogoBodega.error && (Date.now() - _catalogoBodega.ts) < CATALOGO_BODEGA_TTL_MS) { if (onReady) onReady(); return; }
+  if (_catalogoBodega.loading) { if (onReady) _catalogoBodega._pendientes.push(onReady); return; }
   _catalogoBodega.loading = true;
+  _catalogoBodega.error = false;
   fetch(CATALOGO_BODEGA_URL).then(function(r) { return r.json(); }).then(function(data) {
-    _catalogoBodega.items = (data && data.articulos) || [];
-    _catalogoBodega.ts = Date.now();
+    // Respuesta valida como JSON pero sin el catalogo real (ej. Bodega
+    // Virtual devolvio su propio error) — se marca aparte de "catalogo
+    // vacio" para poder avisar donde haga falta, en vez de verse igual que
+    // "no hay articulos de este tipo todavia".
+    if (data && Array.isArray(data.articulos)) {
+      _catalogoBodega.items = data.articulos;
+      _catalogoBodega.ts = Date.now();
+    } else {
+      _catalogoBodega.error = true;
+    }
     _catalogoBodega.loading = false;
+    _avisarCatalogoBodegaListo(onReady);
   }).catch(function() {
+    _catalogoBodega.error = true;
     _catalogoBodega.loading = false;
+    _avisarCatalogoBodegaListo(onReady);
   });
+}
+function _avisarCatalogoBodegaListo(onReady) {
+  if (onReady) onReady();
+  var pend = _catalogoBodega._pendientes;
+  _catalogoBodega._pendientes = [];
+  pend.forEach(function(cb) { cb(); });
 }
 
 // Busca en el catalogo YA CARGADO (client-side, sin llamada nueva) por
@@ -11859,8 +11888,28 @@ function buildRepsContent() {
     if (_repConvertirBod) { for (var jr = 0; jr < orders.length; jr++) { if (orders[jr].id === _repConvertirBod.oid) { oxR = orders[jr]; break; } } }
     var repR = (oxR && oxR.repuestos) ? oxR.repuestos[_repConvertirBod.ri] : null;
     var descOriginalCv = repR ? repR.desc : '';
+    // Estados visibles en vez de una lista en blanco sin explicacion (10
+    // oct 2026, pedido de Byron tras reportar la caja vacia 2 veces
+    // seguidas — resulto ser que Bodega Virtual estaba devolviendo su
+    // propio error en ese momento, y antes esto se veia identico a "no hay
+    // resultados", sin forma de distinguir un problema real de que
+    // sencillamente no hay coincidencias).
+    if (_catalogoBodega.loading) {
+      convertirSugg.innerHTML = '<div style="padding:7px 10px;font-size:11px;color:var(--tx3);font-style:italic">Cargando catalogo...</div>';
+      convertirSugg.style.display = 'block';
+      return;
+    }
+    if (_catalogoBodega.error) {
+      convertirSugg.innerHTML = '<div style="padding:7px 10px;font-size:11px;color:var(--or)">&#9888; No se pudo cargar el catalogo de Bodega Virtual ahora mismo. Cierra y vuelve a intentar en un momento.</div>';
+      convertirSugg.style.display = 'block';
+      return;
+    }
     var matchesCv = soloVariantesDe ? _bodVariantesDeGenerico(soloVariantesDe, convertirInp.value) : _bodCatalogoConvertible(descOriginalCv, convertirInp.value);
-    if (!matchesCv.length) { convertirSugg.style.display = 'none'; convertirSugg.innerHTML = ''; return; }
+    if (!matchesCv.length) {
+      convertirSugg.innerHTML = '<div style="padding:7px 10px;font-size:11px;color:var(--tx3)">Sin articulos de este tipo en el catalogo todavia.</div>';
+      convertirSugg.style.display = 'block';
+      return;
+    }
     convertirSugg.innerHTML = (soloVariantesDe ? '<div style="padding:7px 10px;font-size:10px;color:var(--or);font-weight:600">&#9888; Elige exactamente cual:</div>' : '') +
       matchesCv.map(function(it) {
         var esGenericoCv = !soloVariantesDe && _bodEsGenericoDeVariantes(it, matchesCv);
@@ -11890,7 +11939,15 @@ function buildRepsContent() {
         // vivo) para que sobreviva el refresco automatico de cada 15s.
         _repConvertirBodTexto = oxCv.repuestos[riCv].desc || '';
         if (convertirInp) convertirInp.value = _repConvertirBodTexto;
-        _cargarCatalogoBodega();
+        // Pasa un callback (10 oct 2026) en vez de llamar renderConvertirSugg
+        // justo despues sin esperar: _cargarCatalogoBodega es asincrona, asi
+        // que sin esto la lista podia salir vacia si el catalogo no estaba
+        // ya en cache de antes (bug real reportado por Byron — la caja se
+        // veia igual de vacia que si no hubiera coincidencias). Se llama
+        // ANTES de renderConvertirSugg para que _catalogoBodega.loading ya
+        // quede en true (si va a buscar) y el primer render muestre
+        // "Cargando..." en vez de "Sin articulos".
+        _cargarCatalogoBodega(function() { renderConvertirSugg(null); });
         renderConvertirSugg(null);
         if (convertirBox) { convertirBox.style.display = 'block'; if (convertirBox.scrollIntoView) convertirBox.scrollIntoView({block: 'nearest'}); }
         if (convertirInp) convertirInp.focus();
