@@ -12027,14 +12027,18 @@ function buildRepsContent() {
       for (var j = 0; j < orders.length; j++) { if (orders[j].id === _repConvertirBod.oid) { oxCv2 = orders[j]; break; } }
       if (!oxCv2 || !oxCv2.repuestos || !oxCv2.repuestos[_repConvertirBod.ri]) { _repConvertirBod = null; return; }
       var repCv = oxCv2.repuestos[_repConvertirBod.ri];
+      // Se leen ANTES del confirm (10 oct 2026, pedido de Byron) para poder
+      // mostrar en el propio mensaje cual codigo se va a aplicar — asi se
+      // puede revisar que es el correcto antes de aceptar, por si se
+      // selecciono el renglon equivocado por error.
+      var nuevoNombreCv = itemElCv.getAttribute('data-nombre') || '';
+      var nuevoSkuCv = itemElCv.getAttribute('data-sku') || '';
       // Permitir con aviso (confirmado por Byron): si ya hay avance de
       // Mensajero/Partes marcado, se pierde al convertir — Despacho Bodega
       // empieza su propio seguimiento (Vo.Bo. + despachado) desde cero.
       if (repCv.ck1 || repCv.ck2) {
-        if (!confirm('Este repuesto ya tiene avance marcado (' + (repCv.ck2 ? 'Mensajero y Partes' : 'Mensajero') + ') — se perdera al convertirlo a Despacho Bodega, que empieza su propio seguimiento desde cero. ¿Continuar?')) return;
+        if (!confirm('Vas a cambiar a Despacho Bodega con el codigo: ' + nuevoNombreCv + ' (' + nuevoSkuCv + ').\n\nEste repuesto ya tiene avance marcado (' + (repCv.ck2 ? 'Mensajero y Partes' : 'Mensajero') + ') — se perdera al convertirlo, que empieza su propio seguimiento desde cero. ¿Continuar?')) return;
       }
-      var nuevoNombreCv = itemElCv.getAttribute('data-nombre') || '';
-      var nuevoSkuCv = itemElCv.getAttribute('data-sku') || '';
       var whoCv = ROLES[role] ? ROLES[role].label : role;
       oxCv2.bodega = oxCv2.bodega || [];
       oxCv2.bodega.push({cantidad: repCv.cantidad || '', desc: esc(nuevoNombreCv), codigo: esc(nuevoSkuCv), by: whoCv, ts: Date.now(), vobo: false, despachado: false});
