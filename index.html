@@ -2331,6 +2331,36 @@ function _bodCatalogoConvertible(descRepuesto, searchTerm) {
     return !q || texto.indexOf(q) !== -1;
   });
 }
+// Respaldo local de codigos YA CONOCIDOS para "Cambiar a Despacho Bodega",
+// usado SOLO cuando el catalogo en vivo de Bodega Virtual no responde (ver
+// _catalogoBodega.error) — pedido de Byron 10 oct 2026 tras una caida real
+// del endpoint que dejo el buscador sin ningun codigo que mostrar, el mismo
+// dia que confirmo que estos son los 5 unicos codigos de filtro de aceite
+// que tiene inventariados (los de mayor rotacion). Se actualiza a mano
+// cuando Byron reporte codigos nuevos o distintos — mientras el catalogo en
+// vivo funcione, este respaldo nunca se usa ni se mezcla con el, asi que no
+// hay riesgo de mostrar un codigo real desactualizado por encima del vivo.
+var REPUESTOS_BODEGA_RESPALDO = [
+  { grupo: ['filtro', 'aceite'], items: [
+    { codigo: 'A006481', nombre: 'Filtro de aceite (10060)' },
+    { codigo: 'A004440', nombre: 'Filtro de aceite (10158)' },
+    { codigo: 'Z10-WL7570', nombre: 'Filtro de aceite WIX 51348' },
+    { codigo: 'Z10-WL7572A', nombre: 'Filtro de aceite WIX 51394' },
+    { codigo: 'A078879', nombre: 'Filtro de aceite (7317)' },
+  ] }
+];
+function _bodRespaldoDeRepuesto(descRepuesto, searchTerm) {
+  var t = (descRepuesto || '').toLowerCase();
+  var grupo = REPUESTOS_BODEGA_RESPALDO.filter(function(g) {
+    return g.grupo.every(function(p) { return t.indexOf(p) !== -1; });
+  })[0];
+  if (!grupo) return [];
+  var q = (searchTerm || '').trim().toLowerCase();
+  return grupo.items.filter(function(it) {
+    if (!q) return true;
+    return (it.nombre + ' ' + it.codigo).toLowerCase().indexOf(q) !== -1;
+  });
+}
 
 // Plantillas de "Servicio Menor/Intermedio/Mayor" (pedido de los tecnicos,
 // confirmado con Byron 1 sep 2026): listas GENERICAS (sin marca/SKU) para
@@ -11900,7 +11930,24 @@ function buildRepsContent() {
       return;
     }
     if (_catalogoBodega.error) {
-      convertirSugg.innerHTML = '<div style="padding:7px 10px;font-size:11px;color:var(--or)">&#9888; No se pudo cargar el catalogo de Bodega Virtual ahora mismo. Cierra y vuelve a intentar en un momento.</div>';
+      // Respaldo local (10 oct 2026, pedido de Byron): si el catalogo en
+      // vivo no responde pero hay codigos guardados para este tipo de
+      // repuesto, se muestran igual (claramente marcados como lista
+      // guardada) en vez de dejar la busqueda completamente vacia.
+      var respaldoCv = _bodRespaldoDeRepuesto(descOriginalCv, convertirInp.value);
+      var avisoCv = '<div style="padding:7px 10px;font-size:11px;color:var(--or)">&#9888; No se pudo cargar el catalogo de Bodega Virtual ahora mismo' +
+        (respaldoCv.length ? '. Mostrando lista guardada (verifica que el codigo siga vigente en Bodega Virtual):' : '. Cierra y vuelve a intentar en un momento.') + '</div>';
+      if (!respaldoCv.length) {
+        convertirSugg.innerHTML = avisoCv;
+        convertirSugg.style.display = 'block';
+        return;
+      }
+      convertirSugg.innerHTML = avisoCv + respaldoCv.map(function(it) {
+        return '<div class="bod-sugg-item" data-sku="' + esc(it.codigo) + '" data-nombre="' + esc(it.nombre) + '" style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
+          '<div style="font-weight:600">' + esc(it.nombre) + '</div>' +
+          '<div style="font-size:10px;color:var(--tx3)">' + esc(it.codigo) + '</div>' +
+        '</div>';
+      }).join('');
       convertirSugg.style.display = 'block';
       return;
     }
