@@ -2281,6 +2281,27 @@ function _esRepuestoConvertibleABodega(desc) {
     return palabras.every(function(p) { return t.indexOf(p) !== -1; });
   });
 }
+// Catalogo de Bodega ACOTADO al mismo tipo de repuesto que se esta
+// convirtiendo (10 oct 2026, pedido de Byron) — a diferencia del buscador
+// generico de "+ Solicitar" (que relaja la busqueda en 3 pasos hasta
+// encontrar algo), esto NUNCA se ensancha fuera del grupo de palabras que
+// identifico el repuesto como convertible (ej. ['filtro','aceite']): asi
+// jamas aparece un articulo de otro tipo (ej. un aceite de motor) solo
+// porque comparte una palabra. searchTerm (lo que se haya escrito, puede
+// ser vacio) acota mas adentro de ese mismo grupo, nunca lo amplia.
+function _bodCatalogoConvertible(descRepuesto, searchTerm) {
+  var t = (descRepuesto || '').toLowerCase();
+  var grupo = REPUESTOS_CONVERTIBLES_A_BODEGA.filter(function(palabras) {
+    return palabras.every(function(p) { return t.indexOf(p) !== -1; });
+  })[0];
+  if (!grupo) return [];
+  var q = (searchTerm || '').trim().toLowerCase();
+  return (_catalogoBodega.items || []).filter(function(it) {
+    var texto = ((it.nombre || '') + ' ' + (it.sku || '') + ' ' + (it.categoria || '')).toLowerCase();
+    if (!grupo.every(function(p) { return texto.indexOf(p) !== -1; })) return false;
+    return !q || texto.indexOf(q) !== -1;
+  });
+}
 
 // Plantillas de "Servicio Menor/Intermedio/Mayor" (pedido de los tecnicos,
 // confirmado con Byron 1 sep 2026): listas GENERICAS (sin marca/SKU) para
@@ -11814,6 +11835,35 @@ function buildRepsContent() {
   var convertirActualSpan = document.getElementById('rep-convertir-bod-actual');
   var convertirInp = document.getElementById('rep-convertir-bod-inp');
   var convertirSugg = document.getElementById('rep-convertir-bod-sugg');
+  // Definida ANTES de abrir la caja (no solo al escribir) para que, al dar
+  // click en "Cambiar a Despacho Bodega", ya salga el listado de codigos
+  // sin tener que volver a escribir el mismo nombre que ya se conoce —
+  // bug real reportado por Byron (10 oct 2026): la caja arrancaba vacia,
+  // obligando a re-escribir "filtro de aceite" a mano.
+  var renderConvertirSugg = (convertirInp && convertirSugg) ? function(soloVariantesDe) {
+    // Se acota SIEMPRE al mismo tipo de repuesto que se esta convirtiendo
+    // (ver _bodCatalogoConvertible) — nunca a una busqueda generica de todo
+    // el catalogo, aunque lo escrito en el campo coincida tambien con otro
+    // articulo no relacionado (ej. un aceite de motor al convertir un
+    // Filtro de aceite). Se busca el repuesto por su descripcion ORIGINAL
+    // (no lo que se haya escrito en el campo), para no perder el grupo si
+    // se borra el texto.
+    var oxR = null;
+    if (_repConvertirBod) { for (var jr = 0; jr < orders.length; jr++) { if (orders[jr].id === _repConvertirBod.oid) { oxR = orders[jr]; break; } } }
+    var repR = (oxR && oxR.repuestos) ? oxR.repuestos[_repConvertirBod.ri] : null;
+    var descOriginalCv = repR ? repR.desc : '';
+    var matchesCv = soloVariantesDe ? _bodVariantesDeGenerico(soloVariantesDe, convertirInp.value) : _bodCatalogoConvertible(descOriginalCv, convertirInp.value);
+    if (!matchesCv.length) { convertirSugg.style.display = 'none'; convertirSugg.innerHTML = ''; return; }
+    convertirSugg.innerHTML = (soloVariantesDe ? '<div style="padding:7px 10px;font-size:10px;color:var(--or);font-weight:600">&#9888; Elige exactamente cual:</div>' : '') +
+      matchesCv.map(function(it) {
+        var esGenericoCv = !soloVariantesDe && _bodEsGenericoDeVariantes(it, matchesCv);
+        return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '"' + (esGenericoCv ? ' data-sincodigo="1"' : '') + ' style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
+          '<div style="font-weight:600">' + esc(it.nombre || '') + '</div>' +
+          '<div style="font-size:10px;color:var(--tx3)">' + esc(it.sku || '') + (it.categoria ? ' &middot; ' + esc(it.categoria) : '') + '</div>' +
+        '</div>';
+      }).join('');
+    convertirSugg.style.display = 'block';
+  } : function(){};
   var convertirBtns = body.querySelectorAll('.btn-rep-convertir-bod');
   for (var cvi = 0; cvi < convertirBtns.length; cvi++) {
     (function(btn) {
@@ -11827,8 +11877,11 @@ function buildRepsContent() {
         if (oxCv.repuestos[riCv].ck3) { toast('Ya quedo instalado — no se puede convertir'); return; }
         _repConvertirBod = {oid: oidCv, ri: riCv};
         if (convertirActualSpan) convertirActualSpan.textContent = repLabelText(oxCv.repuestos[riCv]);
-        if (convertirInp) convertirInp.value = '';
-        if (convertirSugg) { convertirSugg.innerHTML = ''; convertirSugg.style.display = 'none'; }
+        // Prellena con la descripcion tal cual del repuesto (sin cantidad ni
+        // especificacion) y muestra de una vez sus coincidencias reales.
+        if (convertirInp) convertirInp.value = oxCv.repuestos[riCv].desc || '';
+        _cargarCatalogoBodega();
+        renderConvertirSugg(null);
         if (convertirBox) { convertirBox.style.display = 'block'; if (convertirBox.scrollIntoView) convertirBox.scrollIntoView({block: 'nearest'}); }
         if (convertirInp) convertirInp.focus();
       });
@@ -11840,20 +11893,8 @@ function buildRepsContent() {
     // "No esta en la lista / usar texto libre" — convertir a Bodega sin un
     // codigo real del catalogo no tendria sentido (perderia justo lo que
     // se busca: que descargue inventario solo).
-    var renderConvertirSugg = function(soloVariantesDe) {
-      var matchesCv = soloVariantesDe ? _bodVariantesDeGenerico(soloVariantesDe, convertirInp.value) : _buscarEnCatalogoBodega(convertirInp.value);
-      if (!matchesCv.length) { convertirSugg.style.display = 'none'; convertirSugg.innerHTML = ''; return; }
-      convertirSugg.innerHTML = (soloVariantesDe ? '<div style="padding:7px 10px;font-size:10px;color:var(--or);font-weight:600">&#9888; Elige exactamente cual:</div>' : '') +
-        matchesCv.map(function(it) {
-          var esGenericoCv = !soloVariantesDe && _bodEsGenericoDeVariantes(it, matchesCv);
-          return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '"' + (esGenericoCv ? ' data-sincodigo="1"' : '') + ' style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
-            '<div style="font-weight:600">' + esc(it.nombre || '') + '</div>' +
-            '<div style="font-size:10px;color:var(--tx3)">' + esc(it.sku || '') + (it.categoria ? ' &middot; ' + esc(it.categoria) : '') + '</div>' +
-          '</div>';
-        }).join('');
-      convertirSugg.style.display = 'block';
-    };
     convertirInp.addEventListener('input', function() { renderConvertirSugg(null); });
+    convertirInp.addEventListener('focus', function() { renderConvertirSugg(null); });
     convertirSugg.addEventListener('click', function(e) {
       var itemElCv = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
       if (!itemElCv) return;
