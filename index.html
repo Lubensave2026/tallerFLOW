@@ -2262,6 +2262,26 @@ function _bodVariantesDeGenerico(nombreGenerico, searchTerm) {
   });
 }
 
+// Repuestos que se pueden convertir a Despacho Bodega (8 oct 2026, pedido
+// de Byron): algunos repuestos pedidos como "genericos" en Repuestos y
+// Subcontratos en realidad SI tienen codigo real de Bodega Virtual, pero
+// no se sabe cual exactamente hasta sacar la muestra real del vehiculo (ej.
+// Filtro de aceite — varios codigos distintos segun el modelo). Mientras
+// tanto se piden como repuesto normal; una vez se sabe cual es, Jefe o
+// Partes lo convierten a Despacho Bodega con el codigo exacto, desde el
+// mismo renglon de la solicitud (ver buildRepsContent). Lista corta a
+// proposito, solo "filtro de aceite" por ahora — agregar otro tipo despues
+// es solo sumar un arreglo de palabras aqui.
+var REPUESTOS_CONVERTIBLES_A_BODEGA = [
+  ['filtro', 'aceite']
+];
+function _esRepuestoConvertibleABodega(desc) {
+  var t = (desc || '').toLowerCase();
+  return REPUESTOS_CONVERTIBLES_A_BODEGA.some(function(palabras) {
+    return palabras.every(function(p) { return t.indexOf(p) !== -1; });
+  });
+}
+
 // Plantillas de "Servicio Menor/Intermedio/Mayor" (pedido de los tecnicos,
 // confirmado con Byron 1 sep 2026): listas GENERICAS (sin marca/SKU) para
 // agregar de una vez los repuestos y materiales tipicos de cada nivel, en
@@ -7684,6 +7704,12 @@ function setBodegaEstadoFilter(v) { _bodegaEstadoFilter = v; buildRepPartsConten
 var _repEstadoFilter = 'todos';
 var _repOrdenFilter = '';
 var _repIncluirCerradas = false;
+// Que repuesto esta en medio de convertirse a Despacho Bodega ahora mismo
+// (ver btn-rep-convertir-bod en buildRepsContent) — {oid, ri} o null. Global
+// a proposito, NO local a buildRepsContent: esa funcion se vuelve a llamar
+// sola cada 15s (ver openReps) y tras cualquier accion, asi que una var
+// local se resetearia sola a medio buscar.
+var _repConvertirBod = null;
 function setRepEstadoFilter(v) { _repEstadoFilter = v; buildRepPartsContent(); }
 function setRepOrdenFilter(v) {
   _repOrdenFilter = (v || '').toString().trim().replace(/^#+/, '');
@@ -11655,6 +11681,15 @@ function buildRepsContent() {
             ' style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid ' + (rep.ck3 ? 'var(--gnbd)' : (rep.ck2 ? 'var(--bd)' : 'var(--bd)')) + ';background:' + (rep.ck3 ? 'var(--gnbg)' : 'var(--bg4)') + ';color:' + (rep.ck3 ? 'var(--gn)' : (canCk3 ? 'var(--tx2)' : 'var(--tx3)')) + ';cursor:' + (canCk3 ? 'pointer' : 'not-allowed') + '">' +
             (rep.ck3 ? '&#10003;' : '&#9675;') + ' Instalado</button>' +
         '</div>' +
+        // Convertir a Despacho Bodega (8 oct 2026, pedido de Byron): solo
+        // para los tipos de repuesto en REPUESTOS_CONVERTIBLES_A_BODEGA (hoy
+        // solo "filtro de aceite") — una vez se sabe el codigo real que
+        // aplica, Jefe o Partes lo pasan a Bodega para que descargue
+        // inventario automaticamente, en vez de quedarse como repuesto
+        // generico sin codigo. No tiene sentido si ya quedo instalado.
+        ((role === 'jefe' || role === 'partes') && !rep.ck3 && _esRepuestoConvertibleABodega(rep.desc)
+          ? '<div style="margin-top:6px"><button class="btn-rep-convertir-bod" data-oid="' + o.id + '" data-ri="' + ri + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid #8B5CF6;background:rgba(139,92,246,.12);color:#B794F6;font-weight:600;cursor:pointer">&#128230; Cambiar a Despacho Bodega</button></div>'
+          : '') +
       '</div>';
     }
     html += '</div>';
@@ -11664,8 +11699,35 @@ function buildRepsContent() {
     html = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Sin repuestos pendientes</div>';
   }
 
+  // Caja compartida de "Cambiar a Despacho Bodega", igual patron que
+  // "Cambiar articulo" en la ficha (bod-cambiar-art-box) — se abre/cierra
+  // segun cual boton se toque (ver _repConvertirBod mas abajo). Oculta para
+  // quien no sea Jefe/Partes, igual que el boton que la abre.
+  // El estado abierto/cerrado SI se respeta en cada re-render (a diferencia
+  // de la ficha, este panel se vuelve a construir solo cada 15s mientras
+  // esta abierto — ver openReps/_repsInt — asi que sin esto la caja se
+  // cerraria sola a medio buscar).
+  var convertirBodHtml = '';
+  var _repConvertirBodVigente = null;
+  if (_repConvertirBod) {
+    var _ocv = null;
+    for (var _ocvi = 0; _ocvi < orders.length; _ocvi++) { if (orders[_ocvi].id === _repConvertirBod.oid) { _ocv = orders[_ocvi]; break; } }
+    if (_ocv && _ocv.repuestos && _ocv.repuestos[_repConvertirBod.ri]) _repConvertirBodVigente = _ocv.repuestos[_repConvertirBod.ri];
+    else _repConvertirBod = null; // ya no existe (se elimino o ya se convirtio) -- se cierra sola
+  }
+  if (role === 'jefe' || role === 'partes') {
+    convertirBodHtml = '<div id="rep-convertir-bod-box" style="display:' + (_repConvertirBodVigente ? 'block' : 'none') + ';background:var(--bg4);border:2px solid #8B5CF6;border-radius:var(--rs);padding:10px;margin-bottom:14px">' +
+      '<div style="font-size:11px;font-weight:700;color:#B794F6;margin-bottom:6px">&#128230; Cambiar "<span id="rep-convertir-bod-actual">' + (_repConvertirBodVigente ? esc(repLabelText(_repConvertirBodVigente)) : '') + '</span>" a Despacho Bodega — busca el codigo exacto</div>' +
+      '<div style="position:relative">' +
+        '<input id="rep-convertir-bod-inp" class="cin" autocomplete="off" placeholder="Busca el articulo correcto en el catalogo..." style="width:100%;border:2px solid #8B5CF6;background:var(--bg2)">' +
+        '<div id="rep-convertir-bod-sugg" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);max-height:220px;overflow-y:auto;z-index:60;box-shadow:0 4px 10px rgba(0,0,0,.25)"></div>' +
+      '</div>' +
+      '<button id="btn-rep-convertir-bod-cancelar" style="margin-top:8px;width:100%;padding:6px;border-radius:var(--rs);background:none;border:1px solid var(--bd);color:var(--tx2);font-size:11px;cursor:pointer">Cancelar</button>' +
+    '</div>';
+  }
+
   var body = document.getElementById('reps-body');
-  body.innerHTML = voboSummaryHtml + html;
+  body.innerHTML = voboSummaryHtml + convertirBodHtml + html;
 
   // Attach events
   var cks = body.querySelectorAll('.btn-reps-ck');
@@ -11724,6 +11786,93 @@ function buildRepsContent() {
         buildRepsContent();
       });
     })(voboBtns2[vbi2]);
+  }
+
+  // "Cambiar a Despacho Bodega": mismo patron de busqueda+variantes ya
+  // usado en "Cambiar articulo" de la ficha (ver _bodCambiarArtBi), pero en
+  // vez de reemplazar un renglon de Bodega ya existente, CREA uno nuevo a
+  // partir del repuesto y quita este de Repuestos y Subcontratos.
+  var convertirBox = document.getElementById('rep-convertir-bod-box');
+  var convertirActualSpan = document.getElementById('rep-convertir-bod-actual');
+  var convertirInp = document.getElementById('rep-convertir-bod-inp');
+  var convertirSugg = document.getElementById('rep-convertir-bod-sugg');
+  var convertirBtns = body.querySelectorAll('.btn-rep-convertir-bod');
+  for (var cvi = 0; cvi < convertirBtns.length; cvi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe' && role !== 'partes') { toast('Solo el Jefe de taller o Partes pueden hacer este cambio'); return; }
+        var oidCv = parseInt(this.getAttribute('data-oid'));
+        var riCv = parseInt(this.getAttribute('data-ri'));
+        var oxCv = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oidCv) { oxCv = orders[j]; break; } }
+        if (!oxCv || !oxCv.repuestos || !oxCv.repuestos[riCv]) return;
+        if (oxCv.repuestos[riCv].ck3) { toast('Ya quedo instalado — no se puede convertir'); return; }
+        _repConvertirBod = {oid: oidCv, ri: riCv};
+        if (convertirActualSpan) convertirActualSpan.textContent = repLabelText(oxCv.repuestos[riCv]);
+        if (convertirInp) convertirInp.value = '';
+        if (convertirSugg) { convertirSugg.innerHTML = ''; convertirSugg.style.display = 'none'; }
+        if (convertirBox) { convertirBox.style.display = 'block'; if (convertirBox.scrollIntoView) convertirBox.scrollIntoView({block: 'nearest'}); }
+        if (convertirInp) convertirInp.focus();
+      });
+    })(convertirBtns[cvi]);
+  }
+  if (convertirInp && convertirSugg) {
+    _cargarCatalogoBodega();
+    // A diferencia de "+ Solicitar"/"Cambiar articulo", aqui NO se ofrece
+    // "No esta en la lista / usar texto libre" — convertir a Bodega sin un
+    // codigo real del catalogo no tendria sentido (perderia justo lo que
+    // se busca: que descargue inventario solo).
+    var renderConvertirSugg = function(soloVariantesDe) {
+      var matchesCv = soloVariantesDe ? _bodVariantesDeGenerico(soloVariantesDe, convertirInp.value) : _buscarEnCatalogoBodega(convertirInp.value);
+      if (!matchesCv.length) { convertirSugg.style.display = 'none'; convertirSugg.innerHTML = ''; return; }
+      convertirSugg.innerHTML = (soloVariantesDe ? '<div style="padding:7px 10px;font-size:10px;color:var(--or);font-weight:600">&#9888; Elige exactamente cual:</div>' : '') +
+        matchesCv.map(function(it) {
+          var esGenericoCv = !soloVariantesDe && _bodEsGenericoDeVariantes(it, matchesCv);
+          return '<div class="bod-sugg-item" data-sku="' + esc(it.sku || '') + '" data-nombre="' + esc(it.nombre || '') + '"' + (esGenericoCv ? ' data-sincodigo="1"' : '') + ' style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--bd)">' +
+            '<div style="font-weight:600">' + esc(it.nombre || '') + '</div>' +
+            '<div style="font-size:10px;color:var(--tx3)">' + esc(it.sku || '') + (it.categoria ? ' &middot; ' + esc(it.categoria) : '') + '</div>' +
+          '</div>';
+        }).join('');
+      convertirSugg.style.display = 'block';
+    };
+    convertirInp.addEventListener('input', function() { renderConvertirSugg(null); });
+    convertirSugg.addEventListener('click', function(e) {
+      var itemElCv = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
+      if (!itemElCv) return;
+      var esGenericoCv2 = itemElCv.getAttribute('data-sincodigo') === '1';
+      if (esGenericoCv2) { renderConvertirSugg(itemElCv.getAttribute('data-nombre')); return; }
+      if (!_repConvertirBod) return;
+      var oxCv2 = null;
+      for (var j = 0; j < orders.length; j++) { if (orders[j].id === _repConvertirBod.oid) { oxCv2 = orders[j]; break; } }
+      if (!oxCv2 || !oxCv2.repuestos || !oxCv2.repuestos[_repConvertirBod.ri]) { _repConvertirBod = null; return; }
+      var repCv = oxCv2.repuestos[_repConvertirBod.ri];
+      // Permitir con aviso (confirmado por Byron): si ya hay avance de
+      // Mensajero/Partes marcado, se pierde al convertir — Despacho Bodega
+      // empieza su propio seguimiento (Vo.Bo. + despachado) desde cero.
+      if (repCv.ck1 || repCv.ck2) {
+        if (!confirm('Este repuesto ya tiene avance marcado (' + (repCv.ck2 ? 'Mensajero y Partes' : 'Mensajero') + ') — se perdera al convertirlo a Despacho Bodega, que empieza su propio seguimiento desde cero. ¿Continuar?')) return;
+      }
+      var nuevoNombreCv = itemElCv.getAttribute('data-nombre') || '';
+      var nuevoSkuCv = itemElCv.getAttribute('data-sku') || '';
+      var whoCv = ROLES[role] ? ROLES[role].label : role;
+      oxCv2.bodega = oxCv2.bodega || [];
+      oxCv2.bodega.push({cantidad: repCv.cantidad || '', desc: esc(nuevoNombreCv), codigo: esc(nuevoSkuCv), by: whoCv, ts: Date.now(), vobo: false, despachado: false});
+      var descOriginalCv = repLabelText(repCv);
+      oxCv2.repuestos.splice(_repConvertirBod.ri, 1);
+      oxCv2.msgs = oxCv2.msgs || [];
+      oxCv2.msgs.push({who:whoCv, txt:'&#128230; "' + esc(descOriginalCv) + '" cambiado de Repuestos a Despacho Bodega: ' + esc(nuevoNombreCv) + ' (' + esc(nuevoSkuCv) + ')', ts:Date.now(), type:'system'});
+      save();
+      toast('Cambiado a Despacho Bodega');
+      _repConvertirBod = null;
+      buildRepsContent();
+    });
+  }
+  var convertirCancelBtn = document.getElementById('btn-rep-convertir-bod-cancelar');
+  if (convertirCancelBtn) {
+    convertirCancelBtn.addEventListener('click', function() {
+      _repConvertirBod = null;
+      if (convertirBox) convertirBox.style.display = 'none';
+    });
   }
 
 }
