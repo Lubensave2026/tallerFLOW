@@ -9026,7 +9026,21 @@ function buildAvisoLavContent() {
   // se conserva sin cambios mas abajo.
   html += _resumenBuscadorHtml('avisolav-ot-inp', _resumenOtAvisoLav, 'setResumenOtAvisoLav');
   if (_resumenOtAvisoLav) {
+    // Boton "Imprimir / Orden de Trabajo" (10 oct 2026, pedido de Byron):
+    // una orden encontrada aqui por numero puede TODAVIA no haber llegado a
+    // Lavado (ej. sigue en Trabajando) -- antes solo las que ya estaban en
+    // la lista de abajo (click en la fila -> openAvisoLavResumen) tenian
+    // esta funcion. Asi Mario puede adelantar trabajo (imprimir o generar
+    // la Orden de Trabajo) antes de que la orden llegue aqui de verdad.
+    // Reutiliza el MISMO modal/mecanismo ya probado (ver
+    // abrirResumenAvisoLavPorOt/openAvisoLavResumen), nada nuevo que
+    // mantener aparte.
+    var _ordenBuscadaAvisoLav = _buscarOrdenPorOt(_resumenOtAvisoLav);
+    var _puedeImprimirAvisoLav = _ordenBuscadaAvisoLav && (role === 'jefe' || role === 'asesor' || role === 'partes');
     html += '<div style="border:1px solid var(--bd2);border-radius:var(--r);padding:12px;margin-bottom:1rem;background:var(--bg2)">' +
+      (_puedeImprimirAvisoLav ? '<div class="no-print" style="display:flex;justify-content:flex-end;margin-bottom:8px">' +
+        '<button onclick="abrirResumenAvisoLavPorOt(\'' + esc(_resumenOtAvisoLav) + '\')" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir / Orden de Trabajo</button>' +
+      '</div>' : '') +
       _buildResumenOrdenHtml(_resumenOtAvisoLav) +
     '</div>';
   }
@@ -9386,6 +9400,18 @@ function openAvisoLavResumen(o) {
   var printOnlyElA = document.getElementById('hist-detail-print-only');
   if (printOnlyElA) printOnlyElA.innerHTML = '';
   document.getElementById('m-hist-detail').classList.add('on');
+}
+
+// Desde el buscador de "Preparar Facturacion" (10 oct 2026, pedido de
+// Byron): abre el MISMO resumen/modal de impresion que ya usa el clic en
+// una fila ya llegada a Lavado, para una orden encontrada por numero que
+// TODAVIA no ha llegado a esta fase — asi se puede adelantar trabajo
+// (imprimir o generar la Orden de Trabajo) antes de que llegue de verdad.
+function abrirResumenAvisoLavPorOt(ot) {
+  var o = _buscarOrdenPorOt(ot);
+  if (!o) { toast('Orden no encontrada'); return; }
+  closeAvisoLav();
+  openAvisoLavResumen(o);
 }
 
 // "Orden de Trabajo" formal para enviar al cliente por WhatsApp antes de
