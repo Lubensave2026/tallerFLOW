@@ -9543,8 +9543,11 @@ function volverAResumenDesdeOrdenTrabajo(id) {
 //    en TallerFLOW son el mismo dato, no dos numeros distintos.
 //  - FECHA es la fecha en que se genera el documento (no la de apertura
 //    de la orden).
-//  - CHASIS, COLOR y NIT DE FACTURA se dejan en blanco — Byron confirmo
-//    que no se necesitan por ahora.
+//  - NIT DE FACTURA se deja en blanco — Byron confirmo que no se necesita
+//    por ahora. CHASIS y COLOR SALIERON del documento por completo (10 oct
+//    2026): nunca se usaban, y quitar la fila entera que ocupaban gana una
+//    linea de espacio vertical — ver "Tipo de servicio" mas abajo, lo unico
+//    real de esa fila, que se movio junto a PLACA.
 //  - MARCA/LINEA se unen en un solo campo "VEHICULO" con el texto libre
 //    que ya se guarda en o.model — partirlo a la fuerza en 2 campos se
 //    rompe con marcas de mas de una palabra (ej. "Land Rover").
@@ -9582,13 +9585,17 @@ function _buildOrdenTrabajoFormalHtml(o) {
     '</tr>' +
     '<tr><td colspan="2" style="text-align:center;font-weight:bold;border-bottom:1px solid #000;border-top:1px solid #000;padding:3px 0">DATOS DEL VEHICULO</td></tr>' +
     '<tr>' +
-      '<td style="padding:3px 8px;border-bottom:1px solid #000;width:25%"><strong>PLACA:</strong> ' + esc0(o.plate).toUpperCase() + '</td>' +
+      // CHASIS y COLOR salieron de aqui (10 oct 2026, pedido de Byron):
+      // nunca se usan en este documento, y la fila completa que ocupaban
+      // ya no hace falta -- "Tipo de servicio" (lo unico real de esa fila)
+      // se mueve aqui, junto a PLACA, para recuperar esa linea entera de
+      // espacio vertical (relevante en ordenes largas que se pasaban a una
+      // 2da hoja). Etiqueta legible via _SERVICIO_RETRO_LABEL en vez de la
+      // llave interna cruda (ej. "servicioMenor").
+      '<td style="padding:3px 8px;border-bottom:1px solid #000;width:25%"><strong>PLACA:</strong> ' + esc0(o.plate).toUpperCase() +
+        (o.tipoServicioSolicitado ? ' &nbsp;&nbsp;&nbsp; <strong>Tipo de servicio:</strong> ' + esc0(_SERVICIO_RETRO_LABEL[o.tipoServicioSolicitado] || o.tipoServicioSolicitado) : '') + '</td>' +
       '<td style="padding:3px 8px;border-bottom:1px solid #000;border-left:1px solid #000"><strong>VEHICULO:</strong> ' + esc0(o.model).toUpperCase() +
         (o.km ? ' &nbsp;&nbsp;&nbsp; <strong>KILOMETRAJE:</strong> ' + Number(o.km).toLocaleString('es-GT') + ' KM' : '') + '</td>' +
-    '</tr>' +
-    '<tr>' +
-      '<td style="padding:3px 8px"><strong>CHASIS:</strong></td>' +
-      '<td style="padding:3px 8px;border-left:1px solid #000"><strong>COLOR:</strong> &nbsp;&nbsp;&nbsp; <strong>Tipo de servicio:</strong> ' + (o.tipoServicioSolicitado ? esc0(o.tipoServicioSolicitado) : '') + '</td>' +
     '</tr>' +
     '<tr><td colspan="2" style="text-align:center;font-weight:bold;border-top:1px solid #000;padding:3px 0">NOTAS DE RECEPCION</td></tr>' +
     '<tr><td colspan="2" style="padding:6px 8px;height:44px;vertical-align:top">' + esc0(o.desc) + '</td></tr>';
