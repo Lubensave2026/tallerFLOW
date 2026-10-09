@@ -8250,7 +8250,11 @@ function _buscarOrdenPorOt(ot) {
 // armado — dos pantallas parecidas que podian desincronizarse, y a la que
 // yo escribi le faltaban los montos y los trabajos realizados que la otra
 // si tenia. Una sola fuente ahora.
-function _buildResumenOrdenHtml(ot) {
+// extraOpts (10 oct 2026): el buscador de "Preparar Facturacion" pasa
+// {permitirNotasEntrega: true} para ofrecer ahi el formulario de Notas de
+// entrega; el buscador de "Resumen de una orden" (menu de reportes) no pasa
+// nada, asi que esa pantalla sigue siendo de solo lectura para ese campo.
+function _buildResumenOrdenHtml(ot, extraOpts) {
   var q = (ot === null || ot === undefined) ? '' : String(ot).trim().replace(/^#+/, '');
   if (!q) {
     return '<div style="text-align:center;padding:1.5rem;color:var(--tx3);font-size:13px">' +
@@ -8262,7 +8266,9 @@ function _buildResumenOrdenHtml(ot) {
       'No se encontro la orden <strong style="color:var(--tx2);font-family:var(--mo)">&#35;' + esc(q) + '</strong>.<br>' +
       '<span style="font-size:11px">Revisa el numero. Si es una orden archivada, abre primero &#128193; Historial para cargarla.</span></div>';
   }
-  return _buildFocusedResumenHtml(o, {conBotonFicha: true, vista: _resumenVista});
+  var opts = {conBotonFicha: true, vista: _resumenVista};
+  if (extraOpts) for (var k in extraOpts) opts[k] = extraOpts[k];
+  return _buildFocusedResumenHtml(o, opts);
 }
 
 // Desde el resumen se puede saltar a la ficha completa. Cierra los paneles
@@ -9041,7 +9047,7 @@ function buildAvisoLavContent() {
       (_puedeImprimirAvisoLav ? '<div class="no-print" style="display:flex;justify-content:flex-end;margin-bottom:8px">' +
         '<button onclick="abrirResumenAvisoLavPorOt(\'' + esc(_resumenOtAvisoLav) + '\')" style="padding:4px 10px;font-size:11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir / Orden de Trabajo</button>' +
       '</div>' : '') +
-      _buildResumenOrdenHtml(_resumenOtAvisoLav) +
+      _buildResumenOrdenHtml(_resumenOtAvisoLav, {permitirNotasEntrega: true}) +
     '</div>';
   }
 
@@ -9254,6 +9260,39 @@ function _buildFocusedResumenHtml(o, opts) {
     '</div>' +
   '</div>';
 
+  // "Notas de entrega" (10 oct 2026, pedido de Byron): notas libres que
+  // Asesor/Jefe/Partes dejan para quien entrega el vehiculo o prepara la
+  // factura -- ej. algo pendiente de autorizar, un repuesto de importacion
+  // pendiente de instalar, algo detectado en la prueba sin relacion con la
+  // reparacion. Se AGREGAN solo desde "Preparar Facturacion"
+  // (opts.permitirNotasEntrega -- ver openAvisoLavResumen/
+  // buildAvisoLavContent), pero se MUESTRAN aqui siempre que existan
+  // (tambien desde "Resumen de una orden" del menu de reportes) y viajan a
+  // la impresion, incluida la Orden de Trabajo formal (ver
+  // _buildOrdenTrabajoFormalHtml) -- una sola fuente de datos para las 2
+  // vistas, nunca se desincronizan.
+  var notasEntregaR = o.notasEntrega || [];
+  var puedeAgregarNotaEntregaR = !!opts.permitirNotasEntrega && (role === 'jefe' || role === 'asesor' || role === 'partes');
+  if (notasEntregaR.length || puedeAgregarNotaEntregaR) {
+    html += '<div class="sec"><div class="sec-l">Notas de entrega</div>';
+    notasEntregaR.forEach(function(n, ni) {
+      html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:12px;font-weight:500;white-space:pre-wrap">' + (n.texto || '') + '</div>' +
+          (role === 'jefe' ? '<button class="no-print" onclick="eliminarNotaEntrega(' + o.id + ',' + ni + ')" title="Eliminar" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:1px 6px;font-size:10px;cursor:pointer;line-height:1;flex-shrink:0">&#x2715;</button>' : '') +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + esc(n.by || '') + (n.ts ? ' &middot; ' + msgTs(n.ts) : '') + '</div>' +
+      '</div>';
+    });
+    if (puedeAgregarNotaEntregaR) {
+      html += '<div class="no-print" style="display:flex;gap:6px;align-items:flex-start;margin-top:6px">' +
+        '<textarea id="notas-entrega-inp-' + o.id + '" placeholder="Escribe una nota de entrega..." style="flex:1;min-height:50px;font-size:12px;padding:6px 8px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);resize:vertical"></textarea>' +
+        '<button onclick="agregarNotaEntrega(' + o.id + ')" style="font-size:11px;padding:6px 12px;border-radius:8px;border:1px solid var(--ac);background:rgba(61,126,255,.15);color:var(--ac);cursor:pointer;white-space:nowrap">&#10133; Agregar</button>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+
   // Aviso de pendientes: es el dato que decide si la orden ya se puede
   // facturar, asi que va arriba y no escondido entre las listas.
   var repsPendR = (o.repuestos || []).filter(function(r){ return !r.ck3; }).length;
@@ -9372,6 +9411,51 @@ function _buildFocusedResumenHtml(o, opts) {
   return html;
 }
 
+// Agrega/elimina una "Nota de entrega" (10 oct 2026, pedido de Byron). Solo
+// se puede llamar desde las pantallas de Preparar Facturacion (el boton
+// "+ Agregar" solo se dibuja ahi, ver opts.permitirNotasEntrega arriba),
+// pero el guard de rol se repite aqui tambien por si se fuerza el llamado.
+// Reconstruye lo que este en pantalla en ese momento: el modal de resumen
+// (m-hist-detail) si esta abierto, o el panel de Preparar Facturacion si
+// no — nunca toca "Resumen de una orden" del menu de reportes, que no
+// ofrece este formulario.
+function _refrescarTrasNotaEntrega(o) {
+  if (document.getElementById('m-hist-detail').classList.contains('on')) { openAvisoLavResumen(o); }
+  else { buildAvisoLavContent(); }
+}
+function agregarNotaEntrega(id) {
+  if (role !== 'jefe' && role !== 'asesor' && role !== 'partes') { toast('No tienes permiso para agregar notas de entrega'); return; }
+  var inp = document.getElementById('notas-entrega-inp-' + id);
+  var texto = inp ? inp.value.trim() : '';
+  if (!texto) { toast('Escribe algo antes de agregar'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.notasEntrega = o.notasEntrega || [];
+  o.notasEntrega.push({texto: esc(texto), by: who, ts: Date.now()});
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#128221; Nota de entrega agregada: "' + esc(texto) + '"', ts:Date.now(), type:'system'});
+  save();
+  toast('Nota agregada');
+  _refrescarTrasNotaEntrega(o);
+}
+function eliminarNotaEntrega(id, idx) {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede eliminar una nota de entrega'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || !o.notasEntrega || !o.notasEntrega[idx]) return;
+  if (!confirm('¿Eliminar esta nota de entrega?\n\n"' + o.notasEntrega[idx].texto + '"')) return;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  var textoBorradoNE = o.notasEntrega[idx].texto;
+  o.notasEntrega.splice(idx, 1);
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#x2715; Nota de entrega eliminada: "' + esc(textoBorradoNE) + '"', ts:Date.now(), type:'system'});
+  save();
+  toast('Nota eliminada');
+  _refrescarTrasNotaEntrega(o);
+}
+
 // "Preparar Facturacion" -> click en una linea: abre el resumen enfocado
 // como pantalla completa (reemplaza #hist-detail-body por entero) — a
 // diferencia de openHistDetail() para Asesor/Partes, que sigue mostrando el
@@ -9392,7 +9476,7 @@ function openAvisoLavResumen(o) {
     '<button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeHistDetail()">&#x2715;</button></span>';
 
   var bodyEl = document.getElementById('hist-detail-body');
-  if (bodyEl) bodyEl.innerHTML = _buildFocusedResumenHtml(o);
+  if (bodyEl) bodyEl.innerHTML = _buildFocusedResumenHtml(o, {permitirNotasEntrega: true});
   // Este camino siempre reemplaza todo el contenido — nunca es un reporte
   // "completo" de fondo, asi que nunca necesita el modo restringido de
   // impresion (ver openHistDetail).
@@ -9498,9 +9582,24 @@ function _buildOrdenTrabajoFormalHtml(o) {
       '<td style="padding:3px 8px"><strong>CHASIS:</strong></td>' +
       '<td style="padding:3px 8px;border-left:1px solid #000"><strong>COLOR:</strong> &nbsp;&nbsp;&nbsp; <strong>Tipo de servicio:</strong> ' + (o.tipoServicioSolicitado ? esc0(o.tipoServicioSolicitado) : '') + '</td>' +
     '</tr>' +
-    '<tr><td colspan="2" style="text-align:center;font-weight:bold;border-top:1px solid #000;padding:3px 0">OBSERVACIONES</td></tr>' +
-    '<tr><td colspan="2" style="padding:6px 8px;height:44px;vertical-align:top">' + esc0(o.desc) + '</td></tr>' +
-  '</table>';
+    '<tr><td colspan="2" style="text-align:center;font-weight:bold;border-top:1px solid #000;padding:3px 0">NOTAS DE RECEPCION</td></tr>' +
+    '<tr><td colspan="2" style="padding:6px 8px;height:44px;vertical-align:top">' + esc0(o.desc) + '</td></tr>';
+  // "Notas de entrega" (10 oct 2026, pedido de Byron): notas libres que
+  // Asesor/Jefe/Partes dejan para quien entrega el vehiculo -- algo
+  // pendiente de autorizar, un repuesto de importacion pendiente de
+  // instalar, algo detectado en la prueba sin relacion con la reparacion,
+  // etc. Se agregan solo desde "Preparar Facturacion" (ver
+  // _buildFocusedResumenHtml/agregarNotaEntrega), pero viajan tambien aqui
+  // porque es exactamente la clase de informacion que el cliente deberia
+  // ver al recibir el vehiculo. Mismo patron que CHASIS/COLOR arriba: si no
+  // hay ninguna nota, esta seccion ni siquiera se agrega.
+  if (o.notasEntrega && o.notasEntrega.length) {
+    html += '<tr><td colspan="2" style="text-align:center;font-weight:bold;border-top:1px solid #000;padding:3px 0">NOTAS DE ENTREGA</td></tr>';
+    o.notasEntrega.forEach(function(n) {
+      html += '<tr><td colspan="2" style="padding:6px 8px">' + (n.texto || '') + '</td></tr>';
+    });
+  }
+  html += '</table>';
 
   html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:16px">' +
     '<thead><tr style="border-bottom:1px solid #000">' +
