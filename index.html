@@ -1828,6 +1828,17 @@ function cardMatch(o) {
 // Badge de 2 partes para la fase 'prb' (Prueba/Insp.Final) — se usa tanto en
 // la tarjeta del board como en la ficha, para que se vea igual en ambos
 // lugares: verde cuando esa firma ya se hizo, naranja mientras esta pendiente.
+// Abre el Cotizador LNS (GitHub Pages) con los datos de la orden.
+function abrirCotizador(oid) {
+  var o = orders.find(function(x){ return x.id === oid; });
+  if (!o) return;
+  var url = 'https://lubensave2026.github.io/cotizador-lns/'
+    + '?ot=' + encodeURIComponent(o.ot || o.id)
+    + '&cliente=' + encodeURIComponent(o.client || '')
+    + '&vehiculo=' + encodeURIComponent(o.model || '');
+  window.open(url, '_blank');
+}
+
 function prbStatusBadge(o) {
   var jefeDone = !!(o.sigs && o.sigs.jefe);
   var tecDone = !!(o.sigs && o.sigs.tecnico);
@@ -3360,6 +3371,11 @@ function openDrw(id) {
   var rutaSalidaBtnHtml = (o.phase === 'prb' && role === 'jefe' && !o.rutaSalidaTs && !(o.sigs && o.sigs.jefe))
     ? '<button id="btn-ruta-salida" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825;font-size:12px;font-weight:600;cursor:pointer">&#128663; Marcar salida a ruta</button>'
     : '';
+  // Boton "Cotizar" (fases de Presupuesto: pa/pb) — abre el Cotizador LNS en
+  // pestana nueva pasando OT, cliente y vehiculo por URL.
+  var cotizarBtnHtml = (o.phase === 'pa' || o.phase === 'pb')
+    ? '<button id="btn-cotizar" data-oid="' + id + '" onclick="abrirCotizador(' + id + ')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.12);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128221; Cotizar</button>'
+    : '';
   var prbStatusBlock = (o.phase === 'prb') ? ('<div style="margin-bottom:8px">' + rutaSalidaBtnHtml + prbStatusBadge(o) + '</div>') : '';
   // Reproceso "informativo": Asesor y Jefe en Listo p/entrega, solo Jefe en
   // Entregado — para dejar registrado (para el reporte de REPROCESOS) que
@@ -3422,7 +3438,7 @@ function openDrw(id) {
         '</label>' +
       '</div>';
     }
-    html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + prbStatusBlock + reprocesoInfoBtnHtml + eaRepBlock + sigRows + closeDateBlock + '</div>';
+    html += '<div class="sec"><div class="sec-l">Firmas y Vo.Bo.</div>' + cotizarBtnHtml + prbStatusBlock + reprocesoInfoBtnHtml + eaRepBlock + sigRows + closeDateBlock + '</div>';
   }
 
   /* lst: opcion para regresar a Lavado si el asesor (o jefe) nota que el
