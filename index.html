@@ -3173,9 +3173,13 @@ function openDrw(id) {
     // Temporizador de Detenido (2 oct 2026, pedido de Byron): visible para
     // cualquier rol (transparencia — que no parezca que la orden se movio
     // "sola" sin explicacion), pero solo el Jefe lo puso y solo el Jefe lo
-    // puede cancelar (mismo candado que Larga duracion arriba).
+    // puede cancelar o editar (mismo candado que Larga duracion arriba).
+    // "Editar" (13 oct 2026, pedido de Byron: puso 4.25h por error, debia
+    // ser 3h) corrige el tiempo SIN tener que cancelar y volver a detener la
+    // orden desde cero (eso habria perdido el motivo/bitacora original).
     (o.phase === 'det' && o.detVenceTs && o.detDestino
       ? '<div class="irow" style="align-items:center"><span class="ik" style="color:var(--ac)">&#9203; Regresa sola</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="color:var(--ac);font-size:11px">' + (NL[o.detDestino] || o.detDestino) + ' — ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>' +
+          (role === 'jefe' ? '<button onclick="editarTemporizadorDetenido(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Editar</button>' : '') +
           (role === 'jefe' ? '<button onclick="cancelarTemporizadorDetenido(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Cancelar</button>' : '') +
         '</span></div>'
       : '') +
@@ -5394,6 +5398,34 @@ function toggleLargaDuracion(id, checked) {
   o.msgs.push({who:who, txt: (checked ? '&#9203; Marcada como Larga duracion — deja de contar en Capacidad del taller' : '&#9203; Ya no es Larga duracion — vuelve a contar en Capacidad del taller'), ts:Date.now(), type:'system'});
   save();
   toast(checked ? 'Marcada como Larga duracion' : 'Ya cuenta de nuevo en Capacidad del taller');
+  openDrw(id);
+}
+
+// Corrige las horas del temporizador de Detenido (13 oct 2026, pedido de
+// Byron: puso 4.25h por error, debia ser 3h) -- SIN cancelar/reabrir el
+// ciclo completo, que habria borrado el motivo y hubiera dejado un hueco
+// raro en la bitacora. Se recalcula desde que la orden ENTRO a Detenido
+// (o.timestamps.det), no desde ahora mismo -- asi "deberia haber sido 3
+// horas" significa 3 horas en total, no 3 horas mas a partir de este
+// momento (misma logica de horas habiles que al detenerla la primera vez,
+// ver _sumarHorasHabiles/advance). Solo Jefe, mismo candado que lo puso.
+function editarTemporizadorDetenido(id) {
+  if (role !== 'jefe') { toast('Solo el Jefe puede editar esto'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || o.phase !== 'det' || !o.detVenceTs || !o.detDestino) return;
+  var inicioDetEdit = (o.timestamps && o.timestamps.det) ? o.timestamps.det : Date.now();
+  var actualStr = new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  var tiempoInput = prompt('Ahora mismo "' + o.plate + '" regresa sola el ' + actualStr + '.\n\n¿Por cuantas horas (habiles, desde que se detuvo) deberia estar detenida en realidad?');
+  if (tiempoInput === null || tiempoInput.trim() === '') return;
+  var horasDetEdit = parseFloat(tiempoInput);
+  if (!(horasDetEdit > 0)) { toast('Numero invalido — no se cambio el temporizador'); return; }
+  o.detVenceTs = _sumarHorasHabiles(inicioDetEdit, horasDetEdit);
+  var whoEdit = ROLES[role] ? ROLES[role].label : role;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:whoEdit, txt:'&#9203; Tiempo de Detenido corregido a ' + horasDetEdit + 'h — ahora regresa sola el ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), ts:Date.now(), type:'system'});
+  save();
+  toast('Tiempo de Detenido actualizado');
   openDrw(id);
 }
 
