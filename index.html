@@ -2203,6 +2203,9 @@ function _urlCotizador(o) {
 function abrirCotizador(oid) {
   var o = orders.find(function(x){ return x.id === oid; });
   if (!o) return;
+  // Bloque 5: en Presup. M/O el asesor abre directo la cotizacion de
+  // repuestos que dejo Partes (si existe y su rol puede verla).
+  if (o.phase === 'pb' && o.linkCotizacionPartes && _puedeVerLinkCotizPartes()) { window.open(o.linkCotizacionPartes, '_blank'); return; }
   var url = _urlCotizador(o);
   if (!url) { toast('El Cotizador todavia no esta configurado'); return; }
   // Si la orden ya tiene una cotizacion guardada, reusar su codigo (k) para
@@ -2227,18 +2230,68 @@ function abrirCotizador(oid) {
 window.addEventListener('message', function(ev) {
   if (ev.origin !== 'https://lubensave2026.github.io') return;
   var d = ev.data;
-  if (!d || d.tipo !== 'lns-cotizacion' || !d.ot || typeof d.url !== 'string' || d.url.indexOf('https://lubensave2026.github.io/cotizador-lns/') !== 0) return;
+  if (!d || (d.tipo !== 'lns-cotizacion' && d.tipo !== 'lns-cotizacion-partes') || !d.ot || typeof d.url !== 'string' || d.url.indexOf('https://lubensave2026.github.io/cotizador-lns/') !== 0) return;
   var o = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
   if (!o) { toast('Cotizacion recibida, pero no encontre la orden ' + d.ot); return; }
+  if (d.tipo === 'lns-cotizacion-partes') {
+    // Link interno (con costos): validado como el manual (debe traer #t=).
+    if (!_urlCotizPartesValida(d.url)) return;
+    _guardarLinkCotizPartes(o, d.url, 'Cotizador');
+    return;
+  }
+  _registrarCotizacion(o, d.url, 'Cotizador', '&#128221; Cotizacion enviada al cliente: ');
+});
+// Guarda un link de presupuesto en la orden (lo usan el aviso automatico del
+// Cotizador y el campo "Pegar link" de la ficha): una sola logica, para que
+// ambos caminos dejen exactamente lo mismo (o.cotizaciones[], o.linkCotizacion,
+// mensaje en la bitacora) y nunca se duplique el mismo link.
+function _registrarCotizacion(o, url, who, prefijoMsg) {
   o.cotizaciones = o.cotizaciones || [];
-  if (o.cotizaciones.some(function(c){ return c.url === d.url; })) { toast('Esa cotizacion ya estaba en la orden'); return; }
-  o.cotizaciones.push({url: d.url, ts: Date.now()});
-  o.linkCotizacion = d.url;
+  if (o.cotizaciones.some(function(c){ return c.url === url; })) { toast('Esa cotizacion ya estaba en la orden'); return false; }
+  o.cotizaciones.push({url: url, ts: Date.now()});
+  o.linkCotizacion = url;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:'Cotizador', txt:'&#128221; Cotizacion enviada al cliente: <a href="' + esc(d.url) + '" target="_blank" rel="noopener">abrir presupuesto</a>', ts:Date.now(), type:'system'});
+  o.msgs.push({who:who, txt: prefijoMsg + '<a href="' + esc(url) + '" target="_blank" rel="noopener">abrir presupuesto</a>', ts:Date.now(), type:'system'});
   save(); toast('Cotizacion guardada en la orden ' + (o.ot || o.id));
   if (typeof openId !== 'undefined' && openId === o.id) openDrw(o.id);
-});
+  return true;
+}
+// Link INTERNO de cotizacion de repuestos (Bloque 5 del Cotizador, 15 oct):
+// lo genera el Cotizador cuando Partes confirma repuestos y abre directo en
+// Mano de obra para el Asesor. Va en o.linkCotizacionPartes, SEPARADO de
+// o.linkCotizacion (el del cliente): lleva el presupuesto completo, con
+// costos y margenes internos, asi que NUNCA se muestra a tecnicos/mensajero
+// ni se pone como enlace en la bitacora (la bitacora la ve cualquier rol).
+function _puedeVerLinkCotizPartes() { return role === 'jefe' || role === 'asesor' || role === 'partes'; }
+function _urlCotizPartesValida(url) {
+  return typeof url === 'string' && !!COTIZADOR_URL && url.indexOf(COTIZADOR_URL) === 0 && url.indexOf('#t=') !== -1 && url.length < 4000;
+}
+function _guardarLinkCotizPartes(o, url, quien) {
+  if (o.linkCotizacionPartes === url) { toast('Ese link ya estaba guardado en la orden'); return false; }
+  o.linkCotizacionPartes = url;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:quien, txt:'&#128221; Link de cotizacion de repuestos guardado', ts:Date.now(), type:'system'});
+  save(); toast('Link de cotizacion de repuestos guardado');
+  if (typeof openId !== 'undefined' && openId === o.id) openDrw(o.id);
+  return true;
+}
+// Respaldo manual: Partes pega el link si el aviso automatico no llego.
+function pegarLinkCotizacion(oid) {
+  var o = orders.find(function(x){ return x.id === oid; });
+  if (!o) return;
+  if (role !== 'jefe' && role !== 'partes') { toast('Solo Partes o el Jefe pueden guardar el link de cotizacion'); return; }
+  if (o.phase !== 'pa') { toast('El link de repuestos se guarda en la fase Presupuesto Partes'); return; }
+  var inp = document.getElementById('inp-link-cotiz');
+  var url = inp ? String(inp.value || '').trim() : '';
+  if (!url) { toast('Pega primero el link de cotizacion'); return; }
+  if (!_urlCotizPartesValida(url)) { toast('Ese link no es del Cotizador (o esta incompleto) — copialo de nuevo con "Copiar link para asesor de servicio"'); return; }
+  _guardarLinkCotizPartes(o, url, ROLES[role] ? ROLES[role].label : role);
+}
+function abrirCotizacionPartes(oid) {
+  var o = orders.find(function(x){ return x.id === oid; });
+  if (!o || !o.linkCotizacionPartes || !_puedeVerLinkCotizPartes()) return;
+  window.open(o.linkCotizacionPartes, '_blank');
+}
 var CATALOGO_BODEGA_TTL_MS = 10 * 60 * 1000; // 10 min — con margen sobre los 5 min de cache del lado de Bodega Virtual
 var _catalogoBodega = { items: null, ts: 0, loading: false, error: false, _pendientes: [] };
 
@@ -3477,8 +3530,33 @@ function openDrw(id) {
     : '';
   // Boton "Cotizar" (fases de Presupuesto: pa/pb) - abre el Cotizador LNS en pestana nueva pasando OT, cliente y vehiculo por URL.
   var cotizarBtnHtml = (o.phase === 'pa' || o.phase === 'pb')
-    ? '<button id="btn-cotizar" data-oid="' + id + '" onclick="abrirCotizador(' + id + ')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.12);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128221; Cotizar</button>'
+    ? '<button id="btn-cotizar" data-oid="' + id + '" onclick="abrirCotizador(' + id + ')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.12);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128221; ' + (o.phase === 'pb' ? 'Cotizar mano de obra' : 'Cotizar repuestos') + '</button>'
     : '';
+  // Recuadro del Cotizador (pa/pb), solo roles que pueden ver costos: campo de
+  // respaldo para pegar el link de repuestos (Partes, fase pa), boton para el
+  // Asesor en pb, y el link del presupuesto del cliente si ya existe.
+  if ((o.phase === 'pa' || o.phase === 'pb') && _puedeVerLinkCotizPartes()) {
+    var puedePegarCot = (o.phase === 'pa' && (role === 'jefe' || role === 'partes'));
+    var boxCot = '';
+    if (o.phase === 'pb') {
+      boxCot += o.linkCotizacionPartes
+        ? '<div id="lbl-link-cotiz-ok" style="font-size:11px;color:var(--gn)">&#10003; Partes dejo la cotizacion de repuestos: se abre con "Cotizar mano de obra".</div>'
+        : '<div style="font-size:11px;color:var(--tx3)">Partes todavia no dejo el link de cotizacion de repuestos en esta orden.</div>';
+    } else {
+      boxCot += o.linkCotizacionPartes
+        ? '<div id="lbl-link-cotiz-ok" style="font-size:11px;color:var(--gn);margin-bottom:4px">&#10003; Link de cotizacion de repuestos guardado</div>'
+        : '<div style="font-size:11px;color:var(--tx3);margin-bottom:4px">Aun sin link de cotizacion de repuestos.</div>';
+    }
+    if (puedePegarCot) {
+      boxCot += '<div style="display:flex;gap:6px"><input id="inp-link-cotiz" class="fi" placeholder="Link de cotizacion (pegar aqui)" style="flex:1;font-size:11px;padding:6px 8px">' +
+        '<button id="btn-pegar-link-cotiz" onclick="pegarLinkCotizacion(' + id + ')" class="btn-s" style="font-size:11px;padding:6px 10px;white-space:nowrap">Guardar link</button></div>';
+    }
+    if (o.linkCotizacion) {
+      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" rel="noopener" style="font-size:11px;color:#FFD700">&#128279; Presupuesto del cliente (ya enviado)</a></div>';
+    }
+    cotizarBtnHtml += '<div id="box-link-cotiz" style="margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3)">' +
+      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Cotizacion de repuestos</div>' + boxCot + '</div>';
+  }
   var prbStatusBlock = (o.phase === 'prb') ? ('<div style="margin-bottom:8px">' + rutaSalidaBtnHtml + prbStatusBadge(o) + '</div>') : '';
   // Reproceso "informativo": Asesor y Jefe en Listo p/entrega, solo Jefe en
   // Entregado — para dejar registrado (para el reporte de REPROCESOS) que
@@ -5915,6 +5993,14 @@ function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
+  // Aviso (NO bloqueo, por decision de Byron 15 oct; se volvera bloqueo cuando
+  // el proceso del Cotizador este afinado): Partes firma sin haber dejado el
+  // link de cotizacion de repuestos para el Asesor.
+  if (o.phase === 'pa' && sigId === 'partes' && !o.linkCotizacionPartes) {
+    if (!confirm('Todavia no hay link de cotizacion de repuestos guardado en esta orden: el Asesor no lo va a encontrar al pasar a Mano de obra.
+
+¿Firmar de todos modos?')) return;
+  }
   // ea phase: block sign if no repuestos added (a menos que se haya
   // marcado explicitamente que el cliente no autorizo nada)
   if (o.phase === 'ea') {
