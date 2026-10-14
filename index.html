@@ -1459,7 +1459,36 @@ function _diffInto(updates, path, oldVal, newVal, depth) {
   }
 }
 
+// Cada linea de o.bodega[] lleva un `lid` estable (identificador propio, NO la
+// posicion): Bodega Virtual descuenta inventario identificando la linea por
+// `bodega/{i}`, y un splice/filter que quita una linea corre las posiciones
+// siguientes (descuento doble / falsa alerta roja). Las eliminaciones siguen
+// quitando la linea del arreglo; el `lid` es lo que permite reconocerla igual.
+//
+// Se asigna aqui, al guardar (en vez de en cada .push), para que NINGUN alta
+// quede sin lid aunque se agregue un sitio nuevo, y para rellenar las lineas
+// ya existentes sin migracion aparte. Es DETERMINISTA (ts + posicion de ese
+// momento, no aleatorio; unico dentro de la orden, Bodega Virtual lo combina
+// con el id de orden): si dos dispositivos rellenan la
+// misma linea a la vez escriben el mismo valor y no se pisan. Una linea que
+// ya trae lid nunca se toca. Solo ordenes activas.
+function _asegurarLidsBodega(o) {
+  if (!o || !Array.isArray(o.bodega)) return;
+  var usados = {};
+  o.bodega.forEach(function(b) { if (b && b.lid) usados[b.lid] = true; });
+  for (var i = 0; i < o.bodega.length; i++) {
+    var b = o.bodega[i];
+    if (!b || b.lid) continue;
+    var base = 'b' + (b.ts || 0).toString(36) + '-' + i;
+    var lid = base, n = 2;
+    while (usados[lid]) { lid = base + '_' + n++; }
+    b.lid = lid;
+    usados[lid] = true;
+  }
+}
+
 function save() {
+  for (var li = 0; li < orders.length; li++) _asegurarLidsBodega(orders[li]);
   // Always save locally as backup
   try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
   // Save to Firebase if connected
@@ -1828,33 +1857,6 @@ function cardMatch(o) {
 // Badge de 2 partes para la fase 'prb' (Prueba/Insp.Final) — se usa tanto en
 // la tarjeta del board como en la ficha, para que se vea igual en ambos
 // lugares: verde cuando esa firma ya se hizo, naranja mientras esta pendiente.
-// Abre el Cotizador LNS (GitHub Pages) con los datos de la orden.
-function abrirCotizador(oid) {
-  var o = orders.find(function(x){ return x.id === oid; });
-  if (!o) return;
-  var url = 'https://lubensave2026.github.io/cotizador-lns/'
-    + '?ot=' + encodeURIComponent(o.ot || o.id)
-    + '&cliente=' + encodeURIComponent(o.client || '')
-    + '&vehiculo=' + encodeURIComponent(o.model || '');
-  window.open(url, '_blank');
-}
-// El Cotizador devuelve el link que genera para el cliente: queda en el historial (mensajes) de la orden.
-window.addEventListener('message', function(ev) {
-  if (ev.origin !== 'https://lubensave2026.github.io') return;
-  var d = ev.data;
-  if (!d || d.tipo !== 'lns-cotizacion' || !d.ot || typeof d.url !== 'string' || d.url.indexOf('https://lubensave2026.github.io/cotizador-lns/') !== 0) return;
-  var o = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
-  if (!o) { toast('Cotizacion recibida, pero no encontre la orden ' + d.ot); return; }
-  o.cotizaciones = o.cotizaciones || [];
-  if (o.cotizaciones.some(function(c){ return c.url === d.url; })) { toast('Esa cotizacion ya estaba en la orden'); return; }
-  o.cotizaciones.push({url: d.url, ts: Date.now()});
-  o.linkCotizacion = d.url;
-  o.msgs = o.msgs || [];
-  o.msgs.push({who:'Cotizador', txt:'&#128221; Cotizacion enviada al cliente: <a href="' + esc(d.url) + '" target="_blank" rel="noopener">abrir presupuesto</a>', ts:Date.now(), type:'system'});
-  save(); toast('Cotizacion guardada en la orden ' + (o.ot || o.id));
-  if (typeof openId !== 'undefined' && openId === o.id) openDrw(o.id);
-});
-
 function prbStatusBadge(o) {
   var jefeDone = !!(o.sigs && o.sigs.jefe);
   var tecDone = !!(o.sigs && o.sigs.tecnico);
@@ -2191,6 +2193,52 @@ function _urlCotizador(o) {
   if (!COTIZADOR_URL) return '';
   return COTIZADOR_URL + '?ot=' + encodeURIComponent(o.ot || '') + '&cliente=' + encodeURIComponent(o.client || '') + '&vehiculo=' + encodeURIComponent(o.model || '');
 }
+// Boton "Cotizar" (14 oct 2026) -- abre el Cotizador LNS en pestana nueva
+// con los datos de la orden. window.open() SIN noopener a proposito (no
+// como el <a> que hubo antes aqui): el Cotizador necesita quedarse con
+// window.opener para poder avisarle de vuelta a esta misma pestana cuando
+// termina un presupuesto (ver el listener de 'message' justo abajo).
+// Reusa _urlCotizador/COTIZADOR_URL en vez de reescribir la URL aparte,
+// para que solo haya un lugar que actualizar si algun dia cambia.
+function abrirCotizador(oid) {
+  var o = orders.find(function(x){ return x.id === oid; });
+  if (!o) return;
+  var url = _urlCotizador(o);
+  if (!url) { toast('El Cotizador todavia no esta configurado'); return; }
+  // Si la orden ya tiene una cotizacion guardada, reusar su codigo (k) para
+  // abrir la vista de solo lectura del presupuesto ya armado, en vez de
+  // arrancar uno nuevo desde cero (14 oct 2026, Bloque 4 del Cotizador --
+  // ellos ya guardan cada presupuesto completo en su propio Firebase, bajo
+  // cotizador/presupuestos/{OT}-{codigo}). Sin esto el Cotizador igual
+  // avisa que ya existe un presupuesto y donde verlo, solo que con un paso
+  // extra.
+  if (o.linkCotizacion) {
+    var km = String(o.linkCotizacion).match(/[?&]k=([A-Za-z0-9]+)/);
+    if (km) url += '&k=' + km[1];
+  }
+  window.open(url, '_blank');
+}
+// El Cotizador devuelve el link que genera para el cliente via postMessage
+// (14 oct 2026) -- se valida el origen, la forma exacta del mensaje, y que
+// la URL recibida de verdad apunte al Cotizador (nunca se confia en datos
+// de otro origen). Queda en la orden (o.cotizaciones[], o.linkCotizacion) y
+// en la bitacora como un mensaje mas, visible donde ya se ven los demas
+// mensajes de sistema (ficha en vivo e Historial).
+window.addEventListener('message', function(ev) {
+  if (ev.origin !== 'https://lubensave2026.github.io') return;
+  var d = ev.data;
+  if (!d || d.tipo !== 'lns-cotizacion' || !d.ot || typeof d.url !== 'string' || d.url.indexOf('https://lubensave2026.github.io/cotizador-lns/') !== 0) return;
+  var o = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
+  if (!o) { toast('Cotizacion recibida, pero no encontre la orden ' + d.ot); return; }
+  o.cotizaciones = o.cotizaciones || [];
+  if (o.cotizaciones.some(function(c){ return c.url === d.url; })) { toast('Esa cotizacion ya estaba en la orden'); return; }
+  o.cotizaciones.push({url: d.url, ts: Date.now()});
+  o.linkCotizacion = d.url;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:'Cotizador', txt:'&#128221; Cotizacion enviada al cliente: <a href="' + esc(d.url) + '" target="_blank" rel="noopener">abrir presupuesto</a>', ts:Date.now(), type:'system'});
+  save(); toast('Cotizacion guardada en la orden ' + (o.ot || o.id));
+  if (typeof openId !== 'undefined' && openId === o.id) openDrw(o.id);
+});
 var CATALOGO_BODEGA_TTL_MS = 10 * 60 * 1000; // 10 min — con margen sobre los 5 min de cache del lado de Bodega Virtual
 var _catalogoBodega = { items: null, ts: 0, loading: false, error: false, _pendientes: [] };
 
@@ -3183,15 +3231,14 @@ function openDrw(id) {
         ? '<button id="btn-cm-link" data-oid="' + id + '" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">' + (o.cmUrl ? 'Editar' : '&#43; Agregar') + '</button>'
         : '') +
     '</span></div>';
-  // Puente al Cotizador externo (13 oct 2026, pedido de Byron): visible
-  // solo mientras la orden esta en Presupuesto (pa/pb) -- antes de eso no
-  // hay nada que cotizar, despues ya deberia estar resuelto -- y solo si
-  // Byron ya configuro COTIZADOR_URL (ver arriba). Pasa OT/cliente/vehiculo
-  // por la URL para no tener que volver a buscar la orden alla.
-  var cotizadorUrlRow = (o.phase === 'pa' || o.phase === 'pb') ? _urlCotizador(o) : '';
-  var cotizadorRowHtml = cotizadorUrlRow
-    ? '<div class="irow" style="align-items:center"><span class="ik">&#128202; Cotizador</span><a href="' + esc(cotizadorUrlRow) + '" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:11px">Abrir en Cotizador &#8599;</a></div>'
-    : '';
+  // El puente al Cotizador externo vive como boton "Cotizar" en la seccion
+  // "Firmas y Vo.Bo." (ver cotizarBtnHtml mas abajo, junto a prbStatusBlock)
+  // -- antes hubo tambien un enlace aqui en Informacion, quitado el 14 oct
+  // 2026 porque quedaba duplicado con ese boton y porque un <a> con
+  // rel="noopener" bloquea que el Cotizador pueda avisarle de vuelta a esta
+  // misma pestana cuando termina (ver el window.addEventListener('message')
+  // mas abajo) -- el boton usa window.open() sin noopener a proposito, para
+  // que ese aviso de regreso funcione.
   // Tecnicos de apoyo (26 sep 2026): prestamo temporal de otro tecnico del
   // taller a esta orden, sin tocar Tecnico/Tecnico 2 ni la Capacidad del
   // taller — caso real: Byron le pidio a Pablo y Kevin que avanzaran la
@@ -3253,7 +3300,6 @@ function openDrw(id) {
       : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
     cmRowHtml +
-    cotizadorRowHtml +
     (o.numFisico ? '<div class="irow"><span class="ik">No. orden fisica</span><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + (o.colorFisico === 'azul' ? '#1565C0' : o.colorFisico === 'amarillo' ? '#F9A825' : o.colorFisico === 'verde' ? '#2E7D32' : '#555') + ';color:#fff;font-size:12px;font-weight:700">' + o.numFisico + '</span><span style="color:var(--tx2);font-size:11px">' + (o.colorFisico || '') + '</span></span></div>' : '') +
     '<div class="irow"><span class="ik">Tiempo en esta fase</span><span style="color:var(--or)">' + (timeInPhase || 'Recien ingresado') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
@@ -8813,6 +8859,10 @@ function buildBodegaPartsTable(rows) {
         this.checked = false;
         return;
       }
+      // Bodega Virtual exige que una linea con despachado:true ya tenga lid:
+      // se asegura aqui mismo, antes de marcarla (y save() la escribe en la
+      // MISMA operacion db.ref().update, junto con el despachado).
+      _asegurarLidsBodega(ox2);
       ox2.bodega[idx2].despachado = newVal;
       if (newVal) ox2.bodega[idx2].despachadoTs = Date.now(); else delete ox2.bodega[idx2].despachadoTs;
       var who = ROLES[role] ? ROLES[role].label : role;
