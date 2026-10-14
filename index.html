@@ -2191,7 +2191,11 @@ var CATALOGO_BODEGA_URL = 'https://us-central1-lube-n-save-flow.cloudfunctions.n
 var COTIZADOR_URL = 'https://lubensave2026.github.io/cotizador-lns/';
 function _urlCotizador(o) {
   if (!COTIZADOR_URL) return '';
-  return COTIZADOR_URL + '?ot=' + encodeURIComponent(o.ot || '') + '&cliente=' + encodeURIComponent(o.client || '') + '&vehiculo=' + encodeURIComponent(o.model || '');
+  var url = COTIZADOR_URL + '?ot=' + encodeURIComponent(o.ot || '') + '&cliente=' + encodeURIComponent(o.client || '') + '&vehiculo=' + encodeURIComponent(o.model || '');
+  // 15 oct: el Cotizador tambien recibe el link de Clear Mechanic y la placa.
+  if (o.cmUrl) url += '&link=' + encodeURIComponent(o.cmUrl);
+  if (o.plate) url += '&placa=' + encodeURIComponent(o.plate);
+  return url;
 }
 // Boton "Cotizar" (14 oct 2026) -- abre el Cotizador LNS en pestana nueva
 // con los datos de la orden. window.open() SIN noopener a proposito (no
