@@ -2203,6 +2203,7 @@ function _urlCotizador(o) {
 function abrirCotizador(oid) {
   var o = orders.find(function(x){ return x.id === oid; });
   if (!o) return;
+  if (!_puedeCotizarEnFase(o.phase)) { toast('No tienes permiso para cotizar en esta fase'); return; }
   // Bloque 5: en Presup. M/O el asesor abre directo la cotizacion de
   // repuestos que dejo Partes (si existe y su rol puede verla).
   if (o.phase === 'pb' && o.linkCotizacionPartes && _puedeVerLinkCotizPartes()) { window.open(o.linkCotizacionPartes, '_blank'); return; }
@@ -2279,6 +2280,15 @@ function _registrarCotizacion(o, url, who, prefijoMsg) {
 // costos y margenes internos, asi que NUNCA se muestra a tecnicos/mensajero
 // ni se pone como enlace en la bitacora (la bitacora la ve cualquier rol).
 function _puedeVerLinkCotizPartes() { return role === 'jefe' || role === 'asesor' || role === 'partes'; }
+// Quien puede usar el Cotizador segun la fase (15 oct, pedido de Byron):
+// Presup. Partes (pa) -> Partes (y Jefe); Presup. M/O (pb) -> Asesor (y Jefe).
+// El Asesor NO entra al Cotizador mientras la orden esta en pa.
+function _puedeCotizarEnFase(fase) {
+  if (role === 'jefe') return fase === 'pa' || fase === 'pb';
+  if (fase === 'pa') return role === 'partes';
+  if (fase === 'pb') return role === 'asesor';
+  return false;
+}
 function _urlCotizPartesValida(url) {
   return typeof url === 'string' && !!COTIZADOR_URL && url.indexOf(COTIZADOR_URL) === 0 && url.indexOf('#t=') !== -1 && url.length < 4000;
 }
@@ -3545,13 +3555,13 @@ function openDrw(id) {
     ? '<button id="btn-ruta-salida" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825;font-size:12px;font-weight:600;cursor:pointer">&#128663; Marcar salida a ruta</button>'
     : '';
   // Boton "Cotizar" (fases de Presupuesto: pa/pb) - abre el Cotizador LNS en pestana nueva pasando OT, cliente y vehiculo por URL.
-  var cotizarBtnHtml = (o.phase === 'pa' || o.phase === 'pb')
+  var cotizarBtnHtml = ((o.phase === 'pa' || o.phase === 'pb') && _puedeCotizarEnFase(o.phase))
     ? '<button id="btn-cotizar" data-oid="' + id + '" onclick="abrirCotizador(' + id + ')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.12);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128221; ' + (o.phase === 'pb' ? 'Cotizar mano de obra' : 'Cotizar repuestos') + '</button>'
     : '';
   // Recuadro del Cotizador (pa/pb), solo roles que pueden ver costos: campo de
   // respaldo para pegar el link de repuestos (Partes, fase pa), boton para el
   // Asesor en pb, y el link del presupuesto del cliente si ya existe.
-  if ((o.phase === 'pa' || o.phase === 'pb') && _puedeVerLinkCotizPartes()) {
+  if ((o.phase === 'pa' || o.phase === 'pb') && _puedeCotizarEnFase(o.phase)) {
     var puedePegarCot = (o.phase === 'pa' && (role === 'jefe' || role === 'partes'));
     var boxCot = '';
     if (o.phase === 'pb') {
@@ -4204,6 +4214,10 @@ function openDrw(id) {
   // fase. Jefe y Asesor pueden hacerlo en cualquier fase (correcciones,
   // registro posterior, etc.).
   var canAddTrabajo = (role === 'jefe') || (role === 'asesor') || (r.tec && ordTecs.indexOf(r.tn) !== -1 && o.phase === 'ab');
+  // Marcar un trabajo como realizado ("verificar") es parte de cerrar la fase
+  // Trabajando: solo el tecnico asignado (mientras esta en ab) y el Jefe. El
+  // Asesor puede AGREGAR trabajos pero no verificarlos (15 oct, Byron).
+  var canVerifTrab = (role === 'jefe') || (r.tec && ordTecs.indexOf(r.tn) !== -1 && o.phase === 'ab');
   var trabajosList = o.trabajos || [];
   var totalHoras = 0;
   for (var twi = 0; twi < trabajosList.length; twi++) { totalHoras += parseFloat(trabajosList[twi].horas) || 0; }
@@ -4273,7 +4287,7 @@ function openDrw(id) {
     // Casilla de verificacion: el tecnico (u otro con permiso de registrar
     // trabajos) la marca cuando confirma que ese trabajo especifico ya quedo
     // realizado — es el requisito para poder firmar "Tecnico Finaliza".
-    var verChk = canAddTrabajo
+    var verChk = canVerifTrab
       ? '<input type="checkbox" class="chk-trab-verificado" data-ti="' + twi2 + '"' + (tw.verificado ? ' checked' : '') + ' title="Marcar como ya realizado" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">'
       : '<span title="' + (tw.verificado ? 'Realizado' : 'Pendiente de verificar') + '" style="font-size:13px;flex-shrink:0">' + (tw.verificado ? '&#9989;' : '&#9075;') + '</span>';
     trabajosHtml += '<div style="background:var(--bg3);border:1px solid ' + (tw.verificado ? 'var(--gnbd)' : 'var(--bd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
@@ -4987,7 +5001,7 @@ function openDrw(id) {
         var ordTecs4 = [];
         if (ox.tech) ordTecs4.push(ox.tech);
         if (ox.tech2) ordTecs4.push(ox.tech2);
-        var canVerify = (role === 'jefe') || (role === 'asesor') || (rMe4 && rMe4.tec && ordTecs4.indexOf(rMe4.tn) !== -1 && ox.phase === 'ab');
+        var canVerify = (role === 'jefe') || (rMe4 && rMe4.tec && ordTecs4.indexOf(rMe4.tn) !== -1 && ox.phase === 'ab');
         if (!canVerify) { toast('No tienes permiso para verificar este trabajo'); openDrw(id); return; }
         ox.trabajos[ti4].verificado = this.checked;
         var who4 = ROLES[role] ? ROLES[role].label : role;
