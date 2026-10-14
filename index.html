@@ -5997,9 +5997,7 @@ function doSign(id, sigId) {
   // el proceso del Cotizador este afinado): Partes firma sin haber dejado el
   // link de cotizacion de repuestos para el Asesor.
   if (o.phase === 'pa' && sigId === 'partes' && !o.linkCotizacionPartes) {
-    if (!confirm('Todavia no hay link de cotizacion de repuestos guardado en esta orden: el Asesor no lo va a encontrar al pasar a Mano de obra.
-
-¿Firmar de todos modos?')) return;
+    if (!confirm('Todavia no hay link de cotizacion de repuestos guardado en esta orden: el Asesor no lo va a encontrar al pasar a Mano de obra.\n\n¿Firmar de todos modos?')) return;
   }
   // ea phase: block sign if no repuestos added (a menos que se haya
   // marcado explicitamente que el cliente no autorizo nada)
