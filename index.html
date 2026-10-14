@@ -2230,6 +2230,22 @@ function abrirCotizador(oid) {
 window.addEventListener('message', function(ev) {
   if (ev.origin !== 'https://lubensave2026.github.io') return;
   var d = ev.data;
+  // Aviso de que el Asesor cambio repuestos/mano de obra respecto de lo que
+  // dejo Partes (15 oct). No trae link: solo OT, ts y un resumen corto.
+  if (d && d.tipo === 'lns-cotizacion-modificada') {
+    if (!d.ot || typeof d.resumen !== 'string' || typeof d.ts !== 'number') return;
+    var om = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
+    if (!om) { toast('Aviso de cotizacion modificada, pero no encontre la orden ' + d.ot); return; }
+    if (om.cotizacionModificadaTs === d.ts) return; // mismo aviso repetido
+    var resumenCot = d.resumen.trim().slice(0, 200);
+    om.cotizacionModificadaTs = d.ts;
+    om.msgs = om.msgs || [];
+    om.msgs.push({who:'Cotizador', txt:'&#9888; Cotizacion modificada por el asesor: ' + esc(resumenCot), ts:Date.now(), type:'system'});
+    addNotif('Cotizacion modificada por el asesor en ' + (om.plate || om.ot) + ': ' + resumenCot, om.id);
+    save(); toast('Cotizacion modificada por el asesor en la orden ' + (om.ot || om.id));
+    if (typeof openId !== 'undefined' && openId === om.id) openDrw(om.id);
+    return;
+  }
   if (!d || (d.tipo !== 'lns-cotizacion' && d.tipo !== 'lns-cotizacion-partes') || !d.ot || typeof d.url !== 'string' || d.url.indexOf('https://lubensave2026.github.io/cotizador-lns/') !== 0) return;
   var o = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
   if (!o) { toast('Cotizacion recibida, pero no encontre la orden ' + d.ot); return; }
