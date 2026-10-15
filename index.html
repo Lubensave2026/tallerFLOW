@@ -7939,22 +7939,20 @@ function buildRepContent() {
         ? '<optgroup label="Ya no trabajan aqui">' + TEC_NAMES_HISTORICOS.map(function(t){ return '<option>' + esc(t) + '</option>'; }).join('') + '</optgroup>'
         : '') +
     '</select>') +
-    '<select id="rep-fil-phase" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer" onchange="repApplyFilters()">' +
-      '<option value="">Todos los estatus</option>' +
-      '<option value="rec">Recepcion</option>' +
-      '<option value="aa">Espera-asignacion</option>' +
-      '<option value="ab">En proceso</option>' +
-      '<option value="pa">Presup. Partes</option>' +
-      '<option value="pb">Presup. M/O</option>' +
-      '<option value="ea">Esp. autorizacion</option>' +
-      '<option value="er">Esp. repuestos</option>' +
-      '<option value="det">Detenido</option>' +
-      '<option value="ext">Trabajo externo</option>' +
-      '<option value="prb">Prueba/Insp.Final</option>' +
-      '<option value="lav">Lavado</option>' +
-      '<option value="lst">Listo p/entrega</option>' +
-      '<option value="ent">Entregado</option>' +
-    '</select>' +
+    // Estatus: seleccion MULTIPLE (15 oct 2026, pedido de Byron) — p.ej. solo
+    // Presup. Partes + Presup. M/O, o solo Lavado + Listo p/entrega. Ninguna
+    // casilla marcada = todos los estatus. Las casillas son la fuente de la
+    // verdad (se leen del DOM), asi que al reconstruir el reporte vuelve a
+    // "todos", igual que el selector anterior.
+    '<div id="rep-fil-phase-wrap" style="position:relative;display:inline-block">' +
+      '<button type="button" id="rep-fil-phase-btn" onclick="toggleRepPhasePanel()" style="font-size:12px;padding:6px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);outline:none;cursor:pointer">Todos los estatus &#9662;</button>' +
+      '<div id="rep-fil-phase-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:60;min-width:190px;max-height:340px;overflow-y:auto;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:8px 10px;box-shadow:0 6px 18px rgba(0,0,0,.5)">' +
+        _REP_FASES_FILTRO.map(function(f) {
+          return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;color:var(--tx);cursor:pointer;white-space:nowrap"><input type="checkbox" class="rep-fil-ph-chk" value="' + f[0] + '" onchange="repPhaseChanged()" style="width:15px;height:15px;cursor:pointer">' + f[1] + '</label>';
+        }).join('') +
+        '<button type="button" onclick="repPhaseClear()" style="margin-top:6px;width:100%;font-size:11px;padding:5px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">Quitar seleccion (todos)</button>' +
+      '</div>' +
+    '</div>' +
     ((role === 'jefe' || role === 'asesor' || role === 'partes')
       ? '<button id="rep-fil-monto" data-active="0" onclick="toggleRepFilterMonto()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128181; Solo con monto</button>'
       : '') +
@@ -10629,10 +10627,10 @@ function exportOrderSummaryCSV() {
 // ninguna orden ni escribe a Firebase.
 function _repExportVisibleRows() {
   var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
-  var phaseFilter = (document.getElementById('rep-fil-phase') || {}).value || '';
+  var phaseFilter = _repFasesSeleccionadas();
   var soloMonto = _repFilterMontoActivo();
   return _repExportRows.filter(function(r) {
-    return (!tecFilter || r._tec === tecFilter) && (!phaseFilter || r._phase === phaseFilter) && (!soloMonto || r._monto);
+    return (!tecFilter || r._tec === tecFilter) && (!phaseFilter.length || phaseFilter.indexOf(r._phase) >= 0) && (!soloMonto || r._monto);
   });
 }
 function exportRepGeneralCSV() {
@@ -14035,9 +14033,49 @@ function _repFilterMontoActivo() {
   return !!(btn && btn.getAttribute('data-active') === '1');
 }
 
+var _REP_FASES_FILTRO = [['rec','Recepcion'],['aa','Espera-asignacion'],['ab','En proceso'],['pa','Presup. Partes'],['pb','Presup. M/O'],['ea','Esp. autorizacion'],['er','Esp. repuestos'],['det','Detenido'],['ext','Trabajo externo'],['prb','Prueba/Insp.Final'],['lav','Lavado'],['lst','Listo p/entrega'],['ent','Entregado']];
+// Estatus marcados en el filtro (vacio = todos). Lee las casillas del DOM.
+function _repFasesSeleccionadas() {
+  var out = [];
+  var chks = document.querySelectorAll('.rep-fil-ph-chk');
+  for (var i = 0; i < chks.length; i++) { if (chks[i].checked) out.push(chks[i].value); }
+  return out;
+}
+function _repActualizarEtiquetaFases() {
+  var btn = document.getElementById('rep-fil-phase-btn');
+  if (!btn) return;
+  var sel = _repFasesSeleccionadas();
+  var txt;
+  if (!sel.length) txt = 'Todos los estatus';
+  else if (sel.length === 1) { txt = sel[0]; _REP_FASES_FILTRO.forEach(function(f){ if (f[0] === sel[0]) txt = f[1]; }); }
+  else txt = sel.length + ' estatus';
+  btn.innerHTML = txt + ' &#9662;';
+  btn.style.borderColor = sel.length ? '#3D7EFF' : 'var(--bd)';
+  btn.style.color = sel.length ? '#3D7EFF' : 'var(--tx)';
+}
+function toggleRepPhasePanel() {
+  var pn = document.getElementById('rep-fil-phase-panel');
+  if (!pn) return;
+  pn.style.display = (pn.style.display === 'none' || !pn.style.display) ? 'block' : 'none';
+}
+function repPhaseChanged() { _repActualizarEtiquetaFases(); repApplyFilters(); }
+function repPhaseClear() {
+  var chks = document.querySelectorAll('.rep-fil-ph-chk');
+  for (var i = 0; i < chks.length; i++) chks[i].checked = false;
+  repPhaseChanged();
+}
+// Cierra el panel al tocar fuera de el.
+document.addEventListener('click', function(e) {
+  var pn = document.getElementById('rep-fil-phase-panel');
+  if (!pn || pn.style.display === 'none') return;
+  var t = e && e.target;
+  if (t && t.closest && t.closest('#rep-fil-phase-wrap')) return;
+  pn.style.display = 'none';
+});
+
 function repApplyFilters() {
   var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
-  var phaseFilter = (document.getElementById('rep-fil-phase') || {}).value || '';
+  var phaseFilter = _repFasesSeleccionadas();
   var soloMonto = _repFilterMontoActivo();
   var rows = document.querySelectorAll('#rep-table-wrap tbody tr');
   var visible = 0;
@@ -14046,7 +14084,7 @@ function repApplyFilters() {
     var tec = row.getAttribute('data-tec') || '';
     var phase = row.getAttribute('data-phase') || '';
     var tieneMonto = row.getAttribute('data-monto') === '1';
-    var show = (!tecFilter || tec === tecFilter) && (!phaseFilter || phase === phaseFilter) && (!soloMonto || tieneMonto);
+    var show = (!tecFilter || tec === tecFilter) && (!phaseFilter.length || phaseFilter.indexOf(phase) >= 0) && (!soloMonto || tieneMonto);
     row.style.display = show ? '' : 'none';
     if (show) visible++;
   }
@@ -14071,9 +14109,10 @@ function toggleRepFilterMonto() {
 
 function repClearFilters() {
   var t = document.getElementById('rep-fil-tec');
-  var p = document.getElementById('rep-fil-phase');
   if (t) t.value = '';
-  if (p) p.value = '';
+  var chksL = document.querySelectorAll('.rep-fil-ph-chk');
+  for (var ci = 0; ci < chksL.length; ci++) chksL[ci].checked = false;
+  _repActualizarEtiquetaFases();
   var m = document.getElementById('rep-fil-monto');
   if (m && m.getAttribute('data-active') === '1') {
     m.setAttribute('data-active', '0');
