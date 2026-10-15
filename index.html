@@ -2956,6 +2956,45 @@ function agregarServicioSolicitadoRetro(id, nivel) {
   openDrw(id);
 }
 
+// Corregir el nivel de Servicio ya marcado (15 oct 2026, caso real de Byron:
+// marco "Servicio menor" por error y era "Servicio intermedio", y no habia
+// forma de cambiarlo — agregarServicioSolicitadoRetro se bloquea si ya hay
+// uno). Jefe/Asesor. Cambia o.tipoServicioSolicitado y corrige el texto de
+// "Trabajos solicitados por el cliente": quita la etiqueta vieja y agrega la
+// nueva solo si todavia no estaba escrita. Si ya se aplico una Plantilla de
+// otro nivel, no se toca (primero hay que cambiarla/quitarla ahi, para no
+// dejar repuestos de un nivel con otro nivel marcado).
+function cambiarServicioSolicitadoRetro(id, nivel) {
+  if (!(role === 'jefe' || role === 'asesor')) { toast('Solo el Asesor de servicio o el Jefe de taller pueden cambiar esto'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || !o.tipoServicioSolicitado) return;
+  var nuevoTxt = _SERVICIO_RETRO_LABEL[nivel], viejoTxt = _SERVICIO_RETRO_LABEL[o.tipoServicioSolicitado];
+  if (!nuevoTxt || nivel === o.tipoServicioSolicitado) return;
+  if (o.tipoServicioAplicado && o.tipoServicioAplicado !== nivel) {
+    toast('Ya se aplico la Plantilla de ' + (SERVICIO_TEMPLATE_LABELS[o.tipoServicioAplicado] || o.tipoServicioAplicado) + ' — cambiala o quitala primero en la seccion de Repuestos'); return;
+  }
+  if (!confirm('¿Cambiar el Servicio de "' + viejoTxt + '" a "' + nuevoTxt + '"?\n\nSe corrige tambien el texto de "Trabajos solicitados por el cliente".')) return;
+  var desc = o.desc || '';
+  // Quita la etiqueta vieja (sin distinguir mayusculas) junto con la coma que
+  // la precede, sin usar regex para no tropezar con caracteres especiales.
+  var posViejo = desc.toLowerCase().lastIndexOf(viejoTxt.toLowerCase());
+  if (posViejo !== -1) {
+    var antes = desc.slice(0, posViejo).replace(/[,\s]+$/, '');
+    desc = (antes + ' ' + desc.slice(posViejo + viejoTxt.length)).trim();
+  }
+  desc = desc.replace(/[,\s]+$/, '').trim();
+  if (desc.toLowerCase().indexOf(nuevoTxt.toLowerCase()) === -1) desc = desc ? desc + ', ' + nuevoTxt : nuevoTxt;
+  o.desc = desc;
+  o.tipoServicioSolicitado = nivel;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:who, txt:'&#128172; Servicio de la solicitud corregido: "' + viejoTxt + '" -> "' + nuevoTxt + '"', ts:Date.now(), type:'system'});
+  save();
+  toast('Servicio corregido a ' + nuevoTxt);
+  openDrw(id);
+}
+
 // Quejas de clientes (pedido de Byron, 8 oct 2026): metrica para el Asesor
 // de servicio — registrar cuando un cliente se queja (atraso, cobro
 // indebido, falta de seguimiento, etc.), acumulado por orden y agregado por
@@ -3496,7 +3535,13 @@ function openDrw(id) {
           '<button type="button" onclick="agregarServicioSolicitadoRetro(' + id + ',\'servicioMayor\')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#10133; Servicio mayor</button>' +
         '</div>'
       : (canEditDesc && o.tipoServicioSolicitado
-          ? '<div style="font-size:10px;color:var(--gn);margin-top:8px">&#10003; Servicio ya en la solicitud — el tecnico puede usar la Plantilla de servicio (seccion de Repuestos, mas abajo).</div>'
+          ? '<div style="font-size:10px;color:var(--gn);margin-top:8px">&#10003; Servicio ya en la solicitud (' + (_SERVICIO_RETRO_LABEL[o.tipoServicioSolicitado] || o.tipoServicioSolicitado) + ') — el tecnico puede usar la Plantilla de servicio (seccion de Repuestos, mas abajo).</div>' +
+            '<div style="font-size:10px;color:var(--tx3);margin-top:6px;margin-bottom:4px">&#9998; Se marco el nivel equivocado? Corregir a:</div>' +
+            '<div id="cambiar-servicio-retro" style="display:flex;gap:6px;flex-wrap:wrap">' +
+              ['servicioMenor','servicioIntermedio','servicioMayor'].filter(function(n){ return n !== o.tipoServicioSolicitado; }).map(function(n){
+                return '<button type="button" onclick="cambiarServicioSolicitadoRetro(' + id + ',\'' + n + '\')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">' + _SERVICIO_RETRO_LABEL[n] + '</button>';
+              }).join('') +
+            '</div>'
           : '')) +
   '</div>';
 
@@ -7990,6 +8035,10 @@ function buildRepContent() {
               '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">% Productividad</th>'
             : '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">T. fase</th>')) +
       ((role === 'jefe' || role === 'asesor' || role === 'partes') ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap">Fact. potencial</th>' : '') +
+      ((tecActivo && (role === 'jefe' || role === 'asesor' || role === 'partes'))
+        ? '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap" title="Mano de obra de la orden repartida entre sus tecnicos segun sus horas de comision">M.O. (prop.)</th>' +
+          '<th style="padding:7px 8px;text-align:right;border-bottom:2px solid #FFD700;white-space:nowrap" title="Total facturado de la orden repartido entre sus tecnicos segun sus horas de comision">Facturado (prop.)</th>'
+        : '') +
     '</tr></thead><tbody>';
 
   // Encabezado del export: mismas columnas que se acaban de dibujar arriba,
@@ -8010,6 +8059,7 @@ function buildRepContent() {
     // el monto en rojo entre parentesis) — sin ella, sumar la columna de
     // Fact. potencial en Excel contaria doble lo ya facturado.
     _repExportHeader.push('Fact. potencial','Ya facturada');
+    if (tecActivo) _repExportHeader.push('M.O. proporcional','Facturado proporcional');
   }
   _repExportRows = [];
 
@@ -8079,6 +8129,23 @@ function buildRepContent() {
     // tarjeta del board y en la ficha, pero a nivel de ORDEN (no dividido
     // entre tecnicos) — asi salta a la vista una orden con horas
     // Trabajando pero SIN ninguna hora de comision asignada todavia.
+    var propMoTxt = '', propTotTxt = '', propMoNum = '', propTotNum = '', propCells = '', propPct = null;
+    if (tecActivo && (role === 'jefe' || role === 'asesor' || role === 'partes')) {
+      var _oRow = o;
+      propPct = _porcionTecnicoOrden(_oRow, tecActivo, function(n) {
+        return vistaCerradas ? (_tecOrdenCuentaEnMes(_oRow, n, curYc, curMc) || calcTecHoras(_oRow, n)) : calcTecHoras(_oRow, n);
+      });
+      var baseMontos = _montosBaseOrden(o);
+      var moProp = baseMontos.mo * propPct, totProp = baseMontos.total * propPct;
+      var fmtQ = function(v) { return 'Q.' + Number(v).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+      propMoTxt = baseMontos.mo ? fmtQ(moProp) : '—';
+      propTotTxt = baseMontos.total ? fmtQ(totProp) : '—';
+      propMoNum = baseMontos.mo ? _csvNum(moProp.toFixed(2)) : '';
+      propTotNum = baseMontos.total ? _csvNum(totProp.toFixed(2)) : '';
+      var propTit = (propPct < 1 ? ('Le toca ' + Math.round(propPct * 100) + '% de la orden (horas de comision)') : 'Orden de un solo tecnico: 100%');
+      propCells = '<td title="' + propTit + '" style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx2)">' + propMoTxt + '</td>' +
+        '<td title="' + propTit + '" style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;font-family:var(--mo);color:var(--tx2)">' + propTotTxt + '</td>';
+    }
     var jefeProdRowCells = '';
     if (role === 'jefe' && _jefeShowProdCols) {
       var hrsRealRow2 = _sumPhaseHours(o, 'ab');
@@ -8141,7 +8208,7 @@ function buildRepContent() {
       '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.tech||'Sin asignar') + (o.tech2?' + '+esc(o.tech2.split(' ')[0]):'') + '</td>' +
       (tecActivo ? tecRowCells : ((role === 'jefe' && _jefeShowProdCols) ? jefeProdRowCells : '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>')) +
-      factPotencialCell +
+      factPotencialCell + propCells +
     '</tr>';
 
     // Misma fila, en texto plano, para el export a Excel. Se guardan tambien
@@ -8169,6 +8236,7 @@ function buildRepContent() {
     if (role === 'jefe' || role === 'asesor' || role === 'partes') {
       expRow.push(o.montoTotal ? _csvNum(Number(o.montoTotal).toFixed(2)) : '');
       expRow.push(o.montoFacturadoTotal ? 'Si' : '');
+      if (tecActivo) expRow.push(propMoNum, propTotNum);
     }
     expRow._tec = o.tech || '';
     expRow._phase = o.phase || '';
@@ -12117,18 +12185,39 @@ function calcTecHoras(o, tecName) {
 function _tecOrdenCuentaEnMes(o, tecName, yearTarget, monthTarget) {
   if (o.tech !== tecName && o.tech2 !== tecName && (o.tecnicosApoyo||[]).indexOf(tecName) === -1) return null;
   var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
+  var frozenEnMes = false;
   if (frozenHoras) {
     var fd = new Date(o.horasFacturadoSnapshot.ts);
-    if (fd.getFullYear() === yearTarget && fd.getMonth() === monthTarget) return frozenHoras;
+    frozenEnMes = (fd.getFullYear() === yearTarget && fd.getMonth() === monthTarget);
   }
+  var cierreEnMes = false;
   if (o.phase === 'cer') {
     var closeTs = o.timestamps && o.timestamps.cer;
     if (closeTs) {
       var cd = new Date(closeTs);
-      if (cd.getFullYear() === yearTarget && cd.getMonth() === monthTarget) return calcTecHoras(o, tecName);
+      cierreEnMes = (cd.getFullYear() === yearTarget && cd.getMonth() === monthTarget);
     }
   }
-  return null;
+  if (!frozenEnMes && !cierreEnMes) return null;
+  // Sin congelamiento previo: lo de siempre (horas en vivo del cierre del mes).
+  if (!frozenHoras) return calcTecHoras(o, tecName);
+  // Con "Ya facturada" (cierre parcial): las horas CONGELADAS pertenecen al
+  // mes del congelamiento, y lo que se trabajo DESPUES (horas en vivo menos
+  // las congeladas) pertenece al mes en que la orden vuelve a cerrarse —
+  // igual que ya hacia _calcTecHorasCerradasEnMes y el dinero. (BUG REAL,
+  // Byron 15 oct 2026, orden 5328: 28 h congeladas en septiembre, 31.25 h en
+  // total; octubre mostraba las 28 en vez de solo las 3.25 adicionales.)
+  var live = calcTecHoras(o, tecName);
+  var delta = {
+    real: Math.max(0, live.real - frozenHoras.real),
+    flat: Math.max(0, live.flat - frozenHoras.flat),
+    abVeces: Math.max(0, (live.abVeces || 0) - (frozenHoras.abVeces || 0))
+  };
+  if (frozenEnMes && cierreEnMes) {
+    return {real: frozenHoras.real + delta.real, flat: frozenHoras.flat + delta.flat, abVeces: (frozenHoras.abVeces || 0) + delta.abVeces};
+  }
+  if (frozenEnMes) return frozenHoras;
+  return delta;
 }
 
 // Color segun el % de productividad de una orden en Trabajando (hrs. de
@@ -14045,6 +14134,30 @@ function volverDeVerCerradasDeTec() {
 // de que el dato de cada quien salga correcto al filtrar despues por la
 // columna "Tecnico" en Excel, aunque signifique el mismo No. de OR
 // repetido en 2 filas.
+// Reparto del dinero de una orden entre sus tecnicos (15 oct 2026, pedido de
+// Byron): en el reporte por tecnico, una orden con 2 tecnicos mostraba el
+// monto COMPLETO en ambas filas, asi que sumar la columna daba de mas. Estas
+// columnas NUEVAS (las de siempre no se tocan) reparten el monto segun las
+// horas de comision (flat) de cada tecnico en esa orden — la misma base de la
+// comision; si todavia nadie tiene horas asignadas, 50/50. Con un solo
+// tecnico le toca todo (1). getHoras(nombre) devuelve {flat} (congelado o en
+// vivo, segun la vista que llame).
+function _porcionTecnicoOrden(o, tecName, getHoras) {
+  var otro = (o.tech === tecName) ? o.tech2 : o.tech;
+  if (!o.tech2 || !otro || otro === tecName) return 1;
+  var miFlat = (getHoras(tecName) || {}).flat || 0;
+  var otroFlat = (getHoras(otro) || {}).flat || 0;
+  var tot = miFlat + otroFlat;
+  return tot > 0 ? (miFlat / tot) : 0.5;
+}
+// Monto base de la orden para repartir: si ya esta "Ya facturada" (congelada)
+// se usa lo congelado, si no el monto autorizado actual.
+function _montosBaseOrden(o) {
+  return {
+    total: Number(o.montoFacturadoTotal || o.montoTotal || 0),
+    mo: Number(o.montoFacturadoTotal ? (o.montoFacturadoMO || 0) : (o.montoMO || 0))
+  };
+}
 function exportTodosTecnicosCerradosCSV() {
   if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar esto'); return; }
   // Dentro de "Cerradas de un tecnico" (_jefeVerCerradasDeTec activo) las
@@ -14057,7 +14170,7 @@ function exportTodosTecnicosCerradosCSV() {
   var curYc = prodTargetDate.getFullYear(), curMc = prodTargetDate.getMonth();
   var monthLabel = prodTargetDate.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
 
-  var rows = [['Tecnico','OR #','Ingreso','Estatus','Cliente','Vehiculo','No.','Placa','Hrs. En Proceso','Hrs. Pagadas','% Productividad','Fact. potencial','Ya facturada']];
+  var rows = [['Tecnico','OR #','Ingreso','Estatus','Cliente','Vehiculo','No.','Placa','Hrs. En Proceso','Hrs. Pagadas','% Productividad','Fact. potencial','Ya facturada','M.O. proporcional','Facturado proporcional']];
 
   // Incluye tambien TEC_NAMES_HISTORICOS (6 oct 2026, caso real: Kevin
   // Sulecio de baja con ordenes Ya Facturadas-y-reabiertas que siguen
@@ -14097,13 +14210,19 @@ function exportTodosTecnicosCerradosCSV() {
       // la tabla en pantalla.
       var tecHoras = _tecOrdenCuentaEnMes(o, tecName, curYc, curMc) || calcTecHoras(o, tecName);
       var pctTec = tecHoras.real > 0 ? Math.round(tecHoras.flat / tecHoras.real * 100) : null;
+      var _tecN = tecName, _oN = o;
+      var porcionCsv = _porcionTecnicoOrden(_oN, _tecN, function(n) { return _tecOrdenCuentaEnMes(_oN, n, curYc, curMc) || calcTecHoras(_oN, n); });
+      var baseCsv = _montosBaseOrden(o);
+      var propMoCsv = baseCsv.mo ? _csvNum((baseCsv.mo * porcionCsv).toFixed(2)) : '';
+      var propTotCsv = baseCsv.total ? _csvNum((baseCsv.total * porcionCsv).toFixed(2)) : '';
       rows.push([
         tecName, o.ot || '', fecha, pc.label || o.phase, o.client || '', o.model || '',
         o.numFisico || '', o.plate || '',
         _csvNum(tecHoras.real.toFixed(2)), _csvNum(tecHoras.flat.toFixed(2)),
         pctTec !== null ? pctTec + '%' : '',
         o.montoTotal ? _csvNum(Number(o.montoTotal).toFixed(2)) : '',
-        o.montoFacturadoTotal ? 'Si' : ''
+        o.montoFacturadoTotal ? 'Si' : '',
+        propMoCsv, propTotCsv
       ]);
     }
   }
