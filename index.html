@@ -2262,6 +2262,28 @@ window.addEventListener('message', function(ev) {
   }
   _registrarCotizacion(o, d.url, 'Cotizador', '&#128221; Cotizacion enviada al cliente: ');
 });
+// Filas fijas de la Bitacora: "Presupuesto enviado al cliente" con fecha y
+// hora de cada envio y el link (15 oct, pedido de Byron). Se colocan ENTRE
+// Presup. M/O y Esp. autorizacion, tanto en la ficha como en el Historial.
+// Es el link del CLIENTE (o.cotizaciones[]), nunca el interno de Partes.
+function _cotizEnviosRowsHtml(o, variante) {
+  var lista = (o && o.cotizaciones) || [];
+  var html = '';
+  for (var ci = 0; ci < lista.length; ci++) {
+    var c = lista[ci];
+    if (!c || !c.url || !c.ts) continue;
+    var cuando = new Date(c.ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    var caja = (variante === 'hist')
+      ? 'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)'
+      : 'background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 10px;margin-bottom:5px;display:flex;align-items:center;gap:8px';
+    html += '<div class="cotiz-envio-row" style="' + caja + '">' +
+      '<span style="background:#FFD700;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">&#128221; PRESUPUESTO ENVIADO</span>' +
+      '<span style="font-size:10px;color:var(--tx3);flex:1"><a href="' + esc(c.url) + '" target="_blank" rel="noopener" style="color:#FFD700">abrir presupuesto</a></span>' +
+      '<span style="color:var(--tx2);font-size:11px;white-space:nowrap">' + cuando + '</span>' +
+    '</div>';
+  }
+  return html;
+}
 // Guarda un link de presupuesto en la orden (lo usan el aviso automatico del
 // Cotizador y el campo "Pegar link" de la ficha): una sola logica, para que
 // ambos caminos dejen exactamente lo mismo (o.cotizaciones[], o.linkCotizacion,
@@ -3746,7 +3768,11 @@ function openDrw(id) {
       consolidated[key].count++;
       if (pl.to > consolidated[key].lastTo) consolidated[key].lastTo = pl.to;
     }
+    var cotizRowsFicha = visiblePhases ? '' : _cotizEnviosRowsHtml(o, 'ficha');
+    var cotizPuestaFicha = !cotizRowsFicha;
     for (var oi2 = 0; oi2 < order.length; oi2++) {
+      // Sin Presup. M/O en la bitacora: el bloque va justo antes de Esp. autorizacion.
+      if (!cotizPuestaFicha && order[oi2] === 'ea') { phaseLogHtml += cotizRowsFicha; cotizPuestaFicha = true; }
       var ph = consolidated[order[oi2]];
       var pc3 = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[ph.phase]) ? PHASE_COLORS[ph.phase] : {bg:'#333',color:'#fff',label:ph.phase};
       // 'prb' dividido en tramos: mostrar la etiqueta especifica del tramo
@@ -3759,7 +3785,9 @@ function openDrw(id) {
         '<span style="font-size:10px;color:var(--tx3);flex:1">' + countBadge + '</span>' +
         '<span style="color:var(--or);font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + dur + ' h.h.</span>' +
       '</div>';
+      if (!cotizPuestaFicha && order[oi2] === 'pb') { phaseLogHtml += cotizRowsFicha; cotizPuestaFicha = true; }
     }
+    if (!cotizPuestaFicha) phaseLogHtml += cotizRowsFicha;
     // Detenciones: una fila por cada ocurrencia, con fecha, motivo y duracion
     if (!visiblePhases || visiblePhases.indexOf('det') >= 0) {
       var pcDet = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS['det']) ? PHASE_COLORS['det'] : {bg:'#333',color:'#fff',label:'DETENIDO'};
@@ -13301,7 +13329,10 @@ function openHistDetail(o) {
     }
     var totalMin = 0;
     html += '<div class="sec"><div class="sec-l">Bitacora de tiempos por fase (horas habiles)</div>';
+    var cotizRowsHist = _cotizEnviosRowsHtml(o, 'hist');
+    var cotizPuestaHist = !cotizRowsHist;
     for (var pi2 = 0; pi2 < phOrder.length; pi2++) {
+      if (!cotizPuestaHist && phOrder[pi2] === 'ea') { html += cotizRowsHist; cotizPuestaHist = true; }
       var ph = consol[phOrder[pi2]];
       var pc = (typeof PHASE_COLORS !== 'undefined' && PHASE_COLORS[ph.phase]) ? PHASE_COLORS[ph.phase] : {bg:'#333',color:'#fff',label:ph.phase};
       // 'prb' dividido en tramos: mostrar la etiqueta especifica del tramo
@@ -13315,7 +13346,9 @@ function openHistDetail(o) {
         '<span style="font-size:10px;color:var(--tx3);flex:1">' + countBadge + '</span>' +
         '<span style="color:var(--or);font-weight:700;font-size:12px;white-space:nowrap">&#9201; ' + dur + '</span>' +
       '</div>';
+      if (!cotizPuestaHist && phOrder[pi2] === 'pb') { html += cotizRowsHist; cotizPuestaHist = true; }
     }
+    if (!cotizPuestaHist) html += cotizRowsHist;
     // Total time
     var totalDur = totalMin < 60 ? Math.round(totalMin) + ' min' : (totalMin/60).toFixed(1) + ' h';
     html += '<div style="display:flex;justify-content:flex-end;padding:6px 0;font-size:12px;font-weight:600;color:var(--ac)">Total: ' + totalDur + ' h.h.</div>';
