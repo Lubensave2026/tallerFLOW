@@ -7919,9 +7919,9 @@ function buildRepContent() {
     var prodPctClosed = hrsRealClosed > 0 ? (hrsFlatClosed / hrsRealClosed * 100) : null;
     var prodColorClosed = prodPctClosed === null ? 'var(--tx3)' : (prodPctClosed >= 100 ? 'var(--gn)' : (prodPctClosed >= 70 ? 'var(--or)' : 'var(--rd)'));
     var monthLabelClosed = prodTargetDate.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
-    html += '<div style="background:var(--bg3);border:1px solid var(--gnbd);border-radius:var(--r);padding:10px 16px;margin-bottom:10px">' +
+    html += '<div style="background:var(--bg3);border:2px solid var(--gn);border-radius:var(--r);padding:10px 16px;margin-bottom:10px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
-        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">&#9989; ' + (myName ? 'Mi productividad' : 'Productividad de ' + esc(tecActivo)) + ' — ordenes CERRADAS de ' + monthLabelClosed + (isCurrentProdMonth ? ' (actual)' : '') + ' (' + closedCountThisMonth + ')</div>' +
+        '<div style="font-size:11px;font-weight:800;color:var(--tx);text-transform:uppercase;letter-spacing:.5px">&#9989; ' + (myName ? 'Mi productividad' : 'Productividad de ' + esc(tecActivo)) + ' — ordenes CERRADAS de ' + monthLabelClosed + (isCurrentProdMonth ? ' (actual)' : '') + ' (' + closedCountThisMonth + ')</div>' +
         '<div style="display:flex;gap:4px;flex-shrink:0">' +
           '<button onclick="repProdChangeMonth(1)" title="Mes anterior" style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx);cursor:pointer;font-size:10px">&#9664;</button>' +
           '<button onclick="repProdChangeMonth(-1)" title="Mes siguiente" ' + (isCurrentProdMonth ? 'disabled' : '') + ' style="width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:' + (isCurrentProdMonth ? 'var(--bg3)' : 'var(--bg4)') + ';color:' + (isCurrentProdMonth ? 'var(--tx3)' : 'var(--tx)') + ';cursor:' + (isCurrentProdMonth ? 'not-allowed' : 'pointer') + ';font-size:10px">&#9654;</button>' +
@@ -7930,6 +7930,7 @@ function buildRepContent() {
       '<div style="font-size:24px;font-weight:700;color:' + prodColorClosed + '">' + (prodPctClosed === null ? '—' : prodPctClosed.toFixed(0) + '%') +
         (prodPctClosed !== null ? ' <span style="font-size:13px;font-weight:500;color:var(--tx3)">(' + hrsFlatClosed.toFixed(2).replace('.', ',') + ' vs ' + hrsRealClosed.toFixed(2).replace('.', ',') + ' hrs)</span>' : '') +
       '</div>' +
+      (prodPctClosed !== null ? '<div style="font-size:13px;font-weight:700;color:var(--tx);margin-top:4px">' + hrsFlatClosed.toFixed(2).replace('.', ',') + ' hrs pagadas <span style="font-weight:500;color:var(--tx3)">vs</span> ' + hrsRealClosed.toFixed(2).replace('.', ',') + ' hrs reales trabajadas</div>' : '') +
       (abVecesClosed > 0 ? '<div style="font-size:10px;color:var(--tx3);margin-top:4px">&#8635; ' + abVecesClosed + ' vez(veces) en Trabajando este mes — el tiempo se acumula sumando cada vez que la orden estuvo en esa fase.</div>' : '') +
       '<div style="font-size:9px;color:var(--tx3);margin-top:6px;font-style:italic">' + (isCurrentProdMonth ? 'Dato final del mes para el pago de comisiones — solo cambia cuando cierras nuevas ordenes.' : 'Dato ya cerrado de un mes anterior — no cambia.') + '</div>' +
     '</div>';
