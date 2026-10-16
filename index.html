@@ -1375,7 +1375,7 @@ var PRIO_LABELS = {
 };
 
 var NL = {
-  aa:'Espera-asignacion',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',reproceso:'REPROCESO (regresa a Trabajando)',
+  aa:'Espera-asignacion',det:'Detenido',ab:'Trabajando / Regresar a trabajando',prb:'Prueba/Insp.Final',lav:'Lavado',reproceso:'REPROCESO (regresa a Trabajando o a Espera-asignacion)',
   pa:'Elaboracion de presupuesto',pb:'Presup. M/O',ea:'Esp. autorizacion',
   er:'Esp. repuestos',ext:'Trabajo externo',lst:'Listo p/entrega',
   ent:'Entregado',cer:'Cerrar orden'
@@ -6297,11 +6297,23 @@ function doSign(id, sigId) {
 // compartido entre el reproceso "clasico" (regresa la orden a Trabajando,
 // disparado desde advance() al elegir 'reproceso' como siguiente fase) y el
 // reproceso "informativo" (se registra para el reporte pero NO mueve la
-// orden de fase, ver btn-reproceso-info en openDrw). onConfirm(id, causa, nota)
-// se llama al confirmar; nota siempre es un string (vacio si no aplica).
-function showReprocesoCausaModal(id, onConfirm) {
+// orden de fase, ver btn-reproceso-info en openDrw). onConfirm(id, causa, nota,
+// destino) se llama al confirmar; nota siempre es un string (vacio si no
+// aplica); destino ('ab' | 'aa') solo viene con opts.conDestino (reproceso
+// clasico desde Prueba/Insp. Final), en los demas casos es undefined.
+function showReprocesoCausaModal(id, onConfirm, opts) {
+  var conDestino = !!(opts && opts.conDestino);
+  var destinoSel = 'ab';
   var causas = ['Calidad de mano de obra','Diagnostico incompleto','Reporte incompleto','Trabajo incompleto','Otros'];
   var causaHtml = '<div style="padding:1rem"><div style="font-weight:600;margin-bottom:10px;color:var(--rd)">&#9851; Registrar causa del reproceso</div>';
+  if (conDestino) {
+    causaHtml += '<div style="font-size:11px;color:var(--tx3);margin-bottom:5px">&#8617; La orden regresa a:</div>' +
+      '<div style="display:flex;gap:6px;margin-bottom:12px">' +
+        '<button type="button" class="btn-dest" data-dest="ab" style="flex:1;padding:7px 6px;border-radius:var(--rs);border:2px solid var(--rd);background:rgba(255,68,68,.12);color:var(--tx);font-size:12px;font-weight:600;cursor:pointer">Trabajando</button>' +
+        '<button type="button" class="btn-dest" data-dest="aa" style="flex:1;padding:7px 6px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg3);color:var(--tx);font-size:12px;cursor:pointer">Espera-asignacion</button>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--tx3);margin-bottom:5px">Causa:</div>';
+  }
   for (var ci=0; ci<causas.length; ci++) {
     causaHtml += '<button class="btn-causa" data-causa="'+causas[ci]+'" style="display:block;width:100%;text-align:left;padding:8px 12px;margin-bottom:6px;border-radius:var(--rs);border:1px solid var(--bd);background:var(--bg3);color:var(--tx);cursor:pointer;font-size:12px">'+causas[ci]+'</button>';
   }
@@ -6310,6 +6322,17 @@ function showReprocesoCausaModal(id, onConfirm) {
   tempDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;display:flex;align-items:center;justify-content:center';
   tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:340px;width:90%">'+causaHtml+'</div>';
   document.body.appendChild(tempDiv);
+  tempDiv.querySelectorAll('.btn-dest').forEach(function(bd) {
+    bd.addEventListener('click', function() {
+      destinoSel = this.getAttribute('data-dest');
+      tempDiv.querySelectorAll('.btn-dest').forEach(function(x) {
+        var on = (x.getAttribute('data-dest') === destinoSel);
+        x.style.border = on ? '2px solid var(--rd)' : '1px solid var(--bd)';
+        x.style.background = on ? 'rgba(255,68,68,.12)' : 'var(--bg3)';
+        x.style.fontWeight = on ? '600' : '400';
+      });
+    });
+  });
   tempDiv.querySelectorAll('.btn-causa').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var causa = this.getAttribute('data-causa');
@@ -6324,12 +6347,12 @@ function showReprocesoCausaModal(id, onConfirm) {
         document.getElementById('btn-confirm-otros').addEventListener('click', function() {
           var nota = document.getElementById('reproceso-nota').value.trim();
           document.body.removeChild(tempDiv);
-          onConfirm(id, causa, nota);
+          onConfirm(id, causa, nota, conDestino ? destinoSel : undefined);
         });
         return;
       }
       document.body.removeChild(tempDiv);
-      onConfirm(id, causa, '');
+      onConfirm(id, causa, '', conDestino ? destinoSel : undefined);
     });
   });
 }
@@ -6338,7 +6361,9 @@ function advance(id, newPhase) {
   var isReproceso = (newPhase === 'reproceso');
   if (isReproceso) {
     newPhase = 'ab';
-    showReprocesoCausaModal(id, advanceReproceso);
+    // Un solo boton de Reproceso: en el modal se elige tambien a donde regresa
+    // (Trabajando o Espera-asignacion) — 16 oct 2026, pedido de Byron.
+    showReprocesoCausaModal(id, advanceReproceso, {conDestino: true});
     return; // pause here, resume in advanceReproceso
   }
   var o = null;
@@ -11886,8 +11911,19 @@ function buildCapacidadContent(nowTs) {
   if (!d.tallerCerradoHoy && d.activos > 0) {
     html += '<div style="background:var(--bg3);border:2px solid var(--ac);border-radius:var(--r);padding:12px 16px;margin-bottom:12px;text-align:center">' +
       '<div style="font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#127919; Capacidad disponible del equipo — HOY</div>' +
-      '<div style="font-size:28px;font-weight:800;color:var(--ac)">' + d.capacidadDisponibleEquipoHoy.toFixed(1) + ' hrs</div>' +
-      '<div style="font-size:9px;color:var(--tx3);margin-top:2px">Suma de "Disponibilidad" de cada tecnico activo' + (d.cargaSinAsignar > 0 ? ', ya descontando ' + d.cargaSinAsignar.toFixed(1) + 'h en cola sin tecnico todavia' : '') + ' — el dato clave para planificar el dia</div>' +
+      // Desglose (16 oct 2026, pedido de Byron — se confundia porque el -6.0 es
+      // la suma de Disponibilidad de los tecnicos MENOS lo que espera en cola
+      // sin tecnico): en VERDE lo libre con los tecnicos, en GRIS lo que esta
+      // en cola sin tecnico, y debajo el balance (el numero de siempre).
+      (d.cargaSinAsignar > 0
+        ? '<div style="display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin:6px 0 8px">' +
+            '<div><div style="font-size:18px;font-weight:800;color:var(--gn)" id="cap-libre-tecs">' + (d.capacidadDisponibleEquipoHoy + d.cargaSinAsignar).toFixed(1) + ' hrs</div><div style="font-size:9px;color:var(--gn)">libres con los tecnicos</div></div>' +
+            '<div><div style="font-size:18px;font-weight:800;color:var(--tx3)" id="cap-en-cola">&minus;' + d.cargaSinAsignar.toFixed(1) + ' hrs</div><div style="font-size:9px;color:var(--tx3)">en cola sin tecnico</div></div>' +
+          '</div>' +
+          '<div style="font-size:9px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">Balance</div>'
+        : '') +
+      '<div style="font-size:28px;font-weight:800;color:var(--ac)" id="cap-balance">' + d.capacidadDisponibleEquipoHoy.toFixed(1) + ' hrs</div>' +
+      '<div style="font-size:9px;color:var(--tx3);margin-top:2px">Suma de "Disponibilidad" de cada tecnico activo' + (d.cargaSinAsignar > 0 ? ' (verde), menos lo que esta en cola sin tecnico todavia (gris)' : '') + ' — el dato clave para planificar el dia</div>' +
     '</div>';
   }
 
@@ -13645,14 +13681,15 @@ function printOrderReport(id) {
 }
 
 
-function advanceReproceso(id, causa, nota) {
+function advanceReproceso(id, causa, nota, destino) {
+  destino = (destino === 'aa') ? 'aa' : 'ab';
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
   var oldPhase = o.phase;
   var oldLbl = (PHASE_COLORS[oldPhase]||{label:oldPhase}).label;
   var notaEsc = nota ? esc(nota) : '';
-  o.phase = 'ab';
+  o.phase = destino;
   o.reprocesos = (o.reprocesos || 0) + 1;
   if (!o.reprocesoLog) o.reprocesoLog = [];
   // byRole: el rol (clave, no la etiqueta) que registro el reproceso — lo
@@ -13662,16 +13699,23 @@ function advanceReproceso(id, causa, nota) {
   // Inspeccion Final. Los reprocesos guardados ANTES de este campo no lo
   // tienen — el KPI simplemente no los cuenta (no hay forma retroactiva de
   // saber quien los registro).
-  o.reprocesoLog.push({causa:causa, nota:notaEsc, ts:Date.now(), from:oldPhase, byRole:role});
+  o.reprocesoLog.push({causa:causa, nota:notaEsc, ts:Date.now(), from:oldPhase, byRole:role, destino:destino});
   if (!o.sigs) o.sigs = {};
-  var phaseSigsR = SIGS['ab'] || [];
-  for (var sr=0; sr<phaseSigsR.length; sr++) { delete o.sigs[phaseSigsR[sr].id]; }
+  if (destino === 'aa') {
+    // A Espera-asignacion la orden entra SIN ninguna firma previa: si se
+    // conservara la del Jefe de Prueba de ruta (misma clave 'jefe'), el
+    // "Jefe Vo.Bo. asignacion" quedaria firmado solo.
+    o.sigs = {};
+  } else {
+    var phaseSigsR = SIGS['ab'] || [];
+    for (var sr=0; sr<phaseSigsR.length; sr++) { delete o.sigs[phaseSigsR[sr].id]; }
+  }
   o.jconf = false;
   if (!o.timestamps) o.timestamps = {};
-  o.timestamps['ab'] = Date.now();
+  o.timestamps[destino] = Date.now();
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'&#9851; REPROCESO — Causa: ' + causa + (notaEsc ? ' — ' + notaEsc : '') + ' (desde ' + oldLbl + ')', ts:Date.now(), type:'system'});
+  o.msgs.push({who:who, txt:'&#9851; REPROCESO — Causa: ' + causa + (notaEsc ? ' — ' + notaEsc : '') + ' (desde ' + oldLbl + ')' + (destino === 'aa' ? ' — regresa a Espera-asignacion' : ''), ts:Date.now(), type:'system'});
   if (!o.phaseLog) o.phaseLog = [];
   var fromTs = o.timestamps[oldPhase] || o.cat;
   var toTsR = Date.now();
