@@ -2617,13 +2617,17 @@ var SERVICIO_REPUESTOS_TEMPLATE = {
 // DESPACHOS", 2 hojas) y contra el endpoint real de Bodega Virtual: el sku
 // real SIEMPRE lleva el punto. Sin el punto, el descuento por coincidencia
 // EXACTA de codigo fallaba silenciosamente.
+// Codigos actualizados el 19 oct 2026 a pedido de Bodega Virtual: 969250,
+// 17006 y WIPE02 se dieron de baja; los vigentes son Z10-STIW7043, Z10-1880 y
+// Z10-WIPE. Solo aplica a ordenes NUEVAS: las lineas ya guardadas en ordenes
+// abiertas conservan el codigo viejo (corregir con "Cambiar articulo").
 var SERVICIO_BODEGA_TEMPLATE = [
-  { desc: 'Brake cleaner', codigo: '969250', etiqueta: '969250 (Spray Limp. Frenos)' },
-  { desc: 'Desengrasante de motor', codigo: '17006' },
+  { desc: 'Brake cleaner', codigo: 'Z10-STIW7043', etiqueta: 'Z10-STIW7043 (Spray Limp. Frenos)' },
+  { desc: 'Desengrasante de motor', codigo: 'Z10-1880' },
   { desc: 'Abrillantador de motor', codigo: 'SM1901.' },
   { desc: 'Liquido para chorritos', codigo: '5021977' },
   { desc: 'Lija', codigo: 'LIJ01' },
-  { desc: 'Wippe', codigo: 'WIPE02' },
+  { desc: 'Wippe', codigo: 'Z10-WIPE' },
 ];
 // Materiales de bodega para Intermedio Y Mayor (17 sep 2026, pedido de
 // Byron, ver Excel real) — "Plomos balance" (WF08) se movio aqui desde
