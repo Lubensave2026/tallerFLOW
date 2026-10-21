@@ -554,7 +554,7 @@ button{cursor:pointer}
       <span class="hdr-role" id="hdr-role">—</span>
       <button class="btn-nb" id="btn-nb" onclick="toggleNP()">🔔<span class="nb-dot" id="nb-dot"></span></button>
       <button class="btn-nb" id="btn-sigs" onclick="openSigs()" style="display:none;position:relative">✍️<span class="nb-dot" id="sig-dot" style="background:var(--or)"></span></button>
-      <button class="btn-nb" id="btn-autoriz" onclick="openAutoriz()" style="display:none;position:relative;border-color:var(--orbd)">🔓<span class="nb-dot" id="autoriz-count" style="background:var(--or);width:auto;min-width:15px;height:15px;border-radius:8px;font-size:9px;font-weight:700;color:#000;line-height:15px;text-align:center;padding:0 3px;top:2px;right:2px"></span></button>
+      <button class="btn-nb" id="btn-autoriz" onclick="openAutoriz()" style="display:none;position:relative;border-color:var(--orbd)"><span id="autoriz-ico">🔓</span><span id="autoriz-lbl" style="display:none;font-size:10px;font-weight:800;letter-spacing:.3px;margin-left:5px;white-space:nowrap">PENDIENTE DESPACHO</span><span class="nb-dot" id="autoriz-count" style="background:var(--or);width:auto;min-width:15px;height:15px;border-radius:8px;font-size:9px;font-weight:700;color:#000;line-height:15px;text-align:center;padding:0 3px;top:2px;right:2px"></span></button>
       <button class="btn-rpt" id="btn-rpt" onclick="openRep()" style="display:none">📊</button>
       <button class="btn-out" onclick="logout()">Salir</button>
     </div>
@@ -9474,18 +9474,40 @@ function _getPendingAutorizaciones() {
 // dar el Vo.Bo. ellos mismos (ver el candado `role !== 'jefe'` dentro del
 // click handler en buildAutorizContent, y que el boton "Dar Vo.Bo." ahi
 // mismo solo se dibuja para el Jefe).
-var _AUTORIZ_ROLES_VISIBLES = ['jefe', 'partes', 'mensajero'];
+var _AUTORIZ_ROLES_VISIBLES = ['jefe', 'partes', 'mensajero', 'asesor'];
+
+// Para Partes, Mensajero y Asesor (21 oct 2026, pedido de Byron) el mismo
+// boton ya no avisa "Pendiente del Jefe": dice PENDIENTE DESPACHO y lista el
+// material de bodega que el Jefe YA autorizo y que sigue sin despachar (la
+// misma fuente del contador de "Despacho, Repuestos y Subcontratos":
+// getBodegaRows + !despachado). Solo lectura; cada linea desaparece cuando
+// Partes marca la casilla de despachado. El Jefe no cambia: sigue viendo lo
+// que espera SU Vo.Bo. Solo bodega, no repuestos (no tienen casilla de
+// despachado).
+function _getPendingDespachos() {
+  return getBodegaRows().filter(function(r){ return !r.item.despachado; }).map(function(r) {
+    var cant = r.item.cantidad ? r.item.cantidad + ' — ' : '';
+    return {tipo: 'despacho', o: r.o, ri: r.idx, desc: cant + r.item.desc +
+      (r.item.especificacion ? ' (' + r.item.especificacion + ')' : ''), ts: r.item.voboTs || r.item.ts || 0, by: r.item.by || ''};
+  }).sort(function(a, b){ return a.ts - b.ts; });
+}
 
 function updateAutorizBadge() {
   var btn = document.getElementById('btn-autoriz');
   var badge = document.getElementById('autoriz-count');
   if (!btn || !badge) return;
   if (_AUTORIZ_ROLES_VISIBLES.indexOf(role) === -1) { btn.style.display = 'none'; return; }
-  var pend = _getPendingAutorizaciones();
+  var esJefe = role === 'jefe';
+  var pend = esJefe ? _getPendingAutorizaciones() : _getPendingDespachos();
   if (!pend.length) {
     btn.style.display = 'none';
     return;
   }
+  var ico = document.getElementById('autoriz-ico'), lbl = document.getElementById('autoriz-lbl');
+  if (ico) ico.textContent = esJefe ? '🔓' : '📦';
+  if (lbl) lbl.style.display = esJefe ? 'none' : 'inline';
+  btn.style.width = esJefe ? '' : 'auto';
+  btn.style.padding = esJefe ? '' : '0 10px';
   // Solo aparece cuando hay algo que autorizar — asi su sola presencia en el
   // encabezado ya es la alerta, sin tener que ir a buscar un numero.
   btn.style.display = 'flex';
@@ -9493,10 +9515,12 @@ function updateAutorizBadge() {
   // Lleva mas de 1 hora habil esperando -> rojo y parpadeando, igual que el
   // criterio de "firmas atrasadas" que ya usa el boton de firmas.
   var hasOld = pend.some(function(p) { return p.ts && businessMinutes(p.ts, Date.now()) > 60; });
-  badge.className = 'nb-dot on' + (hasOld ? ' sig-urgent' : '');
-  badge.style.background = hasOld ? 'var(--rd)' : 'var(--or)';
-  var esJefe = role === 'jefe';
-  btn.title = hasOld
+  // Para quien despacha el aviso siempre titila (es una alerta de trabajo
+  // pendiente); para el Jefe solo si algo lleva mas de 1 hora esperando.
+  var titila = hasOld || !esJefe;
+  badge.className = 'nb-dot on' + (titila ? ' sig-urgent' : '');
+  badge.style.background = titila ? 'var(--rd)' : 'var(--or)';
+  btn.title = !esJefe ? 'PENDIENTE DESPACHO: material de bodega autorizado que falta despachar' : hasOld
     ? (esJefe ? '⚠ Hay solicitudes de tecnicos esperando tu Vo.Bo. hace mas de 1 hora' : '⚠ Hay solicitudes esperando el Vo.Bo. del Jefe hace mas de 1 hora')
     : (esJefe ? 'Solicitudes de tecnicos esperando tu Vo.Bo.' : 'Solicitudes esperando el Vo.Bo. del Jefe');
   // Si el panel esta abierto, refrescarlo tambien — asi una solicitud que
@@ -9508,9 +9532,9 @@ function updateAutorizBadge() {
 }
 
 function openAutoriz() {
-  if (_AUTORIZ_ROLES_VISIBLES.indexOf(role) === -1) { toast('Solo el Jefe, Partes o Mensajero pueden ver estas solicitudes'); return; }
+  if (_AUTORIZ_ROLES_VISIBLES.indexOf(role) === -1) { toast('Solo el Jefe, Partes, Mensajero o Asesor pueden ver estas solicitudes'); return; }
   var t = document.getElementById('autoriz-modal-title');
-  if (t) t.textContent = role === 'jefe' ? '🔒 Esperando tu autorizacion' : '🔒 Esperando Vo.Bo. del Jefe';
+  if (t) t.textContent = role === 'jefe' ? '🔒 Esperando tu autorizacion' : '📦 PENDIENTE DESPACHO';
   buildAutorizContent();
   document.getElementById('m-autoriz').classList.add('on');
 }
@@ -9520,13 +9544,13 @@ function buildAutorizContent() {
   var body = document.getElementById('autoriz-body');
   if (!body) return;
   var esJefe = role === 'jefe';
-  var pend = _getPendingAutorizaciones();
+  var pend = esJefe ? _getPendingAutorizaciones() : _getPendingDespachos();
   if (!pend.length) {
-    body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Nada pendiente' + (esJefe ? ' de autorizar' : '') + '</div>';
+    body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Nada pendiente ' + (esJefe ? 'de autorizar' : 'de despachar') + '</div>';
     return;
   }
   var html = '<div style="font-size:11px;color:var(--tx3);margin-bottom:10px">' +
-    pend.length + ' solicitud(es) ' + (esJefe ? 'de tecnicos esperando tu Vo.Bo.' : 'esperando el Vo.Bo. del Jefe') + ' — de la mas antigua a la mas reciente.</div>';
+    pend.length + (esJefe ? ' solicitud(es) de tecnicos esperando tu Vo.Bo.' : ' pedido(s) de bodega ya autorizados esperando despacho') + ' — de la mas antigua a la mas reciente.</div>';
   for (var i = 0; i < pend.length; i++) {
     var p = pend[i];
     var esRep = p.tipo === 'repuesto';
@@ -9548,7 +9572,7 @@ function buildAutorizContent() {
           // Mario/William: solo informativo, no pueden autorizar — sin boton,
           // mismo patron de solo-lectura que ya usa esta app en otros paneles
           // (ej. "Regresa sola" del temporizador de Detenido).
-          : '<span style="font-size:10px;color:var(--tx3);font-style:italic;white-space:nowrap">Pendiente del Jefe</span>') +
+          : '<span style="font-size:10px;font-weight:800;color:var(--or);white-space:nowrap">PENDIENTE DESPACHO</span>') +
       '</div>' +
     '</div>';
   }
