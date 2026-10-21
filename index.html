@@ -12435,6 +12435,17 @@ function toggleLineaTiempo(btn) {
   if (btn) btn.innerHTML = mostrarTiempo ? '&#128202; Ver por etapa' : '&#128337; Ver linea de tiempo';
 }
 
+// Igual que toggleLineaTiempo pero para la vista del Historial (ids hist-...).
+function toggleLineaTiempoHist(btn) {
+  var vistaEtapa = document.getElementById('hist-bitacora-vista-etapa');
+  var vistaTiempo = document.getElementById('hist-bitacora-vista-tiempo');
+  if (!vistaEtapa || !vistaTiempo) return;
+  var mostrarTiempo = vistaTiempo.style.display === 'none';
+  vistaEtapa.style.display = mostrarTiempo ? 'none' : 'block';
+  vistaTiempo.style.display = mostrarTiempo ? 'block' : 'none';
+  if (btn) btn.innerHTML = mostrarTiempo ? '&#128202; Ver por etapa' : '&#128337; Ver linea de tiempo';
+}
+
 // Encabezado + contenido de la Bitacora (o Linea de tiempo), para
 // imprimir/exportar SOLO esa seccion — no la orden completa (eso ya lo
 // tiene el boton de la campanita, ver printOrderReport). Mismo encabezado
@@ -13513,7 +13524,12 @@ function openHistDetail(o) {
       consol[keyHist].count++;
     }
     var totalMin = 0;
-    html += '<div class="sec"><div class="sec-l">Bitacora de tiempos por fase (horas habiles)</div>';
+    html += '<div class="sec"><div class="sec-l">Bitacora de tiempos por fase (horas habiles)</div>' +
+      // Boton de Linea de tiempo tambien en el Historial (22 oct, pedido de
+      // Byron): reusa _buildLineaTiempoHtml, con ids propios (hist-...) para
+      // no chocar con los de la ficha en vivo si ambas estuvieran abiertas.
+      '<div style="display:flex;gap:6px;margin-bottom:8px"><button id="btn-toggle-linea-tiempo-hist" class="btn-s" style="flex:1;font-size:11px;padding:6px" onclick="toggleLineaTiempoHist(this)">&#128337; Ver linea de tiempo</button></div>' +
+      '<div id="hist-bitacora-vista-etapa" style="display:block">';
     var cotizRowsHist = _cotizEnviosRowsHtml(o, 'hist');
     var cotizPuestaHist = !cotizRowsHist;
     for (var pi2 = 0; pi2 < phOrder.length; pi2++) {
@@ -13536,7 +13552,8 @@ function openHistDetail(o) {
     if (!cotizPuestaHist) html += cotizRowsHist;
     // Total time
     var totalDur = totalMin < 60 ? Math.round(totalMin) + ' min' : (totalMin/60).toFixed(1) + ' h';
-    html += '<div style="display:flex;justify-content:flex-end;padding:6px 0;font-size:12px;font-weight:600;color:var(--ac)">Total: ' + totalDur + ' h.h.</div>';
+    html += '<div style="display:flex;justify-content:flex-end;padding:6px 0;font-size:12px;font-weight:600;color:var(--ac)">Total: ' + totalDur + ' h.h.</div>' +
+      '</div><div id="hist-bitacora-vista-tiempo" style="display:none">' + _buildLineaTiempoHtml(o, role) + '</div>';
     // Tiempo especifico EN RUTA, dato aparte del total de fases de arriba.
     if (o.rutaMinutos !== undefined && o.rutaMinutos !== null) {
       var rutaDurHist = o.rutaMinutos < 60 ? Math.round(o.rutaMinutos) + ' min' : (o.rutaMinutos/60).toFixed(1) + ' h';
