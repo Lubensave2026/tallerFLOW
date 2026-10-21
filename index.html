@@ -2316,10 +2316,26 @@ function _puedeVerLinkCotizPartes() { return role === 'jefe' || role === 'asesor
 // Presup. Partes (pa) -> Partes (y Jefe); Presup. M/O (pb) -> Asesor (y Jefe).
 // El Asesor NO entra al Cotizador mientras la orden esta en pa.
 function _puedeCotizarEnFase(fase) {
-  if (role === 'jefe') return fase === 'pa' || fase === 'pb';
+  // 'ea' (21 oct): el Asesor y el Jefe siguen pudiendo abrir el editor del
+  // Cotizador mientras se espera la autorizacion del cliente.
+  if (role === 'jefe') return fase === 'pa' || fase === 'pb' || fase === 'ea';
   if (fase === 'pa') return role === 'partes';
-  if (fase === 'pb') return role === 'asesor';
+  if (fase === 'pb' || fase === 'ea') return role === 'asesor';
   return false;
+}
+// Fases posteriores a "Esperando autorizacion" (y cualquiera fuera de pa/pb/ea):
+// el presupuesto se ve SOLO en vista de cliente (o.linkCotizacion), nunca en
+// el editor (21 oct, pedido de Byron).
+function _faseSinEditorCotizador(fase) { return fase !== 'pa' && fase !== 'pb' && fase !== 'ea'; }
+function verPresupuestoCliente(oid) {
+  var o = orders.find(function(x){ return x.id === oid; });
+  if (!o || !o.linkCotizacion) { toast('Esta orden todavia no tiene presupuesto enviado'); return; }
+  if (!_puedeVerLinkCotizPartes()) { toast('No tienes permiso para ver el presupuesto'); return; }
+  var u = String(o.linkCotizacion);
+  if (!COTIZADOR_URL || u.indexOf(COTIZADOR_URL) !== 0) { toast('El link del presupuesto no es valido'); return; }
+  // Sin 'noopener'/'noreferrer' A PROPOSITO (pedido del Cotizador, 21 oct): asi
+  // el Cotizador reconoce que viene de TallerFLOW y muestra "Listados para TallerFLOW".
+  window.open(u, '_blank');
 }
 function _urlCotizPartesValida(url) {
   return typeof url === 'string' && !!COTIZADOR_URL && url.indexOf(COTIZADOR_URL) === 0 && url.indexOf('#t=') !== -1 && url.length < 4000;
@@ -3636,8 +3652,8 @@ function openDrw(id) {
     ? '<button id="btn-ruta-salida" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825;font-size:12px;font-weight:600;cursor:pointer">&#128663; Marcar salida a ruta</button>'
     : '';
   // Boton "Cotizar" (fases de Presupuesto: pa/pb) - abre el Cotizador LNS en pestana nueva pasando OT, cliente y vehiculo por URL.
-  var cotizarBtnHtml = ((o.phase === 'pa' || o.phase === 'pb') && _puedeCotizarEnFase(o.phase))
-    ? '<button id="btn-cotizar" data-oid="' + id + '" onclick="abrirCotizador(' + id + ')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.12);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128221; ' + (o.phase === 'pb' ? 'Cotizar mano de obra' : 'Cotizar repuestos') + '</button>'
+  var cotizarBtnHtml = ((o.phase === 'pa' || o.phase === 'pb' || o.phase === 'ea') && _puedeCotizarEnFase(o.phase))
+    ? '<button id="btn-cotizar" data-oid="' + id + '" onclick="abrirCotizador(' + id + ')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.12);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128221; ' + (o.phase === 'pb' ? 'Cotizar mano de obra' : (o.phase === 'ea' ? 'Cotizar (editar presupuesto)' : 'Cotizar repuestos')) + '</button>'
     : '';
   // Recuadro del Cotizador (pa/pb), solo roles que pueden ver costos: campo de
   // respaldo para pegar el link de repuestos (Partes, fase pa), boton para el
@@ -3663,6 +3679,10 @@ function openDrw(id) {
     }
     cotizarBtnHtml += '<div id="box-link-cotiz" style="margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3)">' +
       '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Cotizacion de repuestos</div>' + boxCot + '</div>';
+  }
+  // Fases posteriores a ea: "Ver presupuesto" (vista de cliente, nunca el editor).
+  if (_faseSinEditorCotizador(o.phase) && o.linkCotizacion && _puedeVerLinkCotizPartes()) {
+    cotizarBtnHtml += '<button id="btn-ver-presupuesto" onclick="verPresupuestoCliente(' + id + ')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.08);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128279; Ver presupuesto (vista de cliente)</button>';
   }
   var prbStatusBlock = (o.phase === 'prb') ? ('<div style="margin-bottom:8px">' + rutaSalidaBtnHtml + prbStatusBadge(o) + '</div>') : '';
   // Reproceso "informativo": Asesor y Jefe en Listo p/entrega, solo Jefe en
