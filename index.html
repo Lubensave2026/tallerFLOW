@@ -2264,12 +2264,21 @@ window.addEventListener('message', function(ev) {
   // el mismo formato de los demas avisos ("Ricardo · Asesor serv."); si por
   // algo no hay rol, queda como antes: "Cotizador".
   var quienEnvia = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
-  _registrarCotizacion(o, d.url, quienEnvia, '&#128221; Cotizacion enviada al cliente: ');
+  _registrarCotizacion(o, d.url, quienEnvia, _cotizPendienteEnvio(o)
+    ? '&#128221; Presupuesto completado (pend. envio al cliente): '
+    : '&#128221; Cotizacion enviada al cliente: ');
 });
 // Filas fijas de la Bitacora: "Presupuesto enviado al cliente" con fecha y
 // hora de cada envio y el link (15 oct, pedido de Byron). Se colocan ENTRE
 // Presup. M/O y Esp. autorizacion, tanto en la ficha como en el Historial.
 // Es el link del CLIENTE (o.cotizaciones[]), nunca el interno de Partes.
+// "Pendiente de envio" (22 oct, pedido de Byron): el Cotizador manda el link al
+// confirmar repuestos y mano de obra, NO al pulsar "Enviar al cliente" (ese
+// boton no avisa a TallerFLOW todavia). Mientras la orden siga en Presupuesto
+// Partes o Presupuesto M/O se trata como completado, pendiente de envio; al
+// pasar a Esperando autorizacion (o cualquier otra fase) se da por enviado.
+// Es una aproximacion por fase; sera exacto cuando el Cotizador avise el envio.
+function _cotizPendienteEnvio(o) { return !!o && (o.phase === 'pa' || o.phase === 'pb'); }
 function _cotizEnviosRowsHtml(o, variante) {
   // Una sola fila (17 oct): boton amarillo + link del ULTIMO envio + cuantas
   // veces se envio y cuando fue el ultimo. Todos los envios siguen guardados
@@ -2281,11 +2290,14 @@ function _cotizEnviosRowsHtml(o, variante) {
   var caja = (variante === 'hist')
     ? 'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)'
     : 'background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 10px;margin-bottom:5px;display:flex;align-items:center;gap:8px';
-  var cuandoTxt = lista.length > 1
-    ? '<span style="color:var(--tx2);font-size:11px;text-align:right">Enviado ' + lista.length + ' veces<br><span style="color:var(--tx3);font-size:10px">ultimo: ' + cuando + '</span></span>'
-    : '<span style="color:var(--tx2);font-size:11px;white-space:nowrap">' + cuando + '</span>';
+  var pend = _cotizPendienteEnvio(o);
+  var cuandoTxt = pend
+    ? '<span style="color:var(--tx2);font-size:11px;text-align:right">Pend. envio<br><span style="color:var(--tx3);font-size:10px">' + cuando + '</span></span>'
+    : (lista.length > 1
+      ? '<span style="color:var(--tx2);font-size:11px;text-align:right">Enviado ' + lista.length + ' veces<br><span style="color:var(--tx3);font-size:10px">ultimo: ' + cuando + '</span></span>'
+      : '<span style="color:var(--tx2);font-size:11px;white-space:nowrap">' + cuando + '</span>');
   return '<div class="cotiz-envio-row" style="' + caja + '">' +
-    '<span style="background:#FFD700;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">&#128221; PRESUPUESTO ENVIADO</span>' +
+    '<span style="background:#FFD700;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">&#128221; ' + (pend ? 'PRESUPUESTO COMPLETADO' : 'PRESUPUESTO ENVIADO') + '</span>' +
     '<span style="font-size:10px;color:var(--tx3);flex:1"><a href="' + esc(ult.url) + '" target="_blank" rel="noopener" style="color:#FFD700">abrir presupuesto</a></span>' +
     cuandoTxt +
   '</div>';
@@ -3675,7 +3687,7 @@ function openDrw(id) {
         '<button id="btn-pegar-link-cotiz" onclick="pegarLinkCotizacion(' + id + ')" class="btn-s" style="font-size:11px;padding:6px 10px;white-space:nowrap">Guardar link</button></div>';
     }
     if (o.linkCotizacion) {
-      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" rel="noopener" style="font-size:11px;color:#FFD700">&#128279; Presupuesto del cliente (ya enviado)</a></div>';
+      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" rel="noopener" style="font-size:11px;color:#FFD700">&#128279; ' + (_cotizPendienteEnvio(o) ? 'Presupuesto completado (pend. envio)' : 'Presupuesto del cliente (ya enviado)') + '</a></div>';
     }
     cotizarBtnHtml += '<div id="box-link-cotiz" style="margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3)">' +
       '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Cotizacion de repuestos</div>' + boxCot + '</div>';
