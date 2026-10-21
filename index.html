@@ -2251,6 +2251,54 @@ window.addEventListener('message', function(ev) {
     if (typeof openId !== 'undefined' && openId === om.id) openDrw(om.id);
     return;
   }
+  // El asesor copio el link del cliente en el Cotizador: ahi SI salio al cliente
+  // (una vez por link). Marca la entrada con enviadoTs y deja la linea en la
+  // bitacora.
+  if (d && d.tipo === 'lns-cotizacion-enviada') {
+    if (!d.ot || typeof d.url !== 'string' || d.url.indexOf(COTIZADOR_URL) !== 0 || d.url.length > 4000 || typeof d.ts !== 'number') return;
+    var oe = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
+    if (!oe) { toast('Aviso de presupuesto enviado, pero no encontre la orden ' + d.ot); return; }
+    oe.cotizaciones = oe.cotizaciones || [];
+    var ce = oe.cotizaciones.find(function(c){ return c && c.url && _cotizMismoLink(c.url, d.url); });
+    if (ce && ce.enviadoTs) return; // ya registrado
+    if (!ce) { ce = {url: d.url, ts: Date.now(), conEvento: true}; oe.cotizaciones.push(ce); oe.linkCotizacion = d.url; }
+    ce.enviadoTs = Date.now();
+    var quienEnv = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
+    oe.msgs = oe.msgs || [];
+    oe.msgs.push({who: quienEnv, txt: '&#128221; Presupuesto enviado al cliente: <a href="' + esc(ce.url) + '" target="_blank" rel="noopener">abrir presupuesto</a>', ts: Date.now(), type: 'system'});
+    save(); toast('Presupuesto enviado al cliente registrado en la orden ' + (oe.ot || oe.id));
+    if (typeof openId !== 'undefined' && openId === oe.id) openDrw(oe.id);
+    return;
+  }
+  // Resultado de la autorizacion del cliente (boton manual "Enviar resultado a
+  // TallerFLOW"): montos en Q con IVA, sin costos ni margenes. Queda en
+  // o.cotizResultado, en la bitacora, y alimenta o.montoCotizado (el que usa
+  // el % de aprobacion al cerrar) salvo que el Jefe ya lo haya puesto a mano.
+  if (d && d.tipo === 'lns-cotizacion-resultado') {
+    var nm = function(v){ return typeof v === 'number' && isFinite(v) && v >= 0 && v < 1e9; };
+    if (!d.ot || typeof d.ts !== 'number' || !nm(d.cotizado) || !nm(d.autorizado) || !nm(d.pendiente)) return;
+    var orr = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
+    if (!orr) { toast('Resultado del Cotizador, pero no encontre la orden ' + d.ot); return; }
+    if (orr.cotizResultado && orr.cotizResultado.ts === d.ts) return; // mismo aviso repetido
+    var nz = function(v){ return nm(v) ? v : 0; };
+    orr.cotizResultado = {cotizado: d.cotizado, autorizado: d.autorizado, pendiente: d.pendiente,
+      urgenteCotizado: nz(d.urgenteCotizado), urgenteAutorizado: nz(d.urgenteAutorizado),
+      sugeridoCotizado: nz(d.sugeridoCotizado), sugeridoAutorizado: nz(d.sugeridoAutorizado),
+      puntos: nz(d.puntos), puntosAutorizados: nz(d.puntosAutorizados), ts: d.ts};
+    var fq = function(n){ return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+    var nota = '';
+    if (!orr.montoCotizado || orr.montoCotizadoOrigen === 'cotizador') {
+      orr.montoCotizado = d.cotizado; orr.montoCotizadoOrigen = 'cotizador';
+    } else if (orr.montoCotizado !== d.cotizado) {
+      nota = ' (el monto cotizado puesto a mano, ' + fq(orr.montoCotizado) + ', no se cambio)';
+    }
+    var quienRes = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
+    orr.msgs = orr.msgs || [];
+    orr.msgs.push({who: quienRes, txt: '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota, ts: Date.now(), type: 'system'});
+    save(); toast('Resultado del Cotizador guardado en la orden ' + (orr.ot || orr.id));
+    if (typeof openId !== 'undefined' && openId === orr.id) openDrw(orr.id);
+    return;
+  }
   if (!d || (d.tipo !== 'lns-cotizacion' && d.tipo !== 'lns-cotizacion-partes') || !d.ot || typeof d.url !== 'string' || d.url.indexOf('https://lubensave2026.github.io/cotizador-lns/') !== 0) return;
   var o = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
   if (!o) { toast('Cotizacion recibida, pero no encontre la orden ' + d.ot); return; }
@@ -2264,9 +2312,10 @@ window.addEventListener('message', function(ev) {
   // el mismo formato de los demas avisos ("Ricardo · Asesor serv."); si por
   // algo no hay rol, queda como antes: "Cotizador".
   var quienEnvia = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
-  _registrarCotizacion(o, d.url, quienEnvia, _cotizPendienteEnvio(o)
-    ? '&#128221; Presupuesto completado (pend. envio al cliente): '
-    : '&#128221; Cotizacion enviada al cliente: ');
+  // 'lns-cotizacion' llega al CONFIRMAR repuestos y mano de obra: solo guarda
+  // el link. "Presupuesto enviado al cliente" lo escribe el aviso nuevo
+  // 'lns-cotizacion-enviada' (arriba) cuando el asesor copia el link.
+  _registrarCotizacion(o, d.url, quienEnvia, '&#128221; Presupuesto completado (pend. envio al cliente): ');
 });
 // Filas fijas de la Bitacora: "Presupuesto enviado al cliente" con fecha y
 // hora de cada envio y el link (15 oct, pedido de Byron). Se colocan ENTRE
@@ -2278,23 +2327,41 @@ window.addEventListener('message', function(ev) {
 // Partes o Presupuesto M/O se trata como completado, pendiente de envio; al
 // pasar a Esperando autorizacion (o cualquier otra fase) se da por enviado.
 // Es una aproximacion por fase; sera exacto cuando el Cotizador avise el envio.
-function _cotizPendienteEnvio(o) { return !!o && (o.phase === 'pa' || o.phase === 'pb'); }
+// Exacto desde el aviso 'lns-cotizacion-enviada' del Cotizador (22 oct): una
+// entrada de o.cotizaciones[] con enviadoTs ya salio al cliente. Las entradas
+// SIN enviadoTs que llegaron con el sistema nuevo (conEvento) siguen
+// pendientes; las viejas (sin conEvento) se siguen juzgando por la fase.
+function _cotizFasePend(o) { return !!o && (o.phase === 'pa' || o.phase === 'pb'); }
+function _cotizEntradaEnviada(o, c) { return !!c.enviadoTs || (!c.conEvento && !_cotizFasePend(o)); }
+function _cotizPendienteEnvio(o) {
+  var lista = ((o && o.cotizaciones) || []).filter(function(c){ return c && c.url && c.ts; });
+  if (!lista.length) return _cotizFasePend(o);
+  return !lista.some(function(c){ return _cotizEntradaEnviada(o, c); });
+}
+// Mismo presupuesto: misma URL o mismo codigo k=.
+function _cotizMismoLink(a, b) {
+  if (a === b) return true;
+  var ka = String(a).match(/[?&]k=([A-Za-z0-9]+)/), kb = String(b).match(/[?&]k=([A-Za-z0-9]+)/);
+  return !!(ka && kb && ka[1] === kb[1]);
+}
 function _cotizEnviosRowsHtml(o, variante) {
   // Una sola fila (17 oct): boton amarillo + link del ULTIMO envio + cuantas
   // veces se envio y cuando fue el ultimo. Todos los envios siguen guardados
   // en o.cotizaciones[] y sus avisos en la campanita de la orden.
   var lista = ((o && o.cotizaciones) || []).filter(function(c){ return c && c.url && c.ts; });
   if (!lista.length) return '';
-  var ult = lista[lista.length - 1];
-  var cuando = new Date(ult.ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  var pend = _cotizPendienteEnvio(o);
+  var enviadas = pend ? [] : lista.filter(function(c){ return _cotizEntradaEnviada(o, c); });
+  var ult = pend ? lista[lista.length - 1] : enviadas[enviadas.length - 1];
+  var tsMostrar = pend ? ult.ts : (ult.enviadoTs || ult.ts);
+  var cuando = new Date(tsMostrar).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   var caja = (variante === 'hist')
     ? 'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)'
     : 'background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 10px;margin-bottom:5px;display:flex;align-items:center;gap:8px';
-  var pend = _cotizPendienteEnvio(o);
   var cuandoTxt = pend
     ? '<span style="color:var(--tx2);font-size:11px;text-align:right">Pend. envio<br><span style="color:var(--tx3);font-size:10px">' + cuando + '</span></span>'
-    : (lista.length > 1
-      ? '<span style="color:var(--tx2);font-size:11px;text-align:right">Enviado ' + lista.length + ' veces<br><span style="color:var(--tx3);font-size:10px">ultimo: ' + cuando + '</span></span>'
+    : (enviadas.length > 1
+      ? '<span style="color:var(--tx2);font-size:11px;text-align:right">Enviado ' + enviadas.length + ' veces<br><span style="color:var(--tx3);font-size:10px">ultimo: ' + cuando + '</span></span>'
       : '<span style="color:var(--tx2);font-size:11px;white-space:nowrap">' + cuando + '</span>');
   return '<div class="cotiz-envio-row" style="' + caja + '">' +
     '<span style="background:#FFD700;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">&#128221; ' + (pend ? 'PRESUPUESTO COMPLETADO' : 'PRESUPUESTO ENVIADO') + '</span>' +
@@ -2309,7 +2376,7 @@ function _cotizEnviosRowsHtml(o, variante) {
 function _registrarCotizacion(o, url, who, prefijoMsg) {
   o.cotizaciones = o.cotizaciones || [];
   if (o.cotizaciones.some(function(c){ return c.url === url; })) { toast('Esa cotizacion ya estaba en la orden'); return false; }
-  o.cotizaciones.push({url: url, ts: Date.now()});
+  o.cotizaciones.push({url: url, ts: Date.now(), conEvento: true});
   o.linkCotizacion = url;
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt: prefijoMsg + '<a href="' + esc(url) + '" target="_blank" rel="noopener">abrir presupuesto</a>', ts:Date.now(), type:'system'});
@@ -6280,6 +6347,22 @@ function doSign(id, sigId) {
     o.sigs[sigId] = true;
     o.sigsTs = o.sigsTs || {};
     o.sigsTs[sigId] = Date.now();
+    // Al firmar "Jefe verifica facturacion" (cierre) queda grabado el resultado
+    // de aprobacion (22 oct, pedido de Byron): total cotizado (viene del
+    // Cotizador o se pidio arriba), monto aprobado (= facturado, el mismo dato
+    // que usan el % de aprobacion de los reportes) y el %. Va a la bitacora y a
+    // o.aprobacionCierre; los reportes siguen calculandolo con los mismos campos.
+    if (o.phase === 'ent' && sigId === 'jefe' && o.montoTotal && o.montoCotizado) {
+      var aprCot = Number(o.montoCotizado), aprMonto = Number(o.montoTotal);
+      var aprPct = Math.round(aprMonto / aprCot * 100);
+      var fqA = function(n) { return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+      var aprTxt = 'Cotizado ' + fqA(aprCot) + ' · Aprobado ' + fqA(aprMonto) + ' · Aprobacion ' + aprPct + '%';
+      o.aprobacionCierre = {cotizado: aprCot, aprobado: aprMonto, pct: aprPct, ts: Date.now()};
+      o.msgs = o.msgs || [];
+      o.msgs.push({who: (ROLES[role] ? ROLES[role].label : role), txt: '&#128202; Aprobacion al cierre: ' + aprTxt +
+        (o.cotizResultado ? ' (autorizado segun el Cotizador: ' + fqA(o.cotizResultado.autorizado) + ')' : ''), ts: Date.now(), type: 'system'});
+      setTimeout(function() { toast('Aprobacion al cierre — ' + aprTxt); }, 1200);
+    }
     // Tiempo especifico que el vehiculo estuvo EN RUTA (desde que se marco la
     // salida con el boton "Marcar salida a ruta" hasta que el Jefe firma esta
     // misma "Prueba de ruta") — se ACUMULA en o.rutaMinutos (no se sobrescribe)
