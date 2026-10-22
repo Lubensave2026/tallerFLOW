@@ -2333,12 +2333,13 @@ window.addEventListener('message', function(ev) {
 // Partes o Presupuesto M/O se trata como completado, pendiente de envio; al
 // pasar a Esperando autorizacion (o cualquier otra fase) se da por enviado.
 // Es una aproximacion por fase; sera exacto cuando el Cotizador avise el envio.
-// Exacto desde el aviso 'lns-cotizacion-enviada' del Cotizador (22 oct): una
-// entrada de o.cotizaciones[] con enviadoTs ya salio al cliente. Las entradas
-// SIN enviadoTs que llegaron con el sistema nuevo (conEvento) siguen
-// pendientes; las viejas (sin conEvento) se siguen juzgando por la fase.
+// Una entrada de o.cotizaciones[] esta ENVIADA si el Cotizador aviso el envio
+// ('lns-cotizacion-enviada' -> enviadoTs, 22 oct) O si la orden ya salio de
+// Presupuesto Partes/M/O (la regla de Byron: pendiente hasta que el Cotizador
+// avise el envio o la orden pase a Esperando autorizacion). Asi, si el aviso
+// nunca llega pero la orden avanzo, no se queda en "pendiente" para siempre.
 function _cotizFasePend(o) { return !!o && (o.phase === 'pa' || o.phase === 'pb'); }
-function _cotizEntradaEnviada(o, c) { return !!c.enviadoTs || (!c.conEvento && !_cotizFasePend(o)); }
+function _cotizEntradaEnviada(o, c) { return !!c.enviadoTs || !_cotizFasePend(o); }
 function _cotizPendienteEnvio(o) {
   var lista = ((o && o.cotizaciones) || []).filter(function(c){ return c && c.url && c.ts; });
   if (!lista.length) return _cotizFasePend(o);
