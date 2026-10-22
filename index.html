@@ -19,6 +19,10 @@
 <style>
 :root{
   --bg:#0F1117;--bg2:#181B24;--bg3:#1E2230;--bg4:#252A3A;
+  /* Fondo de la ficha de cada orden en "Repuestos y Subcontratos" (22 oct,
+     pedido de Byron): mas claro que el panel para separar bien una orden de
+     la siguiente; se alternan 2 tonos. El interior de la ficha no cambia. */
+  --rep-g1:#2A3045;--rep-g2:#343C57;
   /* Espacio vacio de cada columna del tablero (16 sep 2026, pedido de
      Byron): gris claro con matiz calido, eco del rayo dorado del logo Lube
      N Save, para contrastar contra el espacio ocupado por fichas. Variable
@@ -432,6 +436,7 @@ button{cursor:pointer}
   .solo-impresion { display:block !important; }
   :root {
     --bg:#fff; --bg2:#fff; --bg3:#f2f2f2; --bg4:#e8e8e8;
+    --rep-g1:#f2f2f2; --rep-g2:#e8e8e8;
     --tx:#111; --tx2:#333; --tx3:#666;
     --bd:#ccc; --bd2:#ccc;
     --ac:#1a56db; --gn:#157347; --or:#b45309; --rd:#b91c1c;
@@ -12665,10 +12670,10 @@ function buildRepsContent() {
     // Alternar el fondo y marcar un borde de color por caso (usando el color
     // de la fase) para que cada orden se distinga claramente de la siguiente
     // cuando hay varias en la lista.
-    var groupBg = (found % 2 === 1) ? 'var(--bg3)' : 'var(--bg2)';
+    var groupBg = (found % 2 === 1) ? 'var(--rep-g1)' : 'var(--rep-g2)';
     html += '<div style="background:' + groupBg + ';border:1px solid var(--bd2);border-left:4px solid ' + pc.bg + ';border-radius:var(--r);padding:10px 12px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.3)">' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
-        '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px">' + esc(o.plate) + '</span>' +
+        '<span style="font-size:15px;font-weight:800;font-family:var(--mo);letter-spacing:.3px;color:var(--ac)">' + esc(o.plate) + '</span>' +
         '<span style="font-size:11px;color:var(--tx2)">' + esc(o.model) + '</span>' +
         '<span style="background:' + pc.bg + ';color:' + pc.color + ';padding:1px 8px;border-radius:8px;font-size:10px;font-weight:600;margin-left:auto">' + pc.label + '</span>' +
       '</div>' +
