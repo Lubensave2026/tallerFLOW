@@ -870,7 +870,12 @@ function maybeDailyBackup(currentData) {
   _backupCheckedToday = true;
   var key = _todayKey();
   var ref = db.ref('taller/backups/' + key);
-  ref.once('value').then(function(snap) {
+  // Solo se lee UN dato pequeno del respaldo (nxtId, que todo respaldo trae)
+  // para saber si ya existe: antes se descargaba el respaldo COMPLETO (todas
+  // las ordenes + todo el historial) en cada apertura de la app de cada
+  // dispositivo, solo para preguntar si existia (23 oct, por el consumo de
+  // descargas de Realtime Database). Que exista el hijo = existe el respaldo.
+  ref.child('nxtId').once('value').then(function(snap) {
     if (snap.exists()) return; // ya hay respaldo de hoy, no tocar
     // El historial ya no vive en memoria permanentemente (ver taller/historial
     // + openHist), asi que para que el respaldo diario siga completo hay que
