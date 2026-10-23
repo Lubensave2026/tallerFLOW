@@ -2303,9 +2303,25 @@ window.addEventListener('message', function(ev) {
     } else if (orr.montoCotizado !== d.cotizado) {
       nota = ' (el monto cotizado puesto a mano, ' + fq(orr.montoCotizado) + ', no se cambio)';
     }
+    // Montos de facturacion (Total autorizado y Mano de obra) desde lo que el
+    // cliente autorizo. Solo si el aviso trae autorizadoMO (con IVA, igual que el
+    // total) y el autorizado es mayor a cero; no pisa lo que el Jefe puso a mano.
+    var notaAut = '';
+    if (nm(d.autorizadoMO) && d.autorizado > 0 && d.autorizadoMO <= d.autorizado) {
+      var totalLibre = !orr.montoTotal || orr.montoTotalOrigen === 'cotizador';
+      var moLibre = !orr.montoMO || orr.montoMOOrigen === 'cotizador';
+      if (totalLibre && moLibre) {
+        orr.montoTotal = d.autorizado; orr.montoTotalOrigen = 'cotizador';
+        orr.montoMO = d.autorizadoMO; orr.montoMOOrigen = 'cotizador';
+        orr.montoMOTs = Date.now();
+        notaAut = ' · Montos autorizados pasados a la orden: Total ' + fq(d.autorizado) + ', Mano de obra ' + fq(d.autorizadoMO);
+      } else if (orr.montoTotal !== d.autorizado || orr.montoMO !== d.autorizadoMO) {
+        notaAut = ' (Total autorizado y Mano de obra puestos a mano, ' + fq(orr.montoTotal || 0) + ' y ' + fq(orr.montoMO || 0) + ', no se cambiaron)';
+      }
+    }
     var quienRes = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
     orr.msgs = orr.msgs || [];
-    orr.msgs.push({who: quienRes, txt: '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota, ts: Date.now(), type: 'system'});
+    orr.msgs.push({who: quienRes, txt: '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota + notaAut, ts: Date.now(), type: 'system'});
     save(); toast('Resultado del Cotizador guardado en la orden ' + (orr.ot || orr.id));
     if (typeof openId !== 'undefined' && openId === orr.id) openDrw(orr.id);
     return;
@@ -5489,8 +5505,8 @@ function openDrw(id) {
       if (eCotEl && (ox.montoCotizado||null) !== newCot) changes.push('Monto cotizado: Q.' + (ox.montoCotizado||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' -> Q.' + (newCot||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}));
       ox.plate = newPlate; ox.ot = newOt; ox.model = newModel; ox.client = newClient;
       ox.numFisico = newNum; ox.colorFisico = newColor;
-      if (eTotalEl) ox.montoTotal = newTotal || null;
-      if (eMoEl) ox.montoMO = newMO || null;
+      if (eTotalEl) { if ((ox.montoTotal || 0) !== (newTotal || 0)) delete ox.montoTotalOrigen; ox.montoTotal = newTotal || null; }
+      if (eMoEl) { if ((ox.montoMO || 0) !== (newMO || 0)) delete ox.montoMOOrigen; ox.montoMO = newMO || null; }
       if (eTech1El) ox.tech = newTech1 || null;
       if (eTech2El) ox.tech2 = newTech2 || null;
       if (ePrioEl) ox.prio = newPrio;
@@ -5958,6 +5974,7 @@ function openDrw(id) {
       var inp = document.getElementById('ea-mo-inp');
       var newMO = inp ? (parseFloat(inp.value) || 0) : null;
       var oldMO = ox.montoMO;
+      if ((oldMO || 0) !== (newMO || 0)) delete ox.montoMOOrigen;
       ox.montoMO = newMO || null;
       // A diferencia del auto-guardado silencioso de doSign() (que solo
       // cuenta como confirmacion si el valor cambio), tocar este boton es
