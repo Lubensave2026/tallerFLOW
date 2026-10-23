@@ -4458,12 +4458,30 @@ function openDrw(id) {
     cambioCandelas: '11 CAMBIO DE CANDELAS', cambioFiltro: '12 CAMBIO DE FILTRO',
     subcontrato: '13 SUBCONTRATO',
   };
+  // Control visual de comision ya pagada por adelantado (23 oct, pedido de
+  // Byron): solo el Jefe marca/ve que trabajos ya se pagaron (tw.pagadoTs).
+  // Es un aviso para descontar a mano: NO toca ningun reporte ni calculo.
+  var pagadoResumenHtml = '';
+  if (role === 'jefe') {
+    var hrsPagadas = 0, nPagados = 0;
+    for (var tpg = 0; tpg < trabajosList.length; tpg++) {
+      if (trabajosList[tpg].pagadoTs) { hrsPagadas += parseFloat(trabajosList[tpg].horas) || 0; nPagados++; }
+    }
+    if (nPagados > 0) {
+      var hrsFaltan = Math.max(0, totalHoras - hrsPagadas);
+      pagadoResumenHtml = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;margin-top:6px;padding:5px 8px;border-radius:var(--rs);background:var(--gnbg);border:1px solid var(--gnbd);font-size:11px">' +
+        '<span style="color:var(--gn);font-weight:700">&#128176; Ya pagado: ' + hrsPagadas.toFixed(2).replace('.', ',') + ' hrs com. (' + nPagados + ' de ' + trabajosList.length + ')</span>' +
+        '<span style="color:var(--tx);font-weight:700">Falta: ' + hrsFaltan.toFixed(2).replace('.', ',') + ' hrs com.</span>' +
+      '</div>';
+    }
+  }
   trabajosHtml += '<div style="margin-bottom:8px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center">' +
       '<span style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px">Trabajos realizados</span>' +
       '<span style="font-size:11px;font-weight:700;color:var(--tx)">' + trabajosList.length + ' operacion(es) · ' + totalHoras.toFixed(2).replace('.', ',') + ' hrs</span>' +
     '</div>' +
     horasPorTecDesglose +
+    pagadoResumenHtml +
   '</div>';
   if (trabajosList.length === 0) {
     trabajosHtml += '<div style="font-size:11px;color:var(--tx3);padding:6px 0">Sin trabajos registrados</div>';
@@ -4495,6 +4513,7 @@ function openDrw(id) {
           '<div style="font-size:12px;font-weight:500">' + tw.desc + '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">' +
+          (role === 'jefe' ? '<button class="btn-trab-pagado" data-ti="' + twi2 + '" title="' + (tw.pagadoTs ? 'Ya pagado por adelantado (toca para desmarcar)' : 'Marcar como ya pagado por adelantado') + '" style="background:' + (tw.pagadoTs ? 'var(--gnbg)' : 'none') + ';border:1px solid ' + (tw.pagadoTs ? 'var(--gn)' : 'var(--bd)') + ';color:' + (tw.pagadoTs ? 'var(--gn)' : 'var(--tx3)') + ';border-radius:8px;padding:2px 6px;font-size:11px;cursor:pointer;line-height:1.2;opacity:' + (tw.pagadoTs ? '1' : '.7') + '">&#128176;</button>' : '') +
           hrsBadge +
           (role === 'jefe' ? '<button class="btn-trab-del" data-ti="' + twi2 + '" title="Eliminar trabajo" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
         '</div>' +
@@ -4502,6 +4521,7 @@ function openDrw(id) {
       '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' +
         _trabTecLabelHtml(tw, twi2, o, r, ordTecs) +
         ' · ' + msgTs(tw.ts) + (tw.verificado ? ' · <span style="color:var(--gn)">&#10003; Realizado</span>' : '') +
+        (role === 'jefe' && tw.pagadoTs ? ' · <span style="color:var(--gn);font-weight:700">&#128176; Pagado ' + new Date(tw.pagadoTs).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit'}) + '</span>' : '') +
       '</div>' +
     '</div>';
   }
@@ -5208,6 +5228,29 @@ function openDrw(id) {
         save(); openDrw(id);
       });
     })(verTrabChks[vti]);
+  }
+  var pagTrabBtns = body.querySelectorAll('.btn-trab-pagado');
+  for (var pgi = 0; pgi < pagTrabBtns.length; pgi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede marcar trabajos como pagados'); return; }
+        var tip = parseInt(this.getAttribute('data-ti'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.trabajos || !ox.trabajos[tip]) return;
+        var twp = ox.trabajos[tip];
+        var whoP = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        if (twp.pagadoTs) {
+          delete twp.pagadoTs;
+          ox.msgs.push({who:whoP, txt:'&#128176; Se quito la marca de pagado: "' + esc(twp.desc) + '"', ts:Date.now(), type:'system'});
+        } else {
+          twp.pagadoTs = Date.now();
+          ox.msgs.push({who:whoP, txt:'&#128176; Marcado como ya pagado por adelantado: "' + esc(twp.desc) + '" (' + (parseFloat(twp.horas) || 0).toFixed(2).replace('.', ',') + ' hrs com.)', ts:Date.now(), type:'system'});
+        }
+        save(); openDrw(id);
+      });
+    })(pagTrabBtns[pgi]);
   }
   var delTrabBtns = body.querySelectorAll('.btn-trab-del');
   for (var dti = 0; dti < delTrabBtns.length; dti++) {
