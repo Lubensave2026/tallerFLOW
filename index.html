@@ -560,7 +560,7 @@ button{cursor:pointer}
       <span class="hdr-role" id="hdr-role">—</span>
       <button class="btn-nb" id="btn-nb" onclick="toggleNP()">🔔<span class="nb-dot" id="nb-dot"></span></button>
       <button class="btn-nb" id="btn-sigs" onclick="openSigs()" style="display:none;position:relative">✍️<span class="nb-dot" id="sig-dot" style="background:var(--or)"></span></button>
-      <button class="btn-nb" id="btn-autoriz" onclick="openAutoriz()" style="display:none;position:relative;border-color:var(--orbd)"><span id="autoriz-ico">🔓</span><span id="autoriz-lbl" style="display:none;font-size:10px;font-weight:800;letter-spacing:.3px;margin-left:5px;white-space:nowrap">PENDIENTE DESPACHO</span><span class="nb-dot" id="autoriz-count" style="background:var(--or);width:auto;min-width:15px;height:15px;border-radius:8px;font-size:9px;font-weight:700;color:#000;line-height:15px;text-align:center;padding:0 3px;top:2px;right:2px"></span></button>
+      <button class="btn-nb" id="btn-autoriz" onclick="openAutoriz()" style="display:none;position:relative;border-color:var(--orbd)"><span id="autoriz-ico">🔓</span><span id="autoriz-lbl" style="display:none;font-size:8px;line-height:1.05;font-weight:800;letter-spacing:.2px;margin-left:4px;text-align:left;white-space:nowrap">PENDIENTE<br>DESPACHO</span><span class="nb-dot" id="autoriz-count" style="background:var(--or);width:auto;min-width:15px;height:15px;border-radius:8px;font-size:9px;font-weight:700;color:#000;line-height:15px;text-align:center;padding:0 3px;top:2px;right:2px"></span></button>
       <button class="btn-rpt" id="btn-rpt" onclick="openRep()" style="display:none">📊</button>
       <button class="btn-out" onclick="logout()">Salir</button>
     </div>
@@ -9645,7 +9645,7 @@ function updateAutorizBadge() {
   if (ico) ico.textContent = esJefe ? '🔓' : '📦';
   if (lbl) lbl.style.display = esJefe ? 'none' : 'inline';
   btn.style.width = esJefe ? '' : 'auto';
-  btn.style.padding = esJefe ? '' : '0 10px';
+  btn.style.padding = esJefe ? '' : '0 7px';
   // Solo aparece cuando hay algo que autorizar — asi su sola presencia en el
   // encabezado ya es la alerta, sin tener que ir a buscar un numero.
   btn.style.display = 'flex';
