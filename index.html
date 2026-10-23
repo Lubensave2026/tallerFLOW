@@ -6224,6 +6224,14 @@ function showKmModal(titulo, subtitulo, onConfirm) {
 function _asesorSuplePuedeFirmar(fase, sigId) {
   return role === 'asesor' && ((fase === 'pa' && sigId === 'partes') || (fase === 'lav' && sigId === 'lavador'));
 }
+// Al firmar el cierre se pide el total cotizado si aun no existe y la orden
+// cuenta para el % de aprobacion: tiene monto facturado, o cierra en cero sin
+// ser Garantia/Interna (el cliente no autorizo nada = 0%).
+function _pideCotizadoAlCierre(o) {
+  if (!o || o.montoCotizado) return false;
+  if (o.montoTotal) return true;
+  return o.prio !== 'garantia' && o.prio !== 'interna';
+}
 function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
@@ -6329,8 +6337,11 @@ function doSign(id, sigId) {
   // advance(): si la orden ya tenia montoCotizado guardado no se pregunta
   // de nuevo, y las que ya pasaron por aqui antes de hoy nunca lo tendran
   // ni se les exige retroactivo.
-  if (o.phase === 'ent' && sigId === 'jefe' && o.montoTotal && !o.montoCotizado) {
-    var cotizadoInput = prompt('Total cotizado para ' + o.plate + ' (para calcular % de aprobacion):');
+  // 23 oct (pedido de Byron): tambien se pide cuando la orden se cierra con
+  // Q.0.00 (el cliente no autorizo nada): cuenta como 0% de aprobacion. Solo
+  // las de prioridad Garantia o Interna quedan fuera (ver _pideCotizadoAlCierre).
+  if (o.phase === 'ent' && sigId === 'jefe' && _pideCotizadoAlCierre(o)) {
+    var cotizadoInput = prompt('Total cotizado para ' + o.plate + (o.montoTotal ? '' : ' (la orden se cierra con Q.0.00: si el cliente no autorizo nada, el % de aprobacion sera 0)') + ' (para calcular % de aprobacion):');
     if (cotizadoInput === null) return; // cancelo
     var cotizadoVal = parseFloat(cotizadoInput);
     if (!cotizadoVal || cotizadoVal <= 0) { toast('Ingresa un monto de cotizacion mayor a 0'); return; }
@@ -6364,8 +6375,8 @@ function doSign(id, sigId) {
     // Cotizador o se pidio arriba), monto aprobado (= facturado, el mismo dato
     // que usan el % de aprobacion de los reportes) y el %. Va a la bitacora y a
     // o.aprobacionCierre; los reportes siguen calculandolo con los mismos campos.
-    if (o.phase === 'ent' && sigId === 'jefe' && o.montoTotal && o.montoCotizado) {
-      var aprCot = Number(o.montoCotizado), aprMonto = Number(o.montoTotal);
+    if (o.phase === 'ent' && sigId === 'jefe' && o.montoCotizado) {
+      var aprCot = Number(o.montoCotizado), aprMonto = Number(o.montoTotal || 0);
       var aprPct = Math.round(aprMonto / aprCot * 100);
       var fqA = function(n) { return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
       var aprTxt = 'Cotizado ' + fqA(aprCot) + ' · Aprobado ' + fqA(aprMonto) + ' · Aprobacion ' + aprPct + '%';
@@ -10664,14 +10675,14 @@ function _buildOrderSummaryCSV(allOrders) {
     // Monto cotizado + % de aprobacion — de la ORDEN completa (ver nota del
     // header), calculados una sola vez aqui, antes del reparto por tecnico.
     var montoCotizado = o.montoCotizado ? Number(o.montoCotizado) : 0;
-    var pctAprobacionRow = (montoCotizado && montoTotal) ? Math.round(montoTotal / montoCotizado * 100) : null;
+    var pctAprobacionRow = montoCotizado ? Math.round(montoTotal / montoCotizado * 100) : null; // incluye cierres en Q.0.00 (0%)
     if (montoCotizado) sumMontoCotizado += montoCotizado;
     // Km_Recorridos: igual que Monto_Cotizado, de la ORDEN completa (no se
     // reparte entre tecnicos) -- vacio si nunca se registro kilometraje de
     // salida en ninguna prueba de ruta de esta orden.
     var kmRecorridosRow = (o.kmRecorridos !== undefined && o.kmRecorridos !== null) ? o.kmRecorridos : null;
     if (kmRecorridosRow !== null) sumKmRecorridos += kmRecorridosRow;
-    if (montoCotizado && montoTotal) sumMontoTotalConCotizado += montoTotal;
+    if (montoCotizado) sumMontoTotalConCotizado += montoTotal;
 
     // Con 2 tecnicos asignados, la orden sale como 2 FILAS (una por
     // tecnico) — las fechas y el resto de fases quedan iguales en ambas,
@@ -14042,6 +14053,12 @@ function semComputeFromOrders(monthOffset) {
           eventoEsteMesAprobacion = true;
           ordenesCerradas.push({ot:o.ot, salida:ts, client:o.client, model:o.model, tech:(o.tech||'Sin asignar')+(o.tech2?' + '+o.tech2:''), total:t, mo:mo, montoCotizado:o.montoCotizado || null, montoTotalOrden:o.montoTotal || null});
         }
+      } else if (ts && o.montoCotizado) {
+        // Cierre en Q.0.00 con monto cotizado (el cliente no autorizo nada):
+        // no suma a lo facturado ni al conteo de cerradas, solo cuenta para
+        // el % de aprobacion del mes en que se cerro (23 oct).
+        var d0 = new Date(ts);
+        if (d0.getFullYear() === y && d0.getMonth() === m) eventoEsteMesAprobacion = true;
       }
     } else if (o.montoTotal && isCurrentMonth) {
       // "Proyectado" son ordenes AUN activas — solo tiene sentido para el mes
@@ -14051,8 +14068,8 @@ function semComputeFromOrders(monthOffset) {
       // un valor negativo si el monto se corrigio hacia abajo.
       potTotal += Math.max(0, o.montoTotal - facTotal); potMO += Math.max(0, (o.montoMO || 0) - facMO); countPotencial++;
     }
-    if (eventoEsteMesAprobacion && o.montoTotal && o.montoCotizado) {
-      sumFacturadoConCotizado += o.montoTotal; sumCotizado += o.montoCotizado; countConCotizado++;
+    if (eventoEsteMesAprobacion && o.montoCotizado) {
+      sumFacturadoConCotizado += (o.montoTotal || 0); sumCotizado += o.montoCotizado; countConCotizado++;
     }
   }
   var dias = Object.keys(byDay).map(function(k) {
