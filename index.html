@@ -2393,7 +2393,7 @@ function _cotizEnviosRowsHtml(o, variante) {
       : '<span style="color:var(--tx2);font-size:11px;white-space:nowrap">' + cuando + '</span>');
   return '<div class="cotiz-envio-row" style="' + caja + '">' +
     '<span style="background:#FFD700;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">&#128221; ' + (pend ? 'PRESUPUESTO COMPLETADO' : 'PRESUPUESTO ENVIADO') + '</span>' +
-    '<span style="font-size:10px;color:var(--tx3);flex:1"><a href="' + esc(ult.url) + '" target="_blank" rel="noopener" style="color:#FFD700">abrir presupuesto</a></span>' +
+    '<span style="font-size:10px;color:var(--tx3);flex:1"><a href="' + esc(ult.url) + '" target="_blank" onclick="return abrirLinkCotizador(this)" style="color:#FFD700">abrir presupuesto</a></span>' +
     cuandoTxt +
   '</div>';
 }
@@ -2443,6 +2443,16 @@ function verPresupuestoCliente(oid) {
   // Sin 'noopener'/'noreferrer' A PROPOSITO (pedido del Cotizador, 21 oct): asi
   // el Cotizador reconoce que viene de TallerFLOW y muestra "Listados para TallerFLOW".
   window.open(u, '_blank');
+}
+// Enlaces "abrir presupuesto" de la ficha: abren con window.open SIN noopener (un
+// <a target="_blank"> lo aplica por defecto) para que el Cotizador pueda avisar de
+// vuelta ("Enviar resultado a TallerFLOW"). Solo links del Cotizador; si no lo es,
+// se deja el comportamiento normal del enlace.
+function abrirLinkCotizador(a) {
+  var u = a && a.href ? String(a.href) : '';
+  if (!COTIZADOR_URL || u.indexOf(COTIZADOR_URL) !== 0) return true;
+  window.open(u, '_blank');
+  return false;
 }
 function _urlCotizPartesValida(url) {
   return typeof url === 'string' && !!COTIZADOR_URL && url.indexOf(COTIZADOR_URL) === 0 && url.indexOf('#t=') !== -1 && url.length < 4000;
@@ -3782,7 +3792,7 @@ function openDrw(id) {
         '<button id="btn-pegar-link-cotiz" onclick="pegarLinkCotizacion(' + id + ')" class="btn-s" style="font-size:11px;padding:6px 10px;white-space:nowrap">Guardar link</button></div>';
     }
     if (o.linkCotizacion) {
-      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" rel="noopener" style="font-size:11px;color:#FFD700">&#128279; ' + (_cotizPendienteEnvio(o) ? 'Presupuesto completado (pend. envio)' : 'Presupuesto del cliente (ya enviado)') + '</a></div>';
+      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" onclick="return abrirLinkCotizador(this)" style="font-size:11px;color:#FFD700">&#128279; ' + (_cotizPendienteEnvio(o) ? 'Presupuesto completado (pend. envio)' : 'Presupuesto del cliente (ya enviado)') + '</a></div>';
     }
     cotizarBtnHtml += '<div id="box-link-cotiz" style="margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3)">' +
       '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Cotizacion de repuestos</div>' + boxCot + '</div>';
