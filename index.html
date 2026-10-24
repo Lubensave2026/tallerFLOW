@@ -2428,7 +2428,7 @@ function _cotizEnviosRowsHtml(o, variante) {
       : '<span style="color:var(--tx2);font-size:11px;white-space:nowrap">' + cuando + '</span>');
   return '<div class="cotiz-envio-row" style="' + caja + '">' +
     '<span style="background:#FFD700;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">&#128221; ' + (pend ? 'PRESUPUESTO COMPLETADO' : 'PRESUPUESTO ENVIADO') + '</span>' +
-    '<span style="font-size:10px;color:var(--tx3);flex:1"><a href="' + esc(ult.url) + '" target="_blank" onclick="return abrirLinkCotizador(this)" style="color:#FFD700">abrir presupuesto</a></span>' +
+    '<span style="font-size:10px;color:var(--tx3);flex:1"><a href="' + esc(ult.url) + '" target="_blank" data-oid="' + esc(o.id) + '" onclick="return abrirLinkCotizador(this)" style="color:#FFD700">abrir presupuesto</a></span>' +
     cuandoTxt +
   '</div>';
 }
@@ -2483,9 +2483,17 @@ function verPresupuestoCliente(oid) {
 // <a target="_blank"> lo aplica por defecto) para que el Cotizador pueda avisar de
 // vuelta ("Enviar resultado a TallerFLOW"). Solo links del Cotizador; si no lo es,
 // se deja el comportamiento normal del enlace.
+// El link del cliente (#?k=...) no trae el numero de orden, y sin el el Cotizador no sabe a que
+// orden avisar ni donde guardar el resultado (23 oct, mensaje "este link no trae el numero de
+// orden"). Si la orden se conoce (data-oid), se abre con la misma direccion que el boton "Cotizar"
+// para una orden con presupuesto: ?ot=...&k=...
 function abrirLinkCotizador(a) {
   var u = a && a.href ? String(a.href) : '';
   if (!COTIZADOR_URL || u.indexOf(COTIZADOR_URL) !== 0) return true;
+  var oid = a.getAttribute ? a.getAttribute('data-oid') : null;
+  var o = oid ? orders.find(function(x){ return String(x.id) === String(oid); }) : null;
+  var km = u.match(/[?&]k=([A-Za-z0-9]+)/);
+  if (o && o.ot && km) { var base = _urlCotizador(o); if (base) u = base + '&k=' + km[1]; }
   window.open(u, '_blank');
   return false;
 }
@@ -3828,7 +3836,7 @@ function openDrw(id) {
         '<button id="btn-pegar-link-cotiz" onclick="pegarLinkCotizacion(' + id + ')" class="btn-s" style="font-size:11px;padding:6px 10px;white-space:nowrap">Guardar link</button></div>';
     }
     if (o.linkCotizacion) {
-      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" onclick="return abrirLinkCotizador(this)" style="font-size:11px;color:#FFD700">&#128279; ' + (_cotizPendienteEnvio(o) ? 'Presupuesto completado (pend. envio)' : 'Presupuesto del cliente (ya enviado)') + '</a></div>';
+      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" data-oid="' + esc(o.id) + '" onclick="return abrirLinkCotizador(this)" style="font-size:11px;color:#FFD700">&#128279; ' + (_cotizPendienteEnvio(o) ? 'Presupuesto completado (pend. envio)' : 'Presupuesto del cliente (ya enviado)') + '</a></div>';
     }
     cotizarBtnHtml += '<div id="box-link-cotiz" style="margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3)">' +
       '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Cotizacion de repuestos</div>' + boxCot + '</div>';
