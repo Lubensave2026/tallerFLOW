@@ -2243,6 +2243,81 @@ function abrirCotizador(oid) {
 // de otro origen). Queda en la orden (o.cotizaciones[], o.linkCotizacion) y
 // en la bitacora como un mensaje mas, visible donde ya se ven los demas
 // mensajes de sistema (ficha en vivo e Historial).
+// Aplica el resultado de la autorizacion del cliente a la orden. Lo usan el aviso por ventana
+// ('lns-cotizacion-resultado') y la lectura de cotizador/autorizaciones/{OT} (resultadoTs): misma logica.
+function _aplicarResultadoCotizador(d) {
+  var nm = function(v){ return typeof v === 'number' && isFinite(v) && v >= 0 && v < 1e9; };
+  if (!d.ot || typeof d.ts !== 'number' || !nm(d.cotizado) || !nm(d.autorizado) || !nm(d.pendiente)) return;
+  var orr = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
+  if (!orr) { toast('Resultado del Cotizador, pero no encontre la orden ' + d.ot); return; }
+  if (orr.cotizResultado && orr.cotizResultado.ts === d.ts) return; // mismo aviso repetido
+  // El mismo resultado puede llegar por la ventana Y por Firebase (otro ts): si los montos son
+  // identicos a los ya guardados (con autorizadoMO), no se repite ni la linea de bitacora.
+  var prevR = orr.cotizResultado;
+  if (prevR && prevR.autorizadoMO != null && prevR.cotizado === d.cotizado && prevR.autorizado === d.autorizado &&
+      prevR.pendiente === d.pendiente && prevR.autorizadoMO === (nm(d.autorizadoMO) ? d.autorizadoMO : null)) return;
+  var nz = function(v){ return nm(v) ? v : 0; };
+  orr.cotizResultado = {cotizado: d.cotizado, autorizado: d.autorizado, pendiente: d.pendiente,
+    autorizadoMO: nm(d.autorizadoMO) ? d.autorizadoMO : null,
+    urgenteCotizado: nz(d.urgenteCotizado), urgenteAutorizado: nz(d.urgenteAutorizado),
+    sugeridoCotizado: nz(d.sugeridoCotizado), sugeridoAutorizado: nz(d.sugeridoAutorizado),
+    puntos: nz(d.puntos), puntosAutorizados: nz(d.puntosAutorizados), ts: d.ts};
+  var fq = function(n){ return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+  var nota = '';
+  if (!orr.montoCotizado || orr.montoCotizadoOrigen === 'cotizador') {
+    orr.montoCotizado = d.cotizado; orr.montoCotizadoOrigen = 'cotizador';
+  } else if (orr.montoCotizado !== d.cotizado) {
+    nota = ' (el monto cotizado puesto a mano, ' + fq(orr.montoCotizado) + ', no se cambio)';
+  }
+  // Montos de facturacion (Total autorizado y Mano de obra) desde lo que el
+  // cliente autorizo. Solo si el aviso trae autorizadoMO (con IVA, igual que el
+  // total) y el autorizado es mayor a cero; no pisa lo que el Jefe puso a mano.
+  var notaAut = '';
+  if (nm(d.autorizadoMO) && d.autorizado > 0 && d.autorizadoMO <= d.autorizado) {
+    var totalLibre = !orr.montoTotal || orr.montoTotalOrigen === 'cotizador';
+    var moLibre = !orr.montoMO || orr.montoMOOrigen === 'cotizador';
+    if (totalLibre && moLibre) {
+      orr.montoTotal = d.autorizado; orr.montoTotalOrigen = 'cotizador';
+      orr.montoMO = d.autorizadoMO; orr.montoMOOrigen = 'cotizador';
+      orr.montoMOTs = Date.now();
+      notaAut = ' · Montos autorizados pasados a la orden: Total ' + fq(d.autorizado) + ', Mano de obra ' + fq(d.autorizadoMO);
+    } else if (orr.montoTotal !== d.autorizado || orr.montoMO !== d.autorizadoMO) {
+      notaAut = ' (Total autorizado y Mano de obra puestos a mano, ' + fq(orr.montoTotal || 0) + ' y ' + fq(orr.montoMO || 0) + ', no se cambiaron)';
+    }
+  }
+  var quienRes = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
+  orr.msgs = orr.msgs || [];
+  orr.msgs.push({who: quienRes, txt: '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota + notaAut, ts: Date.now(), type: 'system'});
+  save(); toast('Resultado del Cotizador guardado en la orden ' + (orr.ot || orr.id));
+  if (typeof openId !== 'undefined' && openId === orr.id) openDrw(orr.id);
+}
+// Respaldo cuando la ventana del Cotizador no tiene conexion (app instalada, etc.): al abrir una orden
+// en Espera de autorizacion se lee UNA vez cotizador/autorizaciones/{OT} (no la carpeta, no listener;
+// a lo sumo 1 lectura por minuto por orden). Solo cuenta si trae resultadoTs, que existe unicamente
+// cuando el equipo pulso "Enviar resultado": sin resultadoTs es solo la seleccion del cliente y no
+// llena nada. El mismo resultado se ignora (por resultadoTs y por montos identicos).
+function _leerResultadoAutorizacion(o) {
+  if (!o || o.phase !== 'ea' || !o.ot || typeof db === 'undefined' || !db) return;
+  var key = String(o.ot);
+  if (!/^[A-Za-z0-9_-]+$/.test(key)) return;
+  window._autorizLeidas = window._autorizLeidas || {};
+  var ahora = Date.now();
+  if (ahora - (window._autorizLeidas[key] || 0) < 60000) return;
+  window._autorizLeidas[key] = ahora;
+  try {
+    db.ref('cotizador/autorizaciones/' + key).once('value').then(function(snap) {
+      var v = snap.val();
+      if (!v || typeof v.resultadoTs !== 'number' || !(v.autorizado > 0)) return;
+      var ord = orders.find(function(x){ return String(x.ot || x.id) === key; });
+      if (!ord || ord.phase !== 'ea') return;
+      _aplicarResultadoCotizador({tipo: 'lns-cotizacion-resultado', ot: key, ts: v.resultadoTs,
+        cotizado: v.cotizado, autorizado: v.autorizado, autorizadoMO: v.autorizadoMO, pendiente: v.pendiente,
+        urgenteCotizado: v.urgenteCotizado, urgenteAutorizado: v.urgenteAutorizado,
+        sugeridoCotizado: v.sugeridoCotizado, sugeridoAutorizado: v.sugeridoAutorizado,
+        puntos: v.puntos, puntosAutorizados: v.puntosAutorizados});
+    }).catch(function(){});
+  } catch (e) {}
+}
 window.addEventListener('message', function(ev) {
   if (ev.origin !== 'https://lubensave2026.github.io') return;
   var d = ev.data;
@@ -2285,47 +2360,7 @@ window.addEventListener('message', function(ev) {
   // TallerFLOW"): montos en Q con IVA, sin costos ni margenes. Queda en
   // o.cotizResultado, en la bitacora, y alimenta o.montoCotizado (el que usa
   // el % de aprobacion al cerrar) salvo que el Jefe ya lo haya puesto a mano.
-  if (d && d.tipo === 'lns-cotizacion-resultado') {
-    var nm = function(v){ return typeof v === 'number' && isFinite(v) && v >= 0 && v < 1e9; };
-    if (!d.ot || typeof d.ts !== 'number' || !nm(d.cotizado) || !nm(d.autorizado) || !nm(d.pendiente)) return;
-    var orr = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
-    if (!orr) { toast('Resultado del Cotizador, pero no encontre la orden ' + d.ot); return; }
-    if (orr.cotizResultado && orr.cotizResultado.ts === d.ts) return; // mismo aviso repetido
-    var nz = function(v){ return nm(v) ? v : 0; };
-    orr.cotizResultado = {cotizado: d.cotizado, autorizado: d.autorizado, pendiente: d.pendiente,
-      urgenteCotizado: nz(d.urgenteCotizado), urgenteAutorizado: nz(d.urgenteAutorizado),
-      sugeridoCotizado: nz(d.sugeridoCotizado), sugeridoAutorizado: nz(d.sugeridoAutorizado),
-      puntos: nz(d.puntos), puntosAutorizados: nz(d.puntosAutorizados), ts: d.ts};
-    var fq = function(n){ return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
-    var nota = '';
-    if (!orr.montoCotizado || orr.montoCotizadoOrigen === 'cotizador') {
-      orr.montoCotizado = d.cotizado; orr.montoCotizadoOrigen = 'cotizador';
-    } else if (orr.montoCotizado !== d.cotizado) {
-      nota = ' (el monto cotizado puesto a mano, ' + fq(orr.montoCotizado) + ', no se cambio)';
-    }
-    // Montos de facturacion (Total autorizado y Mano de obra) desde lo que el
-    // cliente autorizo. Solo si el aviso trae autorizadoMO (con IVA, igual que el
-    // total) y el autorizado es mayor a cero; no pisa lo que el Jefe puso a mano.
-    var notaAut = '';
-    if (nm(d.autorizadoMO) && d.autorizado > 0 && d.autorizadoMO <= d.autorizado) {
-      var totalLibre = !orr.montoTotal || orr.montoTotalOrigen === 'cotizador';
-      var moLibre = !orr.montoMO || orr.montoMOOrigen === 'cotizador';
-      if (totalLibre && moLibre) {
-        orr.montoTotal = d.autorizado; orr.montoTotalOrigen = 'cotizador';
-        orr.montoMO = d.autorizadoMO; orr.montoMOOrigen = 'cotizador';
-        orr.montoMOTs = Date.now();
-        notaAut = ' · Montos autorizados pasados a la orden: Total ' + fq(d.autorizado) + ', Mano de obra ' + fq(d.autorizadoMO);
-      } else if (orr.montoTotal !== d.autorizado || orr.montoMO !== d.autorizadoMO) {
-        notaAut = ' (Total autorizado y Mano de obra puestos a mano, ' + fq(orr.montoTotal || 0) + ' y ' + fq(orr.montoMO || 0) + ', no se cambiaron)';
-      }
-    }
-    var quienRes = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
-    orr.msgs = orr.msgs || [];
-    orr.msgs.push({who: quienRes, txt: '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota + notaAut, ts: Date.now(), type: 'system'});
-    save(); toast('Resultado del Cotizador guardado en la orden ' + (orr.ot || orr.id));
-    if (typeof openId !== 'undefined' && openId === orr.id) openDrw(orr.id);
-    return;
-  }
+  if (d && d.tipo === 'lns-cotizacion-resultado') { _aplicarResultadoCotizador(d); return; }
   if (!d || (d.tipo !== 'lns-cotizacion' && d.tipo !== 'lns-cotizacion-partes') || !d.ot || typeof d.url !== 'string' || d.url.indexOf('https://lubensave2026.github.io/cotizador-lns/') !== 0) return;
   var o = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
   if (!o) { toast('Cotizacion recibida, pero no encontre la orden ' + d.ot); return; }
@@ -3224,6 +3259,7 @@ function openDrw(id) {
   openId = id;
   o._lr = Date.now();
   save();
+  _leerResultadoAutorizacion(o);
 
   if (window._drwRepInt) clearInterval(window._drwRepInt);
   window._drwRepInt = setInterval(function() {
