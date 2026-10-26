@@ -7776,12 +7776,13 @@ function openRep() {
   _jefeVerCerradasDeTec = '';
   _jefeShowCerradosDetalle = false;
   _repCerradoMonthOffset = 0;
+  _repProyReset(); // las marcas de la Proyeccion solo duran mientras el reporte esta abierto
   // Auto-refresh every 30 seconds while report is open
   if (window._repInterval) clearInterval(window._repInterval);
   window._repInterval = setInterval(function() {
     var repModal = document.getElementById('m-rep');
     if (repModal && repModal.classList.contains('on')) {
-      buildRepContent();
+      _repReconstruirConFiltros();
     } else {
       clearInterval(window._repInterval);
     }
@@ -7791,7 +7792,7 @@ function openRep() {
   // Refresca 'archived' por si esta sesion nunca abrio Historial — sin esto
   // "Mi productividad — ordenes CERRADAS" de meses pasados podia salir
   // incompleta (ver refreshArchived).
-  refreshArchived(function() { buildRepContent(); });
+  refreshArchived(function() { _repReconstruirConFiltros(); });
 }
 
 function buildRepContent() {
@@ -8077,12 +8078,15 @@ function buildRepContent() {
       }
     }
     var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+    // Modo Proyeccion (solo Jefe): la tarjeta suma unicamente las ordenes que el Jefe marco.
+    var proyOn = _repProyActivo();
+    var proyT = proyOn ? _repProyTotales() : null;
     html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">' +
-      '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
-        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">&#128181; Facturacion potencial (' + conMonto + ' de ' + active + ' ordenes activas con monto)</div>' +
+      '<div id="rep-pot-card" style="flex:1;min-width:220px;background:var(--bg3);border:1px solid ' + (proyOn ? '#3D7EFF' : 'var(--bd)') + ';border-radius:var(--r);padding:10px 16px">' +
+        '<div id="rep-pot-label" style="font-size:10px;color:' + (proyOn ? '#3D7EFF' : 'var(--tx3)') + ';text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">' + (proyOn ? _repProyEtiqueta(proyT.n) : '&#128181; Facturacion potencial (' + conMonto + ' de ' + active + ' ordenes activas con monto)') + '</div>' +
         '<div style="display:flex;gap:16px">' +
-          '<div><div style="font-size:18px;font-weight:700;color:var(--tx2)">' + fmtQ2(potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
-          '<div><div style="font-size:18px;font-weight:700;color:var(--tx2)">' + fmtQ2(potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
+          '<div><div id="rep-pot-total" style="font-size:18px;font-weight:700;color:' + (proyOn ? '#3D7EFF' : 'var(--tx2)') + '">' + fmtQ2(proyOn ? proyT.total : potTotal) + '</div><div style="font-size:10px;color:var(--tx3)">Total autorizado</div></div>' +
+          '<div><div id="rep-pot-mo" style="font-size:18px;font-weight:700;color:' + (proyOn ? '#3D7EFF' : 'var(--tx2)') + '">' + fmtQ2(proyOn ? proyT.mo : potMO) + '</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
         '</div>' +
       '</div>' +
       '<div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:10px 16px">' +
@@ -8246,10 +8250,19 @@ function buildRepContent() {
           return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;color:var(--tx);cursor:pointer;white-space:nowrap"><input type="checkbox" class="rep-fil-ph-chk" value="' + f[0] + '" onchange="repPhaseChanged()" style="width:15px;height:15px;cursor:pointer">' + f[1] + '</label>';
         }).join('') +
         '<button type="button" onclick="repPhaseClear()" style="margin-top:6px;width:100%;font-size:11px;padding:5px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">Quitar seleccion (todos)</button>' +
+        '<button type="button" id="rep-fil-phase-ok" onclick="toggleRepPhasePanel()" style="position:sticky;bottom:0;z-index:1;margin-top:8px;width:100%;font-size:12px;font-weight:700;padding:7px;border-radius:8px;border:none;background:#3D7EFF;color:#fff;cursor:pointer">&#10003; Listo</button>' +
       '</div>' +
     '</div>' +
     ((role === 'jefe' || role === 'asesor' || role === 'partes')
       ? '<button id="rep-fil-monto" data-active="0" onclick="toggleRepFilterMonto()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128181; Solo con monto</button>'
+      : '') +
+    // Proyeccion de facturacion (solo Jefe): marcar las ordenes que calcula facturar este mes.
+    (role === 'jefe'
+      ? '<button id="rep-proy-btn" onclick="toggleRepProy()" title="Marca las ordenes que calculas facturar y la tarjeta de Facturacion potencial suma solo esas" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_repProy.on ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_repProy.on ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_repProy.on ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;font-weight:' + (_repProy.on ? '700' : '400') + '">&#128200; Proyeccion</button>' +
+        (_repProy.on
+          ? '<button id="rep-proy-solo" onclick="toggleRepProySolo()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid ' + (_repProy.soloMarcadas ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_repProy.soloMarcadas ? 'rgba(61,126,255,.15)' : 'var(--bg3)') + ';color:' + (_repProy.soloMarcadas ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer">&#9745; Solo marcadas</button>' +
+            '<button onclick="repProyLimpiar()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">Desmarcar todas</button>'
+          : '')
       : '') +
     '<button onclick="repClearFilters()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#x2715; Limpiar filtros</button>' +
     (role === 'jefe'
@@ -8305,9 +8318,11 @@ function buildRepContent() {
   }
 
   // Main orders table
+  var proyCol = _repProyActivo() && !tecActivo && !vistaCerradas; // columna de casillas del modo Proyeccion
   html += '<div id="rep-table-wrap" style="overflow-x:auto;overflow-y:visible;margin-bottom:1rem">' +
     '<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">' +
     '<thead><tr style="background:#000000;color:#FFD700;font-weight:700;position:sticky;top:0;z-index:10">' +
+      (proyCol ? '<th style="padding:7px 8px;text-align:center;border-bottom:2px solid #FFD700;white-space:nowrap" title="Marca las ordenes que calculas facturar">Proy.</th>' : '') +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">OR #</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Ingreso</th>' +
       '<th style="padding:7px 8px;text-align:left;border-bottom:2px solid #FFD700;white-space:nowrap">Estatus</th>' +
@@ -8472,6 +8487,11 @@ function buildRepContent() {
     }
     var rowBg = i % 2 === 0 ? 'var(--bg3)' : 'var(--bg2)';
     html += '<tr style="background:' + rowBg + ';cursor:pointer" data-tec="' + esc(o.tech||'') + '" data-phase="' + esc(o.phase||'') + '" data-monto="' + (o.montoTotal ? '1' : '0') + '" data-oid="' + o.id + '" class="rep-row-clickable">' +
+      (proyCol ? '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:center">' +
+        (o.montoTotal
+          ? '<input type="checkbox" class="rep-proy-chk"' + (_repProy.marks[o.id] ? ' checked' : '') + ' onclick="event.stopPropagation()" onchange="repProyMark(' + o.id + ',this.checked)" style="width:16px;height:16px;cursor:pointer">'
+          : '<span style="color:var(--tx3)" title="Sin monto autorizado: no cuenta en la proyeccion">&mdash;</span>') +
+        '</td>' : '') +
       // No. de orden clickeable si tiene enlace de Clear Mechanic guardado
       // (30 sep 2026, pedido de Byron) -- reusa la misma columna "OR #" en
       // vez de agregar una columna nueva, para no descuadrar el formato del
@@ -8534,6 +8554,7 @@ function buildRepContent() {
     expRow._tec = o.tech || '';
     expRow._phase = o.phase || '';
     expRow._monto = !!o.montoTotal;
+    expRow._oid = o.id;
     _repExportRows.push(expRow);
   }
   html += '</tbody></table></div></div>';
@@ -10948,8 +10969,10 @@ function _repExportVisibleRows() {
   var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
   var phaseFilter = _repFasesSeleccionadas();
   var soloMonto = _repFilterMontoActivo();
+  var proySolo = _repProyActivo() && _repProy.soloMarcadas;
   return _repExportRows.filter(function(r) {
-    return (!tecFilter || r._tec === tecFilter) && (!phaseFilter.length || phaseFilter.indexOf(r._phase) >= 0) && (!soloMonto || r._monto);
+    return (!tecFilter || r._tec === tecFilter) && (!phaseFilter.length || phaseFilter.indexOf(r._phase) >= 0) && (!soloMonto || r._monto) &&
+      (!proySolo || !!_repProy.marks[r._oid]);
   });
 }
 function exportRepGeneralCSV() {
@@ -10961,6 +10984,20 @@ function exportRepGeneralCSV() {
   if (!visibles.length) { toast('Los filtros actuales no dejan ninguna orden para exportar'); return; }
   var rows = [_repExportHeader];
   for (var i = 0; i < visibles.length; i++) rows.push(visibles[i]);
+  // Modo Proyeccion: columna "En proyeccion" (Si en las marcadas) y, al final, los totales de lo marcado,
+  // para que el archivo salga igual a la tarjeta que se ve en pantalla.
+  if (_repProyActivo()) {
+    rows = [_repExportHeader.concat(['En proyeccion'])];
+    for (var pi = 0; pi < visibles.length; pi++) rows.push(visibles[pi].concat([_repProy.marks[visibles[pi]._oid] ? 'Si' : '']));
+    var pt = _repProyTotales();
+    var fpi = _repExportHeader.indexOf('Fact. potencial');
+    var vacia = function() { var a = []; for (var z = 0; z <= _repExportHeader.length; z++) a.push(''); return a; };
+    var rTot = vacia(), rMo = vacia();
+    rTot[0] = 'PROYECCION (' + pt.n + ' orden(es) marcada(s)) - Total autorizado';
+    rMo[0] = 'PROYECCION - Mano de obra';
+    if (fpi >= 0) { rTot[fpi] = _csvNum(pt.total.toFixed(2)); rMo[fpi] = _csvNum(pt.mo.toFixed(2)); }
+    rows.push(vacia(), rTot, rMo);
+  }
   var csv = rows.map(function(rr) { return rr.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
   _downloadCSV(csv, 'tallerflow_reporte_general_' + _todayKey() + '.csv');
   toast('Exportado: ' + visibles.length + ' orden(es)');
@@ -14420,6 +14457,37 @@ function toggleRepPhasePanel() {
   pn.style.display = (pn.style.display === 'none' || !pn.style.display) ? 'block' : 'none';
 }
 function repPhaseChanged() { _repActualizarEtiquetaFases(); repApplyFilters(); }
+// El reporte se reconstruye entero cada 30 s (auto-refresco) y al terminar de bajar el Historial, y las
+// casillas viven en el HTML, asi que los filtros se perdian solos (24 oct, reporte de Byron). Estas dos
+// funciones guardan y vuelven a poner tecnico, estatus, "Solo con monto" y si el panel estaba abierto.
+function _repGuardarFiltros() {
+  var tec = document.getElementById('rep-fil-tec');
+  var m = document.getElementById('rep-fil-monto');
+  var pn = document.getElementById('rep-fil-phase-panel');
+  return {tec: tec ? tec.value : '', fases: _repFasesSeleccionadas(),
+    monto: !!(m && m.getAttribute('data-active') === '1'), abierto: !!(pn && pn.style.display === 'block')};
+}
+function _repRestaurarFiltros(st) {
+  if (!st) return;
+  var tec = document.getElementById('rep-fil-tec');
+  if (tec && st.tec) tec.value = st.tec;
+  var chks = document.querySelectorAll('.rep-fil-ph-chk');
+  for (var i = 0; i < chks.length; i++) chks[i].checked = st.fases.indexOf(chks[i].value) >= 0;
+  _repActualizarEtiquetaFases();
+  var m = document.getElementById('rep-fil-monto');
+  if (m && st.monto) {
+    m.setAttribute('data-active', '1');
+    m.style.borderColor = '#3D7EFF'; m.style.background = 'rgba(61,126,255,.15)'; m.style.color = '#3D7EFF';
+  }
+  var pn = document.getElementById('rep-fil-phase-panel');
+  if (pn && st.abierto) pn.style.display = 'block';
+  repApplyFilters();
+}
+function _repReconstruirConFiltros() {
+  var st = _repGuardarFiltros();
+  buildRepContent();
+  _repRestaurarFiltros(st);
+}
 function repPhaseClear() {
   var chks = document.querySelectorAll('.rep-fil-ph-chk');
   for (var i = 0; i < chks.length; i++) chks[i].checked = false;
@@ -14434,10 +14502,60 @@ document.addEventListener('click', function(e) {
   pn.style.display = 'none';
 });
 
+// ---- Proyeccion de facturacion (24 oct 2026, pedido de Byron) ----
+// Solo Jefe y solo en pantalla: las marcas viven en memoria mientras el reporte esta abierto (se borran
+// al abrirlo de nuevo) y no se guardan en ninguna orden ni en Firebase. Solo se pueden marcar ordenes con
+// monto autorizado. La suma usa el mismo calculo de la tarjeta "Facturacion potencial" (descuenta lo ya
+// facturado); no cambia ninguna cifra real ni los reportes.
+var _repProy = {on: false, soloMarcadas: false, marks: {}};
+function _repProyActivo() { return role === 'jefe' && _repProy.on; }
+function _repProyTotales() {
+  var total = 0, mo = 0, n = 0;
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (o.phase === 'cer' || !o.montoTotal || !_repProy.marks[o.id]) continue;
+    total += Math.max(0, o.montoTotal - (o.montoFacturadoTotal || 0));
+    mo += Math.max(0, (o.montoMO || 0) - (o.montoFacturadoMO || 0));
+    n++;
+  }
+  return {total: total, mo: mo, n: n};
+}
+function _repProyEtiqueta(n) { return '&#128200; Proyeccion (' + n + (n === 1 ? ' orden marcada)' : ' ordenes marcadas)'); }
+function _repProyFmtQ(n) { return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function _repProyActualizarTarjeta() {
+  var t = _repProyTotales();
+  var l = document.getElementById('rep-pot-label'), a = document.getElementById('rep-pot-total'), b = document.getElementById('rep-pot-mo');
+  if (l) l.innerHTML = _repProyEtiqueta(t.n);
+  if (a) a.textContent = _repProyFmtQ(t.total);
+  if (b) b.textContent = _repProyFmtQ(t.mo);
+}
+function repProyMark(oid, checked) {
+  if (checked) _repProy.marks[oid] = true; else delete _repProy.marks[oid];
+  _repProyActualizarTarjeta();
+  repApplyFilters();
+}
+function toggleRepProy() {
+  if (role !== 'jefe') return;
+  _repProy.on = !_repProy.on;
+  if (!_repProy.on) _repProy.soloMarcadas = false;
+  _repReconstruirConFiltros();
+}
+function toggleRepProySolo() {
+  if (!_repProyActivo()) return;
+  _repProy.soloMarcadas = !_repProy.soloMarcadas;
+  _repReconstruirConFiltros();
+}
+function repProyLimpiar() {
+  _repProy.marks = {};
+  _repReconstruirConFiltros();
+}
+function _repProyReset() { _repProy = {on: false, soloMarcadas: false, marks: {}}; }
+
 function repApplyFilters() {
   var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
   var phaseFilter = _repFasesSeleccionadas();
   var soloMonto = _repFilterMontoActivo();
+  var proySolo = _repProyActivo() && _repProy.soloMarcadas;
   var rows = document.querySelectorAll('#rep-table-wrap tbody tr');
   var visible = 0;
   for (var i = 0; i < rows.length; i++) {
@@ -14445,7 +14563,8 @@ function repApplyFilters() {
     var tec = row.getAttribute('data-tec') || '';
     var phase = row.getAttribute('data-phase') || '';
     var tieneMonto = row.getAttribute('data-monto') === '1';
-    var show = (!tecFilter || tec === tecFilter) && (!phaseFilter.length || phaseFilter.indexOf(phase) >= 0) && (!soloMonto || tieneMonto);
+    var show = (!tecFilter || tec === tecFilter) && (!phaseFilter.length || phaseFilter.indexOf(phase) >= 0) && (!soloMonto || tieneMonto) &&
+      (!proySolo || !!_repProy.marks[row.getAttribute('data-oid')]);
     row.style.display = show ? '' : 'none';
     if (show) visible++;
   }
