@@ -2038,6 +2038,9 @@ function renderBoard() {
         // Temporizador de Detenido (2 oct 2026): a simple vista en el
         // tablero, para que se note cual Detenido ya tiene regreso
         // automatico programado y no haga falta acordarse de moverlo.
+        var aaTimerHtml = (o.phase === 'aa' && o.aaVenceTs)
+          ? '<div style="font-size:9px;color:var(--ac);margin-top:1px">&#9203; Pasa sola a Trabajando — ' + new Date(o.aaVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>'
+          : '';
         var detTimerHtml = (o.phase === 'det' && o.detVenceTs && o.detDestino)
           ? '<div style="font-size:9px;color:var(--ac);margin-top:1px">&#9203; Regresa sola a ' + (NL[o.detDestino] || o.detDestino) + ' — ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>'
           : '';
@@ -2133,7 +2136,7 @@ function renderBoard() {
           '</div>' +
           spHtml + numHtml +
           '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + misTrabHtml + '</div>' +
-          motivoHtml + largaDuracionHtml + detTimerHtml +
+          motivoHtml + largaDuracionHtml + detTimerHtml + aaTimerHtml +
           '<div class="card-sg">' + sigHtml + '</div>' +
           prodBadgeHtml;
         card.appendChild(inner);
@@ -2369,8 +2372,10 @@ function _aplicarKVigente(ord, k) {
 }
 function _leerResultadoAutorizacion(o) {
   if (!o || !o.ot || typeof db === 'undefined' || !db) return;
-  var quiereRes = o.phase === 'ea', quiereK = !!o.linkCotizacion;
-  if (!quiereRes && !quiereK) return;
+  // En Entregado (cierre) tambien se lee, para sugerir el total cotizado en el cuadro de la firma "Jefe
+  // verifica facturacion" (27 oct 2026, pedido de Byron); solo se guarda en memoria, no en la orden.
+  var quiereRes = o.phase === 'ea', quiereK = !!o.linkCotizacion, quiereSug = o.phase === 'ent' && !o.montoCotizado;
+  if (!quiereRes && !quiereK && !quiereSug) return;
   var key = String(o.ot);
   if (!/^[A-Za-z0-9_-]+$/.test(key)) return;
   window._autorizLeidas = window._autorizLeidas || {};
@@ -2381,6 +2386,7 @@ function _leerResultadoAutorizacion(o) {
     db.ref('cotizador/autorizaciones/' + key).once('value').then(function(snap) {
       var v = snap.val();
       if (!v) return;
+      if (typeof v.cotizado === 'number' && v.cotizado > 0) { window._cotizadoSug = window._cotizadoSug || {}; window._cotizadoSug[key] = v.cotizado; }
       var ordK = orders.find(function(x){ return String(x.ot || x.id) === key; });
       if (ordK && typeof v.k === 'string') _aplicarKVigente(ordK, v.k);
       if (!quiereRes || typeof v.resultadoTs !== 'number' || !(v.autorizado > 0)) return;
@@ -2476,10 +2482,26 @@ window.addEventListener('message', function(ev) {
 // nunca llega pero la orden avanzo, no se queda en "pendiente" para siempre.
 function _cotizFasePend(o) { return !!o && (o.phase === 'pa' || o.phase === 'pb'); }
 function _cotizEntradaEnviada(o, c) { return !!c.enviadoTs || !_cotizFasePend(o); }
-function _cotizPendienteEnvio(o) {
+// El estado "enviado" se juzga por el link MAS RECIENTE de la orden (27 oct 2026, pedido del Cotizador): si
+// una version anterior ya se envio pero la nueva solo se completo, la nueva sigue "pendiente de envio".
+function _cotizUltimaEntrada(o) {
   var lista = ((o && o.cotizaciones) || []).filter(function(c){ return c && c.url && c.ts; });
-  if (!lista.length) return _cotizFasePend(o);
-  return !lista.some(function(c){ return _cotizEntradaEnviada(o, c); });
+  if (!lista.length) return null;
+  if (o.linkCotizacion) {
+    for (var i = lista.length - 1; i >= 0; i--) { if (_cotizMismoLink(lista[i].url, o.linkCotizacion)) return lista[i]; }
+  }
+  return lista[lista.length - 1];
+}
+function _cotizPendienteEnvio(o) {
+  var ult = _cotizUltimaEntrada(o);
+  if (!ult) return _cotizFasePend(o);
+  return !_cotizEntradaEnviada(o, ult);
+}
+// Mano de obra completada (27 oct 2026, pedido del Cotizador): en Presup. M/O, el aviso 'lns-cotizacion' (que el
+// Cotizador manda al CONFIRMAR repuestos y mano de obra) deja una entrada en o.cotizaciones[]; con eso la ficha
+// muestra solo el enlace "Presupuesto completado" y oculta "Cotizar mano de obra". No hay campo aparte.
+function _cotizManoObraCompleta(o) {
+  return !!o && o.phase === 'pb' && !!_cotizUltimaEntrada(o);
 }
 // Mismo presupuesto: misma URL o mismo codigo k=.
 function _cotizMismoLink(a, b) {
@@ -3720,6 +3742,11 @@ function openDrw(id) {
     // "Editar" (13 oct 2026, pedido de Byron: puso 4.25h por error, debia
     // ser 3h) corrige el tiempo SIN tener que cancelar y volver a detener la
     // orden desde cero (eso habria perdido el motivo/bitacora original).
+    (o.phase === 'aa' && o.aaVenceTs
+      ? '<div class="irow" style="align-items:center"><span class="ik" style="color:var(--ac)">&#9203; Pasa sola</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="color:var(--ac);font-size:11px">' + (NL.ab || 'Trabajando') + ' — ' + new Date(o.aaVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>' +
+          (role === 'jefe' ? '<button onclick="cancelarTemporizadorAsignacion(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Cancelar</button>' : '') +
+        '</span></div>'
+      : '') +
     (o.phase === 'det' && o.detVenceTs && o.detDestino
       ? '<div class="irow" style="align-items:center"><span class="ik" style="color:var(--ac)">&#9203; Regresa sola</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="color:var(--ac);font-size:11px">' + (NL[o.detDestino] || o.detDestino) + ' — ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>' +
           (role === 'jefe' ? '<button onclick="editarTemporizadorDetenido(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Editar</button>' : '') +
@@ -3910,7 +3937,7 @@ function openDrw(id) {
     ? '<button id="btn-ruta-salida" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #F9A825;background:rgba(249,168,37,.12);color:#F9A825;font-size:12px;font-weight:600;cursor:pointer">&#128663; Marcar salida a ruta</button>'
     : '';
   // Boton "Cotizar" (fases de Presupuesto: pa/pb) - abre el Cotizador LNS en pestana nueva pasando OT, cliente y vehiculo por URL.
-  var cotizarBtnHtml = ((o.phase === 'pa' || o.phase === 'pb' || o.phase === 'ea') && _puedeCotizarEnFase(o.phase))
+  var cotizarBtnHtml = ((o.phase === 'pa' || o.phase === 'pb' || o.phase === 'ea') && _puedeCotizarEnFase(o.phase) && !_cotizManoObraCompleta(o))
     ? '<button id="btn-cotizar" data-oid="' + id + '" onclick="abrirCotizador(' + id + ')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.12);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128221; ' + (o.phase === 'pb' ? 'Cotizar mano de obra' : (o.phase === 'ea' ? 'Cotizar (editar presupuesto)' : 'Cotizar repuestos')) + '</button>'
     : '';
   // Recuadro del Cotizador (pa/pb), solo roles que pueden ver costos: campo de
@@ -3920,7 +3947,7 @@ function openDrw(id) {
     var puedePegarCot = (o.phase === 'pa' && (role === 'jefe' || role === 'partes'));
     var boxCot = '';
     if (o.phase === 'pb') {
-      boxCot += o.linkCotizacionPartes
+      if (!_cotizManoObraCompleta(o)) boxCot += o.linkCotizacionPartes
         ? '<div id="lbl-link-cotiz-ok" style="font-size:11px;color:var(--gn)">&#10003; Partes dejo la cotizacion de repuestos: se abre con "Cotizar mano de obra".</div>'
         : '<div style="font-size:11px;color:var(--tx3)">Partes todavia no dejo el link de cotizacion de repuestos en esta orden.</div>';
     } else {
@@ -3933,7 +3960,7 @@ function openDrw(id) {
         '<button id="btn-pegar-link-cotiz" onclick="pegarLinkCotizacion(' + id + ')" class="btn-s" style="font-size:11px;padding:6px 10px;white-space:nowrap">Guardar link</button></div>';
     }
     if (o.linkCotizacion) {
-      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" data-oid="' + esc(o.id) + '" onclick="return abrirLinkCotizador(this)" style="font-size:11px;color:#FFD700">&#128279; ' + (_cotizPendienteEnvio(o) ? 'Presupuesto completado (pend. envio)' : 'Presupuesto del cliente (ya enviado)') + '</a></div>';
+      boxCot += '<div style="margin-top:6px"><a id="lnk-cotiz" href="' + esc(o.linkCotizacion) + '" target="_blank" data-oid="' + esc(o.id) + '" onclick="return abrirLinkCotizador(this)" style="font-size:11px;color:#FFD700">&#128279; ' + (_cotizPendienteEnvio(o) ? 'Presupuesto completado' : 'Presupuesto del cliente (ya enviado)') + '</a></div>';
     }
     cotizarBtnHtml += '<div id="box-link-cotiz" style="margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3)">' +
       '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Cotizacion de repuestos</div>' + boxCot + '</div>';
@@ -6553,7 +6580,11 @@ function doSign(id, sigId) {
   // Q.0.00 (el cliente no autorizo nada): cuenta como 0% de aprobacion. Solo
   // las de prioridad Garantia o Interna quedan fuera (ver _pideCotizadoAlCierre).
   if (o.phase === 'ent' && sigId === 'jefe' && _pideCotizadoAlCierre(o)) {
-    var cotizadoInput = prompt('Total cotizado para ' + o.plate + (o.montoTotal ? '' : ' (la orden se cierra con Q.0.00: si el cliente no autorizo nada, el % de aprobacion sera 0)') + ' (para calcular % de aprobacion):');
+    // Sugerencia (27 oct 2026): el total cotizado que dejo el Cotizador en cotizador/autorizaciones/{OT}
+    // (leido al abrir la ficha, ver _leerResultadoAutorizacion). Solo viene escrito en la casilla: el Jefe lo
+    // confirma con Aceptar o lo corrige; Cancelar sigue cancelando, y sin sugerencia el cuadro sale vacio como siempre.
+    var cotizSug = (window._cotizadoSug && window._cotizadoSug[String(o.ot)]) || 0;
+    var cotizadoInput = prompt('Total cotizado para ' + o.plate + (o.montoTotal ? '' : ' (la orden se cierra con Q.0.00: si el cliente no autorizo nada, el % de aprobacion sera 0)') + ' (para calcular % de aprobacion)' + (cotizSug ? '\n\nSugerido segun el Cotizador: Q.' + cotizSug.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' — confirmalo con Aceptar o corrigelo.' : ':'), cotizSug ? String(cotizSug) : '');
     if (cotizadoInput === null) return; // cancelo
     var cotizadoVal = parseFloat(cotizadoInput);
     if (!cotizadoVal || cotizadoVal <= 0) { toast('Ingresa un monto de cotizacion mayor a 0'); return; }
@@ -6795,6 +6826,10 @@ function advance(id, newPhase) {
       }
     }
   }
+  // Temporizador de asignacion (27 oct 2026, pedido de Byron): al REGRESAR una orden a Espera-asignacion
+  // desde cualquier otra etapa (autorizacion, detenido, repuestos...) el Jefe puede ponerle un tiempo; al
+  // vencerse pasa sola a Trabajando (ver _checkAsignacionesVencidas). Desde Recepcion no se pregunta.
+  if (newPhase === 'aa') _preguntarTiempoAsignacion(o);
   // Guardar el motivo de la detencion que se esta dejando (si aplica) ANTES
   // de tocar o.detMotivo, para que quede registrado en la bitacora de
   // tiempos por fase (phaseLog) aunque se limpie de la carpeta abajo.
@@ -6929,6 +6964,72 @@ function advance(id, newPhase) {
   }
 }
 
+// Temporizador de asignacion (27 oct 2026, pedido de Byron). Solo el Jefe, solo al REGRESAR a
+// Espera-asignacion desde otra etapa (desde Recepcion no se pregunta); opcional: en blanco = sin tiempo y la
+// orden se queda ahi hasta moverla a mano, como siempre. Guarda o.aaVenceTs (horas HABILES, igual que Detenido).
+// Al vencerse (ver _autoAdvanceAsignacion) pasa sola a Trabajando si tiene tecnico y el tecnico no tiene otro
+// vehiculo en Trabajando; si no puede, no la mueve y avisa en la campanita y la bitacora.
+function _preguntarTiempoAsignacion(o, desde) {
+  delete o.aaVenceTs; // nunca queda un tiempo viejo de una vuelta anterior
+  desde = desde || o.phase;
+  if (role !== 'jefe' || desde === 'rec' || desde === 'aa') return;
+  var inp = prompt('¿En cuantas horas debe asignarse "' + o.plate + '" y pasar a Trabajando?\n\nSi para entonces ya tiene tecnico, pasa sola a Trabajando.\nDejalo en blanco para no poner tiempo: entonces la mueves tu mismo.');
+  if (inp === null || inp.trim() === '') return;
+  var horas = parseFloat(inp);
+  if (!(horas > 0)) { toast('Numero invalido — sin tiempo: la mueves tu mismo'); return; }
+  o.aaVenceTs = _sumarHorasHabiles(Date.now(), horas);
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:'&#9203; Tiempo para asignar: pasa sola a Trabajando el ' + new Date(o.aaVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + ' (' + horas + 'h)', ts:Date.now(), type:'system'});
+}
+function _autoAdvanceAsignacion(o) {
+  if (!o) return false;
+  if (o.phase !== 'aa') { // salio de Espera-asignacion por otro camino: ya no aplica
+    if (o.aaVenceTs) { delete o.aaVenceTs; return true; }
+    return false;
+  }
+  if (!o.aaVenceTs || Date.now() < o.aaVenceTs) return false;
+  delete o.aaVenceTs;
+  var motivoNo = '';
+  if (!o.tech || o.tech === TEC_EXTERNO) {
+    motivoNo = 'no tiene tecnico asignado';
+  } else {
+    for (var i = 0; i < orders.length; i++) {
+      var ox = orders[i];
+      if (ox.id !== o.id && ox.phase === 'ab' && ox.tech === o.tech) { motivoNo = o.tech + ' ya tiene el vehiculo ' + ox.plate + ' en Trabajando'; break; }
+    }
+  }
+  o.msgs = o.msgs || [];
+  if (motivoNo) {
+    o.msgs.push({who:'Sistema', txt:'&#9203; Tiempo para asignar vencido — NO se movio porque ' + motivoNo + '. Asignala y muevela tu mismo', ts:Date.now(), type:'system'});
+    addNotif(o.plate + ': vencio el tiempo para asignarla, pero ' + motivoNo, o.id);
+    return true;
+  }
+  if (!o.phaseLog) o.phaseLog = [];
+  var phaseFrom = (o.timestamps && o.timestamps.aa) ? o.timestamps.aa : (o.cat || Date.now());
+  var phaseTo = Date.now();
+  o.phaseLog.push({phase:'aa', label:(NL.aa || 'ESPERA-ASIGNACION'), from:phaseFrom, to:phaseTo, minutes:_minutosFase('aa', phaseFrom, phaseTo)});
+  o.phase = 'ab';
+  o.sigs = {};
+  o.sigsTs = {};
+  if (!o.timestamps) o.timestamps = {};
+  o.timestamps.ab = phaseTo;
+  o.phaseStart = phaseTo;
+  o.pendingConfirm = null;
+  o.msgs.push({who:'Sistema', txt:'&#9203; Tiempo para asignar vencido — avanzo automaticamente a: ' + (NL.ab || 'Trabajando'), ts:phaseTo, type:'system'});
+  addNotif(o.plate + ' avanzo automaticamente a: ' + (NL.ab || 'Trabajando') + ' (tiempo para asignar vencido)', o.id);
+  return true;
+}
+function cancelarTemporizadorAsignacion(id) {
+  if (role !== 'jefe') { toast('Solo el Jefe puede cancelar esto'); return; }
+  var o = orders.find(function(x){ return x.id === id; });
+  if (!o || o.phase !== 'aa' || !o.aaVenceTs) return;
+  delete o.aaVenceTs;
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:'&#9203; Tiempo para asignar cancelado — ya no pasa sola a Trabajando', ts:Date.now(), type:'system'});
+  save();
+  toast('Tiempo cancelado');
+  openDrw(id);
+}
 // Temporizador de Detenido (2 oct 2026, pedido de Byron): mueve SOLA una
 // orden Detenida cuyo tiempo (o.detVenceTs/o.detDestino, puestos solo por el
 // Jefe al detenerla — ver advance()) ya se vencio. Deliberadamente NO reusa
@@ -6973,6 +7074,9 @@ function _checkDetenidosVencidos() {
   var huboAlguno = false;
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
+    if (o.aaVenceTs) {
+      if (_autoAdvanceAsignacion(o)) huboAlguno = true;
+    }
     if (o.phase === 'det' && o.detVenceTs && o.detDestino && Date.now() >= o.detVenceTs) {
       _autoAdvanceDetenido(o);
       huboAlguno = true;
@@ -14169,6 +14273,7 @@ function advanceReproceso(id, causa, nota, destino) {
     // conservara la del Jefe de Prueba de ruta (misma clave 'jefe'), el
     // "Jefe Vo.Bo. asignacion" quedaria firmado solo.
     o.sigs = {};
+    _preguntarTiempoAsignacion(o, oldPhase);
   } else {
     var phaseSigsR = SIGS['ab'] || [];
     for (var sr=0; sr<phaseSigsR.length; sr++) { delete o.sigs[phaseSigsR[sr].id]; }
