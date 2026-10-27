@@ -2375,7 +2375,8 @@ function _leerResultadoAutorizacion(o) {
   // En Entregado (cierre) tambien se lee, para sugerir el total cotizado en el cuadro de la firma "Jefe
   // verifica facturacion" (27 oct 2026, pedido de Byron); solo se guarda en memoria, no en la orden.
   var quiereRes = o.phase === 'ea', quiereK = !!o.linkCotizacion, quiereSug = o.phase === 'ent' && !o.montoCotizado;
-  if (!quiereRes && !quiereK && !quiereSug) return;
+  var quiereAut = !!(o.linkCotizacion || o.linkCotizacionPartes) && !o.cotizAutorizadoTs && !o.cotizResultado;
+  if (!quiereRes && !quiereK && !quiereSug && !quiereAut) return;
   var key = String(o.ot);
   if (!/^[A-Za-z0-9_-]+$/.test(key)) return;
   window._autorizLeidas = window._autorizLeidas || {};
@@ -2389,6 +2390,12 @@ function _leerResultadoAutorizacion(o) {
       if (typeof v.cotizado === 'number' && v.cotizado > 0) { window._cotizadoSug = window._cotizadoSug || {}; window._cotizadoSug[key] = v.cotizado; }
       var ordK = orders.find(function(x){ return String(x.ot || x.id) === key; });
       if (ordK && typeof v.k === 'string') _aplicarKVigente(ordK, v.k);
+      var autTs = _cotizAutorizadoDe(v);
+      if (ordK && autTs && !ordK.cotizAutorizadoTs) {
+        ordK.cotizAutorizadoTs = autTs;
+        save();
+        if (typeof openId !== 'undefined' && openId === ordK.id) openDrw(ordK.id);
+      }
       if (!quiereRes || typeof v.resultadoTs !== 'number' || !(v.autorizado > 0)) return;
       var ord = ordK;
       if (!ord || ord.phase !== 'ea') return;
@@ -2463,7 +2470,7 @@ window.addEventListener('message', function(ev) {
   // 'lns-cotizacion' llega al CONFIRMAR repuestos y mano de obra: solo guarda
   // el link. "Presupuesto enviado al cliente" lo escribe el aviso nuevo
   // 'lns-cotizacion-enviada' (arriba) cuando el asesor copia el link.
-  _registrarCotizacion(o, d.url, quienEnvia, '&#128221; Presupuesto completado (pend. envio al cliente): ');
+  _registrarCotizacion(o, d.url, quienEnvia, d.manoObraCompleta === false ? '&#128221; Presupuesto guardado (mano de obra sin completar): ' : '&#128221; Presupuesto completado (pend. envio al cliente): ', typeof d.manoObraCompleta === 'boolean' ? d.manoObraCompleta : undefined);
 });
 // Filas fijas de la Bitacora: "Presupuesto enviado al cliente" con fecha y
 // hora de cada envio y el link (15 oct, pedido de Byron). Se colocan ENTRE
@@ -2500,8 +2507,48 @@ function _cotizPendienteEnvio(o) {
 // Mano de obra completada (27 oct 2026, pedido del Cotizador): en Presup. M/O, el aviso 'lns-cotizacion' (que el
 // Cotizador manda al CONFIRMAR repuestos y mano de obra) deja una entrada en o.cotizaciones[]; con eso la ficha
 // muestra solo el enlace "Presupuesto completado" y oculta "Cotizar mano de obra". No hay campo aparte.
+// 27 oct 2026: el Cotizador manda manoObraCompleta (true/false) en 'lns-cotizacion'. La entrada guarda
+// moCompleta; un aviso viejo sin el campo (entrada sin moCompleta) se sigue dando por completada.
+function _cotizMoHecha(o) {
+  var ult = _cotizUltimaEntrada(o);
+  return !!ult && ult.moCompleta !== false;
+}
 function _cotizManoObraCompleta(o) {
-  return !!o && o.phase === 'pb' && !!_cotizUltimaEntrada(o);
+  return !!o && o.phase === 'pb' && _cotizMoHecha(o);
+}
+// Autorizacion del cliente segun cotizador/autorizaciones/{OT}: solo cuenta con clienteTs numerico y una
+// seleccion real (sel distinto de vacio / '{}': el Cotizador crea el nodo antes con sel '{}' para publicar el k).
+function _cotizAutorizadoDe(v) {
+  if (!v || typeof v.clienteTs !== 'number' || !(v.clienteTs > 0)) return 0;
+  var sel = v.sel;
+  if (sel === undefined || sel === null || sel === '' || sel === '{}') return 0;
+  if (typeof sel === 'object' && !Object.keys(sel).length) return 0;
+  return v.clienteTs;
+}
+// Etapas del presupuesto (27 oct 2026, pedido del Cotizador): se ven en la ficha en cualquier fase de la orden,
+// aparte de la fase. Solo Jefe/Asesor/Partes. Etapa 3 usa la regla de siempre (enviado por aviso o por haber
+// salido de Presup. Partes/M.O.); la 5 sale de la autorizacion leida (o.cotizAutorizadoTs) o del resultado enviado.
+function _cotizEtapasEstado(o) {
+  var ult = _cotizUltimaEntrada(o);
+  var pasoEa = !!((o.timestamps && o.timestamps.ea) || (o.phaseLog || []).some(function(p){ return p && p.phase === 'ea'; }));
+  var aut = !!(o.cotizAutorizadoTs || o.cotizResultado);
+  return [
+    {txt: 'Partes completado', hecho: !!o.linkCotizacionPartes},
+    {txt: 'Mano de obra completada', hecho: _cotizMoHecha(o)},
+    {txt: 'Link completado (enviado)', hecho: !!ult && _cotizEntradaEnviada(o, ult)},
+    {txt: 'Esperando autorizacion', hecho: (pasoEa || aut) && o.phase !== 'ea', curso: o.phase === 'ea'},
+    {txt: 'Autorizado', hecho: aut}
+  ];
+}
+function _cotizEtapasHtml(o) {
+  if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) return '';
+  if (!(o.linkCotizacionPartes || _cotizUltimaEntrada(o) || o.cotizAutorizadoTs || o.cotizResultado)) return '';
+  var filas = _cotizEtapasEstado(o).map(function(e) {
+    var ico = e.hecho ? '&#10003;' : (e.curso ? '&#9679;' : '&#9675;');
+    var col = e.hecho ? 'var(--gn)' : (e.curso ? 'var(--ac)' : 'var(--tx3)');
+    return '<div class="cotiz-etapa" style="display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;color:' + col + '"><span style="width:14px;text-align:center;font-weight:700">' + ico + '</span><span>' + e.txt + (e.curso && !e.hecho ? ' (en curso)' : '') + '</span></div>';
+  }).join('');
+  return '<div class="sec" id="box-etapas-presupuesto"><div class="sec-l">Etapas del presupuesto</div>' + filas + '</div>';
 }
 // Mismo presupuesto: misma URL o mismo codigo k=.
 function _cotizMismoLink(a, b) {
@@ -2551,14 +2598,17 @@ function _cotizMarcarUltimo(o, entrada) {
   if (o.linkCotizacion !== entrada.url) { o.linkCotizacion = entrada.url; cambio = true; }
   return cambio;
 }
-function _registrarCotizacion(o, url, who, prefijoMsg) {
+function _registrarCotizacion(o, url, who, prefijoMsg, moCompleta) {
   o.cotizaciones = o.cotizaciones || [];
   var previa = o.cotizaciones.find(function(c){ return c && c.url && _cotizMismoLink(c.url, url); });
   if (previa) {
-    if (_cotizMarcarUltimo(o, previa)) save();
+    var cambioMo = (moCompleta === true && previa.moCompleta !== true) ? (previa.moCompleta = true, true) : false;
+    if (_cotizMarcarUltimo(o, previa) || cambioMo) save();
     toast('Esa cotizacion ya estaba en la orden'); return false;
   }
-  o.cotizaciones.push({url: url, ts: Date.now(), conEvento: true});
+  var nuevaEnt = {url: url, ts: Date.now(), conEvento: true};
+  if (typeof moCompleta === 'boolean') nuevaEnt.moCompleta = moCompleta;
+  o.cotizaciones.push(nuevaEnt);
   o.linkCotizacion = url;
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt: prefijoMsg + '<a href="' + esc(url) + '" target="_blank" rel="noopener">abrir presupuesto</a>', ts:Date.now(), type:'system'});
@@ -3981,6 +4031,7 @@ function openDrw(id) {
     reprocesoInfoBtnHtml = '<button id="btn-reproceso-info" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #8B0000;background:#1a0a0a;color:#FF6B6B;font-size:12px;font-weight:600;cursor:pointer">&#9851; Reportar reproceso (no cambia de fase)</button>';
   }
   html += _herramientasBotonesHtml(o);
+  html += _cotizEtapasHtml(o);
   if (sigs.length) {
     var sigRows = '';
     for (var i = 0; i < sigs.length; i++) {
