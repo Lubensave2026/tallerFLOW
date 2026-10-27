@@ -2351,8 +2351,26 @@ function _aplicarResultadoCotizador(d) {
 // a lo sumo 1 lectura por minuto por orden). Solo cuenta si trae resultadoTs, que existe unicamente
 // cuando el equipo pulso "Enviar resultado": sin resultadoTs es solo la seleccion del cliente y no
 // llena nada. El mismo resultado se ignora (por resultadoTs y por montos identicos).
+// k vigente (27 oct 2026, pedido del Cotizador): el mismo documento puede traer el campo k (codigo del
+// link del cliente vigente). Si la orden ya tiene presupuesto y ese k es distinto del ultimo guardado,
+// pasa a ser el ultimo (link COTIZADOR_URL#?k=...), sin linea en la bitacora. Es la misma lectura unica de
+// abajo: en Espera de autorizacion se aprovechan los dos datos con UN solo once().
+function _aplicarKVigente(ord, k) {
+  if (!ord || !ord.linkCotizacion || typeof k !== 'string' || !/^[A-Za-z0-9]{4,20}$/.test(k)) return;
+  // El Cotizador pide que el link lleve ?ot=<OT> (sin el no encuentra el presupuesto): COTIZADOR_URL?ot=5426#?k=abc123xyz
+  var url = COTIZADOR_URL + '?ot=' + encodeURIComponent(ord.ot || ord.id) + '#?k=' + k;
+  ord.cotizaciones = ord.cotizaciones || [];
+  var ent = ord.cotizaciones.find(function(c){ return c && c.url && _cotizMismoLink(c.url, url); });
+  if (!ent) { ent = {url: url, ts: Date.now(), conEvento: true}; ord.cotizaciones.push(ent); }
+  if (_cotizMarcarUltimo(ord, ent)) {
+    save();
+    if (typeof openId !== 'undefined' && openId === ord.id) openDrw(ord.id);
+  }
+}
 function _leerResultadoAutorizacion(o) {
-  if (!o || o.phase !== 'ea' || !o.ot || typeof db === 'undefined' || !db) return;
+  if (!o || !o.ot || typeof db === 'undefined' || !db) return;
+  var quiereRes = o.phase === 'ea', quiereK = !!o.linkCotizacion;
+  if (!quiereRes && !quiereK) return;
   var key = String(o.ot);
   if (!/^[A-Za-z0-9_-]+$/.test(key)) return;
   window._autorizLeidas = window._autorizLeidas || {};
@@ -2362,8 +2380,11 @@ function _leerResultadoAutorizacion(o) {
   try {
     db.ref('cotizador/autorizaciones/' + key).once('value').then(function(snap) {
       var v = snap.val();
-      if (!v || typeof v.resultadoTs !== 'number' || !(v.autorizado > 0)) return;
-      var ord = orders.find(function(x){ return String(x.ot || x.id) === key; });
+      if (!v) return;
+      var ordK = orders.find(function(x){ return String(x.ot || x.id) === key; });
+      if (ordK && typeof v.k === 'string') _aplicarKVigente(ordK, v.k);
+      if (!quiereRes || typeof v.resultadoTs !== 'number' || !(v.autorizado > 0)) return;
+      var ord = ordK;
       if (!ord || ord.phase !== 'ea') return;
       _aplicarResultadoCotizador({tipo: 'lns-cotizacion-resultado', ot: key, ts: v.resultadoTs,
         cotizado: v.cotizado, autorizado: v.autorizado, autorizadoMO: v.autorizadoMO, pendiente: v.pendiente,
