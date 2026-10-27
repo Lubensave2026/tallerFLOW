@@ -2193,6 +2193,61 @@ function secBox(num, title, innerHtml, key) {
 // exactamente igual que antes de este cambio — nunca se avisa un error al
 // tecnico por esto, no es su problema.
 var CATALOGO_BODEGA_URL = 'https://us-central1-lube-n-save-flow.cloudfunctions.net/catalogoBodega';
+// Prestamo de herramientas especiales (26 oct 2026, pedido de Byron) -- app
+// independiente, conectada solo por este puente. HERRAMIENTAS_URL es la
+// direccion de entrada de esa app (la que acepta ?j=<jti>); mientras quede
+// VACIA los botones no se muestran y TallerFLOW se comporta exactamente como
+// antes (interruptor de apagado). Reglas de negocio: el boton solo lo ve el
+// tecnico TITULAR de la orden (o.tech; ni el segundo tecnico ni los de apoyo)
+// y SOLO mientras la orden esta en Trabajando ('ab'). No hay secreto aqui
+// (esta pagina es publica): al tocar el boton se escribe un registro de un
+// solo uso en puente/tokens/{jti}, y la app lo valida y lo borra desde su
+// servidor, confirmando que la orden siga en 'ab' y que el tecnico siga
+// siendo el titular. La app nunca escribe dentro de taller/*.
+var HERRAMIENTAS_URL = '';
+function _puedeHerramientas(o) {
+  var r = role ? ROLES[role] : null;
+  return !!(HERRAMIENTAS_URL && o && r && r.tec && r.tn && o.tech === r.tn && o.phase === 'ab');
+}
+function _nuevoJti() {
+  var hex = '';
+  try {
+    var a = new Uint8Array(16);
+    crypto.getRandomValues(a);
+    for (var i = 0; i < a.length; i++) hex += ('0' + a[i].toString(16)).slice(-2);
+  } catch (e) {
+    for (var j = 0; j < 32; j++) hex += Math.floor(Math.random() * 16).toString(16);
+  }
+  return hex;
+}
+function _herramientasBotonesHtml(o) {
+  if (!_puedeHerramientas(o)) return '';
+  return '<div class="sec"><div class="sec-l">Herramientas especiales</div>' +
+    '<button id="btn-herr-pedir" onclick="abrirHerramientas(' + o.id + ',\'solicitar\')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #FFD700;background:rgba(255,215,0,.12);color:#FFD700;font-size:12px;font-weight:600;cursor:pointer">&#128295; Pedir herramienta</button>' +
+    '<button id="btn-herr-mias" onclick="abrirHerramientas(' + o.id + ',\'consultar\')" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx);font-size:12px;font-weight:600;cursor:pointer">&#128203; Mis herramientas / Consultar</button>' +
+    '</div>';
+}
+function abrirHerramientas(oid, accion) {
+  var o = orders.find(function(x){ return x.id === oid; });
+  if (accion !== 'solicitar' && accion !== 'consultar') return;
+  if (!_puedeHerramientas(o)) { toast('Las herramientas solo las pide el tecnico titular, mientras la orden esta en Trabajando'); return; }
+  if (!fbReady || !db) { toast('Sin conexion con el servidor: intenta de nuevo en un momento'); return; }
+  // La ventana se abre YA (dentro del toque) para que el navegador no la bloquee; la direccion se pone
+  // despues, cuando el registro del token ya quedo guardado.
+  var w = window.open('', '_blank');
+  if (!w) { toast('El navegador bloqueo la ventana: permite ventanas emergentes para TallerFLOW'); return; }
+  var jti = _nuevoJti();
+  var ts = (typeof firebase !== 'undefined' && firebase.database && firebase.database.ServerValue) ? firebase.database.ServerValue.TIMESTAMP : Date.now();
+  var rec = {tecKey: role, tecNombre: ROLES[role].tn, orderId: o.id, ot: o.ot || '', plate: o.plate || '', vehiculo: o.model || '', fase: 'ab', accion: accion, ts: ts};
+  db.ref('puente/tokens/' + jti).set(rec).then(function() {
+    try { w.opener = null; } catch (e) {}
+    w.location.href = HERRAMIENTAS_URL + (HERRAMIENTAS_URL.indexOf('?') >= 0 ? '&' : '?') + 'j=' + jti;
+  }).catch(function(e) {
+    console.log('Puente herramientas error:', e);
+    try { w.close(); } catch (e2) {}
+    toast('No se pudo abrir Herramientas. Intenta de nuevo');
+  });
+}
 // Cotizador externo (13 oct 2026, pedido de Byron): URL base de su
 // herramienta de cotizacion, todavia en construccion. Byron la pega aqui
 // cuando la tenga lista -- mientras quede vacia, el boton "Abrir en
@@ -2346,8 +2401,12 @@ window.addEventListener('message', function(ev) {
     if (!oe) { toast('Aviso de presupuesto enviado, pero no encontre la orden ' + d.ot); return; }
     oe.cotizaciones = oe.cotizaciones || [];
     var ce = oe.cotizaciones.find(function(c){ return c && c.url && _cotizMismoLink(c.url, d.url); });
-    if (ce && ce.enviadoTs) return; // ya registrado
-    if (!ce) { ce = {url: d.url, ts: Date.now(), conEvento: true}; oe.cotizaciones.push(ce); oe.linkCotizacion = d.url; }
+    if (ce && ce.enviadoTs) { // ya registrado: sin otra linea en la bitacora, pero queda como el ultimo
+      if (_cotizMarcarUltimo(oe, ce)) { save(); if (typeof openId !== 'undefined' && openId === oe.id) openDrw(oe.id); }
+      return;
+    }
+    if (!ce) { ce = {url: d.url, ts: Date.now(), conEvento: true}; oe.cotizaciones.push(ce); }
+    _cotizMarcarUltimo(oe, ce);
     ce.enviadoTs = Date.now();
     var quienEnv = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
     oe.msgs = oe.msgs || [];
@@ -2436,9 +2495,26 @@ function _cotizEnviosRowsHtml(o, variante) {
 // Cotizador y el campo "Pegar link" de la ficha): una sola logica, para que
 // ambos caminos dejen exactamente lo mismo (o.cotizaciones[], o.linkCotizacion,
 // mensaje en la bitacora) y nunca se duplique el mismo link.
+// El link MAS RECIENTE de la orden (27 oct 2026, pedido del Cotizador: al editar y volver a enviar un
+// presupuesto el link del cliente trae otro k, y los botones de la orden deben apuntar siempre al ultimo).
+// Cada aviso del Cotizador deja su entrada al final de o.cotizaciones[] y apunta o.linkCotizacion a ella;
+// si el aviso es de un presupuesto que ya estaba (mismo k), esa entrada se mueve al final (su direccion no se toca).
+// Las lineas ya escritas en la bitacora conservan el link de su momento. Devuelve true si algo cambio.
+function _cotizMarcarUltimo(o, entrada) {
+  var cambio = false;
+  var lista = o.cotizaciones || [];
+  var idx = lista.indexOf(entrada);
+  if (idx >= 0 && idx !== lista.length - 1) { lista.splice(idx, 1); lista.push(entrada); cambio = true; }
+  if (o.linkCotizacion !== entrada.url) { o.linkCotizacion = entrada.url; cambio = true; }
+  return cambio;
+}
 function _registrarCotizacion(o, url, who, prefijoMsg) {
   o.cotizaciones = o.cotizaciones || [];
-  if (o.cotizaciones.some(function(c){ return c.url === url; })) { toast('Esa cotizacion ya estaba en la orden'); return false; }
+  var previa = o.cotizaciones.find(function(c){ return c && c.url && _cotizMismoLink(c.url, url); });
+  if (previa) {
+    if (_cotizMarcarUltimo(o, previa)) save();
+    toast('Esa cotizacion ya estaba en la orden'); return false;
+  }
   o.cotizaciones.push({url: url, ts: Date.now(), conEvento: true});
   o.linkCotizacion = url;
   o.msgs = o.msgs || [];
@@ -3856,6 +3932,7 @@ function openDrw(id) {
   if ((o.phase === 'lst' && (role === 'jefe' || role === 'asesor')) || (o.phase === 'ent' && role === 'jefe')) {
     reprocesoInfoBtnHtml = '<button id="btn-reproceso-info" data-oid="' + id + '" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid #8B0000;background:#1a0a0a;color:#FF6B6B;font-size:12px;font-weight:600;cursor:pointer">&#9851; Reportar reproceso (no cambia de fase)</button>';
   }
+  html += _herramientasBotonesHtml(o);
   if (sigs.length) {
     var sigRows = '';
     for (var i = 0; i < sigs.length; i++) {
