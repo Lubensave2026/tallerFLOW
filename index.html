@@ -2559,6 +2559,9 @@ function _cotizEtapasEstado(o) {
 }
 function _cotizEtapasHtml(o) {
   if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) return '';
+  // Solo mientras el presupuesto esta en curso (Presup. Partes, Presup. M/O, Esp. autorizacion), 29 oct 2026;
+  // el resto de la historia queda en la Bitacora (fila PRESUPUESTO ENVIADO, desplegable).
+  if (!(o.phase === 'pa' || o.phase === 'pb' || o.phase === 'ea')) return '';
   if (!(o.linkCotizacionPartes || _cotizUltimaEntrada(o) || o.cotizAutorizadoTs || o.cotizResultado)) return '';
   var filas = _cotizEtapasEstado(o).map(function(e) {
     var ico = e.hecho ? '&#10003;' : (e.curso ? '&#9679;' : '&#9675;');
@@ -2592,11 +2595,46 @@ function _cotizEnviosRowsHtml(o, variante) {
     : (enviadas.length > 1
       ? '<span style="color:var(--tx2);font-size:11px;text-align:right">Enviado ' + enviadas.length + ' veces<br><span style="color:var(--tx3);font-size:10px">ultimo: ' + cuando + '</span></span>'
       : '<span style="color:var(--tx2);font-size:11px;white-space:nowrap">' + cuando + '</span>');
+  var detId = 'cenv-det-' + esc(o.id) + '-' + (variante === 'hist' ? 'h' : 'f');
   return '<div class="cotiz-envio-row" style="' + caja + '">' +
     '<span style="background:#FFD700;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">&#128221; ' + (pend ? 'PRESUPUESTO COMPLETADO' : 'PRESUPUESTO ENVIADO') + '</span>' +
     '<span style="font-size:10px;color:var(--tx3);flex:1"><a href="' + esc(ult.url) + '" target="_blank" data-oid="' + esc(o.id) + '" onclick="return abrirLinkCotizador(this)" style="color:#FFD700">abrir presupuesto</a></span>' +
     cuandoTxt +
-  '</div>';
+    '<button type="button" class="cotiz-envio-tog" title="Ver momentos del envio y la autorizacion" onclick="var d=document.getElementById(\'' + detId + '\');if(d)d.style.display=(d.style.display===\'none\'?\'block\':\'none\')" style="border:1px solid var(--bd);background:var(--bg4);color:var(--tx2);border-radius:6px;font-size:10px;padding:1px 6px;cursor:pointer">&#9662;</button>' +
+  '</div>' + _cotizMomentosHtml(o, detId, enviadas, pend);
+}
+// Momentos del presupuesto para el desplegable de la fila PRESUPUESTO ENVIADO (29 oct 2026, pedido de Byron):
+// cuando se envio el link (aviso del Cotizador, o la salida de Presup. Partes/M.O.) y cuando se autorizo (datos del
+// Cotizador, o el paso de Esp. autorizacion a la fase siguiente).
+function _cotizSalidaFase(o, fases) {
+  var t = 0;
+  (o.phaseLog || []).forEach(function(p) { if (p && fases.indexOf(p.phase) >= 0 && p.to > t) t = p.to; });
+  return t;
+}
+function _cotizMomentoAutorizado(o) {
+  if (o.cotizAutorizadoTs) return {ts: o.cotizAutorizadoTs, fuente: 'datos del Cotizador'};
+  var sal = _cotizSalidaFase(o, ['ea']);
+  if (sal && o.phase !== 'ea') return {ts: sal, fuente: 'paso de Esp. autorizacion a la fase siguiente'};
+  if (o.cotizResultado && o.cotizResultado.ts) return {ts: o.cotizResultado.ts, fuente: 'resultado enviado por el Cotizador'};
+  return null;
+}
+function _cotizMomentosHtml(o, detId, enviadas, pend) {
+  var fmtF = function(ts) { return new Date(ts).toLocaleString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); };
+  var fila = function(a, b, c) { return '<div style="display:flex;gap:8px;font-size:11px;padding:2px 0"><span style="color:var(--tx3);min-width:110px">' + a + '</span><span style="color:var(--tx)">' + b + '</span>' + (c ? '<span style="color:var(--tx3);font-size:10px">(' + c + ')</span>' : '') + '</div>'; };
+  var salPres = _cotizSalidaFase(o, ['pa', 'pb']);
+  var f = '';
+  if (pend || !enviadas.length) {
+    f += fila('Link enviado', 'pendiente', '');
+  } else {
+    enviadas.forEach(function(c, i) {
+      var esUlt = i === enviadas.length - 1;
+      var ts = c.enviadoTs || (esUlt && salPres) || c.ts;
+      f += fila(enviadas.length > 1 ? 'Link enviado ' + (i + 1) : 'Link enviado', fmtF(ts), c.enviadoTs ? 'aviso del Cotizador' : 'salida de Presupuesto');
+    });
+  }
+  var au = _cotizMomentoAutorizado(o);
+  f += au ? fila('Autorizado', fmtF(au.ts), au.fuente) : fila('Autorizado', 'pendiente', '');
+  return '<div id="' + detId + '" class="cotiz-envio-det" style="display:none;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:6px 10px;margin:-2px 0 5px">' + f + '</div>';
 }
 // Guarda un link de presupuesto en la orden (lo usan el aviso automatico del
 // Cotizador y el campo "Pegar link" de la ficha): una sola logica, para que
