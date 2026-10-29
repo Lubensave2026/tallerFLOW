@@ -612,6 +612,7 @@ button{cursor:pointer}
       <div class="fg"><label class="fl">No. OT</label><input class="fi" id="f-ot" placeholder="OT-4350" onblur="_validarOtDuplicado()"></div>
     </div>
     <div class="fg"><label class="fl">Vehiculo *</label><input class="fi" id="f-mo" placeholder="Toyota Hilux 2020"></div>
+    <div class="fg"><label class="fl">Tipo de vehiculo <span style="color:var(--tx3);font-weight:400">— define el tiempo y la comision sugerida de los Servicios</span></label><select class="fi" id="f-veh"><option value="liviano">Liviano (sedan/hatchback)</option><option value="camioneta">Camioneta/SUV/Pickup</option><option value="pesado">Pesado/Microbus</option></select></div>
     <div class="fg"><label class="fl">Cliente *</label><input class="fi" id="f-cl" placeholder="Nombre completo"></div>
     <div class="fg"><label class="fl">Kilometraje (opcional)</label><input class="fi" id="f-km" type="number" min="0" step="1" placeholder="Ej. 45230"></div>
     <div class="fg" id="f-cm-wrap" style="display:none"><label class="fl">&#128279; Link de Clear Mechanic (opcional)</label><input class="fi" id="f-cm" placeholder="https://..."></div>
@@ -3321,6 +3322,59 @@ function quitarPlantillaServicio(id) {
   openDrw(id);
 }
 
+// 29 oct 2026 (pedido de Byron): Plantilla de operaciones. Al marcar un Servicio (menor/intermedio/mayor) la
+// orden recibe de una vez la operacion en "Trabajos realizados" con su tiempo estimado y las horas de comision
+// SUGERIDAS segun el tipo de vehiculo. Las sugeridas NO cuentan (tw.horas queda en 0) hasta que el Jefe las
+// confirma o las modifica. Valores: plantilla llenada por Byron (est = tiempo estimado, com = comision sugerida).
+var TIPO_VEHICULO_LABELS = {liviano:'Liviano (sedan/hatchback)', camioneta:'Camioneta/SUV/Pickup', pesado:'Pesado/Microbus'};
+var PLANTILLA_OPERACION_SERVICIO = {
+  servicioMenor:      {label:'05 SERVICIO MENOR',      liviano:{est:2.25,com:1.5}, camioneta:{est:2.25,com:1.5}, pesado:{est:2.5,com:1.75}},
+  servicioIntermedio: {label:'06 SERVICIO INTERMEDIO', liviano:{est:4,com:3.5},    camioneta:{est:4,com:3.5},    pesado:{est:5,com:3.75}},
+  servicioMayor:      {label:'07 SERVICIO MAYOR',      liviano:{est:6,com:4},      camioneta:{est:6,com:4},      pesado:{est:8,com:4.5}},
+};
+// Resto de operaciones del catalogo con valores de la plantilla (solo se usan para precargar "Hrs. com." al elegir
+// la operacion en el buscador de Trabajos realizados; el Jefe las confirma con "+ Agregar"). Soldadura, cambio de
+// filtro y subcontrato no tienen valores.
+var PLANTILLA_OPERACION_OTRAS = {
+  alineacion:          {liviano:{est:1,com:1},      camioneta:{est:1.5,com:1.5},  pesado:{est:1.5,com:1.5}},
+  diagnostico:         {liviano:{est:3,com:3},      camioneta:{est:3,com:3},      pesado:{est:5,com:5}},
+  pinchazo:            {liviano:{est:0.5,com:0.5},  camioneta:{est:0.5,com:0.5},  pesado:{est:0.75,com:0.75}},
+  revisionCompraVenta: {liviano:{est:1.25,com:1},   camioneta:{est:1.25,com:1},   pesado:{est:1.5,com:1.25}},
+  pastillasDiscosDel:  {liviano:{est:1.5,com:1},    camioneta:{est:1.5,com:1},    pesado:{est:2,com:1.5}},
+  pastillasDiscosTras: {liviano:{est:1.5,com:1},    camioneta:{est:1.5,com:1},    pesado:{est:2,com:1.5}},
+  cambioCandelas:      {liviano:{est:1.5,com:1},    camioneta:{est:1.5,com:1},    pesado:{est:2,com:1.5}},
+};
+// {est, com} de una operacion del catalogo para un tipo de vehiculo (liviano si no se conoce), o null.
+function _plantillaOperacion(tipoOp, tipoVeh) {
+  var m = PLANTILLA_OPERACION_SERVICIO[tipoOp] || PLANTILLA_OPERACION_OTRAS[tipoOp];
+  if (!m) return null;
+  return m[tipoVeh] || m.liviano || null;
+}
+// Idempotente: crea la operacion sugerida si falta, o actualiza la que sigue sin confirmar (cambio de servicio o
+// de tipo de vehiculo). Nunca toca una operacion ya confirmada (horas > 0, subcontrato) ni duplica un trabajo del
+// mismo tipo registrado a mano. Devuelve true si cambio algo.
+function _aplicarOperacionSugerida(o, who) {
+  var nivel = o.tipoServicioSolicitado;
+  var plan = PLANTILLA_OPERACION_SERVICIO[nivel];
+  if (!plan) return false;
+  var vals = plan[o.tipoVehiculo] || plan.liviano;
+  o.trabajos = o.trabajos || [];
+  var previa = null;
+  for (var i = 0; i < o.trabajos.length; i++) { if (o.trabajos[i].desdePlantillaOperacion) { previa = o.trabajos[i]; break; } }
+  if (previa) {
+    if ((parseFloat(previa.horas) || 0) > 0 || previa.subcontrato || previa.horasConfirmadas) return false;
+    if (previa.tipoOperacion === nivel && previa.horasSugeridas === vals.com && previa.tiempoEstimado === vals.est) return false;
+    previa.tipoOperacion = nivel; previa.desc = esc(plan.label);
+    previa.horasSugeridas = vals.com; previa.tiempoEstimado = vals.est;
+    return true;
+  }
+  for (var j = 0; j < o.trabajos.length; j++) { if (o.trabajos[j].tipoOperacion === nivel) return false; }
+  o.trabajos.push({desc: esc(plan.label), horas: 0, horasSugeridas: vals.com, tiempoEstimado: vals.est, tecnico: o.tech || '', by: who, ts: Date.now(), tipoOperacion: nivel, desdePlantillaOperacion: true});
+  o.msgs = o.msgs || [];
+  o.msgs.push({who: who, txt: '&#128295; Operacion agregada desde la plantilla: ' + esc(plan.label) + ' (' + vals.est.toFixed(2).replace('.', ',') + ' hrs. estimadas) — horas de comision pendientes de confirmar por el Jefe', ts: Date.now(), type: 'system'});
+  return true;
+}
+
 // Marca o.tipoServicioSolicitado en una orden que YA esta abierta (caso
 // real de Byron, 2 sep 2026: el cliente pide un Servicio ADEMAS de lo que
 // ya se habia registrado al abrir la orden — ej. entro por ruido de frenos
@@ -3351,6 +3405,7 @@ function agregarServicioSolicitadoRetro(id, nivel) {
   if (!txtPreset) return;
   if (!confirm('¿El cliente tambien esta pidiendo "' + txtPreset + '"?\n\nSe va a agregar a "Trabajos solicitados por el cliente" y el tecnico va a poder usar la Plantilla de servicio en esta orden.')) return;
   o.tipoServicioSolicitado = nivel;
+  _aplicarOperacionSugerida(o, ROLES[role] ? ROLES[role].label : role);
   var current = (o.desc || '').trim();
   if (!current) {
     o.desc = txtPreset;
@@ -3397,6 +3452,7 @@ function cambiarServicioSolicitadoRetro(id, nivel) {
   if (desc.toLowerCase().indexOf(nuevoTxt.toLowerCase()) === -1) desc = desc ? desc + ', ' + nuevoTxt : nuevoTxt;
   o.desc = desc;
   o.tipoServicioSolicitado = nivel;
+  _aplicarOperacionSugerida(o, ROLES[role] ? ROLES[role].label : role);
   var who = ROLES[role] ? ROLES[role].label : role;
   o.msgs = o.msgs || [];
   o.msgs.push({who:who, txt:'&#128172; Servicio de la solicitud corregido: "' + viejoTxt + '" -> "' + nuevoTxt + '"', ts:Date.now(), type:'system'});
@@ -3857,6 +3913,11 @@ function openDrw(id) {
           (role === 'jefe' ? '<button onclick="editarTemporizadorDetenido(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Editar</button>' : '') +
           (role === 'jefe' ? '<button onclick="cancelarTemporizadorDetenido(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Cancelar</button>' : '') +
         '</span></div>'
+      : '') +
+    ((role === 'jefe' || role === 'asesor')
+      ? '<div class="irow"><span class="ik">Tipo de vehiculo</span><select id="sel-tipo-veh" class="fi" style="width:auto;padding:3px 6px;font-size:12px">' +
+          Object.keys(TIPO_VEHICULO_LABELS).map(function(k) { return '<option value="' + k + '"' + ((o.tipoVehiculo || 'liviano') === k ? ' selected' : '') + '>' + TIPO_VEHICULO_LABELS[k] + '</option>'; }).join('') +
+        '</select></div>'
       : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
     cmRowHtml +
@@ -4796,6 +4857,8 @@ function openDrw(id) {
       hrsBadge = '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para cambiar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:#2a1f3d;color:#B794F6;border:1px solid #8B5CF6;white-space:nowrap">&#128230; Subcontrato' + (role==='jefe'?' &#8635;':'') + '</span>';
     } else if (hrsVal > 0) {
       hrsBadge = '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para ajustar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--bg4);color:var(--tx);border:1px solid var(--tx2);white-space:nowrap">' + hrsVal.toFixed(2).replace('.', ',') + ' hrs. com.' + (role==='jefe'?' &#8635;':'') + '</span>';
+    } else if (role === 'jefe' && (parseFloat(tw.horasSugeridas) || 0) > 0) {
+      hrsBadge = '<span class="btn-trab-hrs jf" data-ti="' + twi2 + '" title="Horas de comision sugeridas por la plantilla: toca para confirmarlas o modificarlas" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px dashed var(--or);white-space:nowrap">Sugerida ' + parseFloat(tw.horasSugeridas).toFixed(2).replace('.', ',') + ' hrs. com. &middot; Confirmar &#8635;</span>';
     } else {
       hrsBadge = (role === 'jefe'
         ? '<span class="btn-trab-hrs jf" data-ti="' + twi2 + '" title="Toca para asignar horas' + (isCatalogOp ? ' o marcar como subcontrato' : '') + '" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px solid var(--orbd);white-space:nowrap">Asignar hrs. com. &#8635;</span>'
@@ -4822,6 +4885,7 @@ function openDrw(id) {
       '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' +
         _trabTecLabelHtml(tw, twi2, o, r, ordTecs) +
         ' · ' + msgTs(tw.ts) + (tw.verificado ? ' · <span style="color:var(--gn)">&#10003; Realizado</span>' : '') +
+        ((parseFloat(tw.tiempoEstimado) || 0) > 0 ? ' · Tiempo estimado ' + parseFloat(tw.tiempoEstimado).toFixed(2).replace('.', ',') + ' hrs' : '') +
         (role === 'jefe' && tw.pagadoTs ? ' · <span style="color:var(--gn);font-weight:700">&#128176; Pagado ' + new Date(tw.pagadoTs).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit'}) + '</span>' : '') +
       '</div>' +
     '</div>';
@@ -5469,13 +5533,18 @@ function openDrw(id) {
             return;
           }
         }
+        if (twx.desdePlantillaOperacion && !twx.tecnico) {
+          if (ox.tech) twx.tecnico = ox.tech;
+          else { toast('Asigna primero el tecnico de la orden: las horas de comision se pagan al tecnico del trabajo'); return; }
+        }
         var actualHrs = parseFloat(twx.horas) || 0;
-        var input = prompt('Horas de comision (hrs. com.) para "' + twx.desc + '":', actualHrs || '');
+        var input = prompt('Horas de comision (hrs. com.) para "' + twx.desc + '"' + (!actualHrs && twx.horasSugeridas ? ' (sugerida por la plantilla)' : '') + ':', actualHrs || twx.horasSugeridas || '');
         if (input === null) return;
         var nuevasHrs = parseFloat(input);
         if (isNaN(nuevasHrs) || nuevasHrs < 0) { toast('Ingresa un numero valido de horas'); return; }
         twx.horas = nuevasHrs;
         twx.subcontrato = false;
+        if (twx.desdePlantillaOperacion) twx.horasConfirmadas = true;
         ox.msgs.push({who:who, txt:'&#9203; Hrs. com. asignadas a "' + esc(twx.desc) + '": ' + nuevasHrs.toFixed(2).replace('.', ',') + ' hrs', ts:Date.now(), type:'system'});
         save(); toast('Horas de comision actualizadas'); openDrw(id);
       });
@@ -5666,6 +5735,19 @@ function openDrw(id) {
             // trabajo especifico se esta subcontratando (ej. "Enderezado y
             // pintura").
             inpT2.value = catKeyChg === 'subcontrato' ? '' : TIPO_OPERACION_CATALOG[catKeyChg];
+            // Plantilla de operaciones (29 oct 2026): precarga Hrs. com. (campo solo del Jefe) con la
+            // comision de la plantilla segun el tipo de vehiculo de la orden; sigue editable y no se guarda
+            // nada hasta "+ Agregar". El tiempo estimado se muestra como ayuda en el campo.
+            var horasEl2 = document.getElementById('trab-horas');
+            var oPl = null;
+            for (var ipl = 0; ipl < orders.length; ipl++) { if (orders[ipl].id === id) { oPl = orders[ipl]; break; } }
+            var plVals = oPl ? _plantillaOperacion(catKeyChg, oPl.tipoVehiculo) : null;
+            if (horasEl2 && plVals) { horasEl2.value = plVals.com; horasEl2._plPre = plVals.com; horasEl2.placeholder = 'Est. ' + plVals.est + ' h'; }
+            else if (horasEl2) {
+              // sin valores en la plantilla: se quita solo lo que puso la plantilla, nunca lo escrito a mano
+              if (horasEl2._plPre != null && parseFloat(horasEl2.value) === horasEl2._plPre) horasEl2.value = '';
+              horasEl2._plPre = null; horasEl2.placeholder = 'Hrs. com.';
+            }
             break;
           }
         }
@@ -5793,6 +5875,7 @@ function openDrw(id) {
       if (eTotalEl) { if ((ox.montoTotal || 0) !== (newTotal || 0)) delete ox.montoTotalOrigen; ox.montoTotal = newTotal || null; }
       if (eMoEl) { if ((ox.montoMO || 0) !== (newMO || 0)) delete ox.montoMOOrigen; ox.montoMO = newMO || null; }
       if (eTech1El) ox.tech = newTech1 || null;
+      if (eTech1El && newTech1) (ox.trabajos || []).forEach(function(twE) { if (twE.desdePlantillaOperacion && !twE.tecnico) twE.tecnico = newTech1; });
       if (eTech2El) ox.tech2 = newTech2 || null;
       if (ePrioEl) ox.prio = newPrio;
       if (eLocEl) ox.loc = newLoc;
@@ -5806,6 +5889,22 @@ function openDrw(id) {
         ox.msgs.push({who:who, txt:'Datos editados: ' + changes.join(', '), ts:Date.now(), type:'system'});
       }
       save(); toast('Datos actualizados'); openDrw(id);
+    });
+  }
+
+  var selTipoVeh = document.getElementById('sel-tipo-veh');
+  if (selTipoVeh) {
+    selTipoVeh.addEventListener('change', function() {
+      if (!(role === 'jefe' || role === 'asesor')) return;
+      var oV = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { oV = orders[i]; break; } }
+      if (!oV || !TIPO_VEHICULO_LABELS[this.value]) return;
+      var whoV = ROLES[role] ? ROLES[role].label : role;
+      oV.tipoVehiculo = this.value;
+      oV.msgs = oV.msgs || [];
+      oV.msgs.push({who:whoV, txt:'Tipo de vehiculo: ' + TIPO_VEHICULO_LABELS[this.value], ts:Date.now(), type:'system'});
+      _aplicarOperacionSugerida(oV, whoV);
+      save(); toast('Tipo de vehiculo actualizado'); openDrw(id);
     });
   }
 
@@ -5823,6 +5922,7 @@ function openDrw(id) {
       if (!o2) return;
       o2.tech  = tec1;
       o2.tech2 = tec2;
+      (o2.trabajos || []).forEach(function(twA) { if (twA.desdePlantillaOperacion && !twA.tecnico && tec1) twA.tecnico = tec1; });
       var who = ROLES[role] ? ROLES[role].label : role;
       var msg = tec1 ? ('Tecnico asignado: ' + tec1 + (tec2 ? ' + ' + tec2 : '')) : 'Tecnico removido';
       o2.msgs = o2.msgs || [];
@@ -7349,6 +7449,8 @@ function openNO() {
   // otra sucursal.
   var ubEl = document.getElementById('f-ub');
   if (ubEl) ubEl.value = 'Z10';
+  var vehEl = document.getElementById('f-veh');
+  if (vehEl) vehEl.value = 'liviano';
   // Link de Clear Mechanic (30 sep 2026): solo el Jefe puede agregarlo o
   // editarlo (mismo candado que el resto del enlace), asi que el campo solo
   // se ofrece al crear cuando quien esta creando la orden es el Jefe — si la
@@ -7521,6 +7623,8 @@ function saveNO() {
   var hrsEst = parseFloat(document.getElementById('f-hrs').value) || 0;
   var kmEl = document.getElementById('f-km');
   var km = kmEl && kmEl.value ? parseInt(kmEl.value, 10) : null;
+  var vehSelEl = document.getElementById('f-veh');
+  var tipoVehiculo = (vehSelEl && TIPO_VEHICULO_LABELS[vehSelEl.value]) ? vehSelEl.value : 'liviano';
   // Link de Clear Mechanic (30 sep 2026): solo se lee si quien crea es Jefe
   // (el campo solo se muestra para ese rol, ver openNO) — asi un Asesor
   // nunca deja un cmUrl puesto por accion propia, consistente con que solo
@@ -7530,8 +7634,9 @@ function saveNO() {
 
   function createWithId(assignedId) {
     var ot = otInput || ('OT-' + assignedId);
-    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,hrsEstimadoOriginal:hrsEst||null,km:km,tipoServicioSolicitado:_noTipoServicio||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
+    var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,hrsEstimadoOriginal:hrsEst||null,km:km,tipoVehiculo:tipoVehiculo,tipoServicioSolicitado:_noTipoServicio||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
     if (cmUrlInput) no.cmUrl = cmUrlInput;
+    if (no.tipoServicioSolicitado) _aplicarOperacionSugerida(no, who);
     if (_noRepDraft.length) {
       no.repuestos = _noRepDraft.map(function(d0) {
         // El borrador guarda objetos {desc, cantidad?, especificacion?};
