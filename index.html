@@ -6986,6 +6986,12 @@ function advance(id, newPhase) {
     }
   }
   if (!o) return;
+  // Candado de tecnico (29 oct 2026, pedido de Byron): una orden no puede pasar a Trabajando sin tecnico
+  // asignado (si ya se va a trabajar, ya tiene tecnico). T. Externo cuenta como asignado.
+  if (newPhase === 'ab' && !o.tech) {
+    toast('Asigna primero el tecnico: una orden no puede pasar a Trabajando sin tecnico asignado');
+    return;
+  }
   // Toda orden que entra a Trabajando debe traer hora estimada — es lo que
   // alimenta el reporte de Capacidad del taller (ver buildCapacidadContent).
   // Sin este dato, esa orden no se puede sumar a la carga del dia de nadie,
@@ -14473,6 +14479,10 @@ function advanceReproceso(id, causa, nota, destino) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
+  if (destino === 'ab' && !o.tech) {
+    toast('Asigna primero el tecnico: una orden no puede regresar a Trabajando sin tecnico asignado');
+    return;
+  }
   var oldPhase = o.phase;
   var oldLbl = (PHASE_COLORS[oldPhase]||{label:oldPhase}).label;
   var notaEsc = nota ? esc(nota) : '';
