@@ -2372,6 +2372,9 @@ function _aplicarKVigente(ord, k) {
 }
 function _leerResultadoAutorizacion(o) {
   if (!o || !o.ot || typeof db === 'undefined' || !db) return;
+  // Solo los roles que ven montos leen y aplican esto (29 oct 2026): un tecnico, el mensajero o el lavador no
+  // deben ser quienes bajen ni asienten montos cotizados/autorizados.
+  if (!_puedeVerMontos()) return;
   // En Entregado (cierre) tambien se lee, para sugerir el total cotizado en el cuadro de la firma "Jefe
   // verifica facturacion" (27 oct 2026, pedido de Byron); solo se guarda en memoria, no en la orden.
   var quiereRes = o.phase === 'ea', quiereK = !!o.linkCotizacion, quiereSug = o.phase === 'ent' && !o.montoCotizado;
@@ -3521,7 +3524,7 @@ function openDrw(id) {
   var confirmBadge = (o.pendingConfirm && role === 'jefe')
     ? '<span class="dbg" style="background:#2E1F0A;color:#F39C12;border:1px solid #6B4510">&#9888; Confirmar movimiento de ' + o.pendingConfirm.by + '</span>'
     : '';
-  var sysMsgsAll = (o.msgs || []).filter(function(m) { return _msgIsSystem(m); });
+  var sysMsgsAll = (o.msgs || []).filter(function(m) { return _msgIsSystem(m) && _msgVisibleParaRol(m); });
   var newestSysTs = sysMsgsAll.length ? sysMsgsAll[sysMsgsAll.length - 1].ts : 0;
   var sysUnread = newestSysTs > (o._lrSys || 0);
   var sysPanelItems = '';
@@ -7578,7 +7581,7 @@ function updateNDot() {
   if (role) updateRepPartsBadge();
   if (role) updateAutorizBadge();
   var unread = 0;
-  for (var i = 0; i < notifs.length; i++) { if (!notifs[i].read) unread++; }
+  for (var i = 0; i < notifs.length; i++) { if (!notifs[i].read && (_puedeVerMontos() || !_txtConMontos(notifs[i].txt))) unread++; }
   var dot = document.getElementById('nb-dot');
   if (dot) dot.className = 'nb-dot' + (unread > 0 ? ' on' : '');
 }
@@ -7591,12 +7594,14 @@ function toggleNP() {
     var list = document.getElementById('np-list');
     if (!notifs.length) { list.innerHTML = '<div style="font-size:12px;color:var(--tx3);padding:1rem;text-align:center">Sin notificaciones</div>'; return; }
     var html = '';
-    var max = notifs.length < 20 ? notifs.length : 20;
+    var notifsVis = notifs.filter(function(n) { return _puedeVerMontos() || !_txtConMontos(n.txt); });
+    var max = notifsVis.length < 20 ? notifsVis.length : 20;
+    if (!notifsVis.length) { list.innerHTML = '<div style="font-size:12px;color:var(--tx3);padding:1rem;text-align:center">Sin notificaciones</div>'; return; }
     for (var i = 0; i < max; i++) {
-      html += '<div class="np-i" data-oid="' + notifs[i].oid + '">' +
-        _notifHeader(notifs[i].oid) +
-        '<div>' + notifs[i].txt + '</div>' +
-        '<div class="np-t">' + ago(notifs[i].ts) + '</div>' +
+      html += '<div class="np-i" data-oid="' + notifsVis[i].oid + '">' +
+        _notifHeader(notifsVis[i].oid) +
+        '<div>' + notifsVis[i].txt + '</div>' +
+        '<div class="np-t">' + ago(notifsVis[i].ts) + '</div>' +
       '</div>';
     }
     list.innerHTML = html;
@@ -10404,14 +10409,14 @@ function _buildFocusedResumenHtml(o, opts) {
     '<div style="font-size:13px;color:var(--tx);font-weight:600">' + esc(o.model || '—') + '</div>' +
     '<div style="font-size:11px;color:var(--tx2);margin-top:2px">' + esc(o.client || '—') +
       ' &middot; &#128295; ' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2.split(' ')[0]) : '') + '</div>' +
-    '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">' +
+    (!_puedeVerMontos() ? '' : '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">' +
       // Las etiquetas conservan el "(Q)" que ya tenian antes de la fusion:
       // cambiarlas habria sido un cambio visible que nadie pidio.
       '<div><div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px">Total general (Q)</div>' +
         '<div style="font-family:var(--mo);font-weight:700;font-size:13px;color:' + (o.montoTotal ? 'var(--gn)' : 'var(--tx3)') + '">' + (o.montoTotal ? fmtQR(o.montoTotal) : '—') + '</div></div>' +
       '<div><div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px">Mano de obra (Q)</div>' +
         '<div style="font-family:var(--mo);font-size:13px;color:var(--tx2)">' + (o.montoMO ? fmtQR(o.montoMO) : '—') + '</div></div>' +
-    '</div>' +
+    '</div>') +
   '</div>';
 
   // "Notas de entrega" (10 oct 2026, pedido de Byron): notas libres que
@@ -10659,6 +10664,7 @@ function abrirResumenAvisoLavPorOt(ot) {
 // resto de modales al imprimir, ver @media print) en vez de crear un modal
 // nuevo — asi no hay que tocar la hoja de estilos de impresion.
 function generarOrdenTrabajoFormal(id) {
+  if (!_puedeVerMontos()) { toast('Solo Jefe, Asesor y Partes pueden ver la Orden de Trabajo con montos'); return; }
   var o = null;
   for (var goi = 0; goi < orders.length; goi++) { if (orders[goi].id === id) { o = orders[goi]; break; } }
   if (!o) { toast('Orden no encontrada'); return; }
@@ -10839,6 +10845,12 @@ function ago(ts) {
 // de "Mensajes internos" (solo notas). Los mensajes nuevos ya traen 'type'
 // explicito; los guardados antes de este cambio no lo tienen, asi que se
 // clasifican por texto conocido como respaldo.
+// Montos en quetzales (29 oct 2026, pedido de Byron): solo Jefe, Asesor y Partes ven lo cobrado o cotizado a los
+// clientes. Tecnicos, mensajero y lavador no: se les ocultan los avisos automaticos (campanita de la orden, avisos
+// del Historial y notificaciones) cuyo texto trae un monto (Q.1,234.00), sin tocar los demas avisos ni los datos.
+function _puedeVerMontos() { return role === 'jefe' || role === 'asesor' || role === 'partes'; }
+function _txtConMontos(txt) { return /Q\.?\s?\d/.test(String(txt || '').replace(/<[^>]*>/g, '')); }
+function _msgVisibleParaRol(m) { return _puedeVerMontos() || !_txtConMontos(m && m.txt); }
 function _msgIsSystem(m) {
   if (m.type === 'note') return false;
   if (m.type === 'system') return true;
@@ -14190,7 +14202,7 @@ function openHistDetail(o) {
   // ── Avisos (registro automatico: firmas, avances de fase, repuestos,
   // Vo.Bo., fecha de cierre, etc.) — mismo contenido que la campanita de
   // la ficha en vivo, aqui en orden cronologico para el reporte completo. ──
-  var histSysMsgs = (o.msgs || []).filter(function(m) { return _msgIsSystem(m); });
+  var histSysMsgs = (o.msgs || []).filter(function(m) { return _msgIsSystem(m) && _msgVisibleParaRol(m); });
   if (histSysMsgs.length) {
     html += '<div class="sec"><div class="sec-l">&#128276; Avisos</div><div class="chat-box">';
     for (var si6 = 0; si6 < histSysMsgs.length; si6++) {
