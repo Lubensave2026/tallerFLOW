@@ -957,6 +957,18 @@ function _removeLocalOrder(idKey) {
   try { localStorage.setItem(SK, JSON.stringify({orders:orders,notifs:notifs,nxtId:nxtId,archived:archived})); } catch(e) {}
 }
 
+// Cuando otro dispositivo archiva una orden cerrada (Archivar ahora), esta orden sale de 'orders' por el listener
+// pero 'archived' de este dispositivo no la tenia: los totales del Reporte ("Ya cerrado este mes") quedaban sin ella
+// hasta recargar (29 oct 2026). Se vuelve a leer el historial, una sola vez tras un respiro, cuando sale una cerrada.
+var _archTrasQuitarTimer = null;
+function _refrescarArchivadasTrasQuitar() {
+  if (_archTrasQuitarTimer) clearTimeout(_archTrasQuitarTimer);
+  _archTrasQuitarTimer = setTimeout(function() {
+    _archTrasQuitarTimer = null;
+    refreshArchived(function() { _scheduleRender(); });
+  }, 3000);
+}
+
 // Migracion unica de la estructura vieja (taller/orders = arreglo completo)
 // a la nueva (taller/orders_by_id/{id}). Protegida con transaction para que,
 // aunque varios dispositivos carguen a la vez, solo uno ejecute la migracion.
@@ -1134,7 +1146,9 @@ function initFirebase() {
           _scheduleRender();
         });
         db.ref('taller/orders_by_id').on('child_removed', function(snap) {
+          var _eraCerrada = orders.some(function(x){ return String(x.id) === String(snap.key) && x.phase === 'cer'; });
           _removeLocalOrder(snap.key);
+          if (_eraCerrada) _refrescarArchivadasTrasQuitar();
           _scheduleRender();
         });
       };
