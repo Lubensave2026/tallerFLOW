@@ -148,6 +148,8 @@ button{cursor:pointer}
 .sg{font-size:9px;padding:1px 5px;border-radius:8px}
 .sg.ok{background:var(--gnbg);color:var(--gn)}
 .sg.pd{background:var(--orbg);color:var(--or)}
+.card-mv{position:absolute;top:4px;right:20px;width:24px;height:22px;border-radius:7px;border:1px solid var(--bd2);background:var(--bg4);color:var(--tx2);font-size:12px;line-height:1;padding:0;cursor:pointer}
+.card-mv:hover{border-color:var(--ac);color:var(--ac)}
 .unread{width:7px;height:7px;border-radius:50%;background:var(--ac);position:absolute;top:8px;right:8px}
 @keyframes pulse{0%,100%{border-color:var(--rdbd)}50%{border-color:var(--rd)}}
 .card.urg{animation:pulse 2s infinite}
@@ -2158,6 +2160,16 @@ function renderBoard() {
         (function(oid) {
           card.addEventListener('click', function() { openDrw(oid); });
         })(o.id);
+        if (_nextsYCompuerta(o).nexts.length) {
+          var mvBtn = document.createElement('button');
+          mvBtn.className = 'card-mv';
+          mvBtn.title = 'Firmar y mover a otra fase';
+          mvBtn.innerHTML = '&#10140;';
+          (function(oid2) {
+            mvBtn.addEventListener('click', function(ev) { ev.stopPropagation(); abrirMoverA(oid2); });
+          })(o.id);
+          card.appendChild(mvBtn);
+        }
         body.appendChild(card);
       }
     }
@@ -3539,37 +3551,14 @@ function _trabTecLabelHtml(tw, twi, o, r, ordTecs) {
     (esMiTrabajo ? '&#10003; ' : '') + esc(tw.tecnico) + ' &#8635;</span>';
 }
 
-function openDrw(id) {
-  var confirmBadge = '';
-  var o = null;
-  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
-  if (!o) return;
-  openId = id;
-  o._lr = Date.now();
-  save();
-  _leerResultadoAutorizacion(o);
-
-  if (window._drwRepInt) clearInterval(window._drwRepInt);
-  window._drwRepInt = setInterval(function() {
-    var drwEl = document.getElementById('drw');
-    if (!drwEl || !drwEl.classList.contains('on')) { clearInterval(window._drwRepInt); return; }
-    var badges = document.querySelectorAll('[data-rep-ts]');
-    for (var bi = 0; bi < badges.length; bi++) {
-      var b = badges[bi];
-      var ts = parseInt(b.getAttribute('data-rep-ts'));
-      var origenAttr = b.getAttribute('data-rep-origen') || 'local';
-      b.outerHTML = elapsedRepBadge(ts, origenAttr);
-    }
-  }, 30000);
-
-  var lane = null;
-  for (var i = 0; i < LANES.length; i++) { if (LANES[i].id === o.phase) { lane = LANES[i]; break; } }
-  var tc = (TM[o.phase] || ['tgr', '?'])[0];
+// 30 oct 2026: firmas de la fase, destinos permitidos y candado segun el rol. Antes vivia dentro de openDrw; se saco
+// tal cual para que la ficha y el boton "Mover a" del tablero usen exactamente las mismas reglas.
+function _nextsYCompuerta(o) {
   var sigs = SIGS[o.phase] || [];
   if (!o.sigs) o.sigs = {};
   var allOk = true;
   for (var i = 0; i < sigs.length; i++) { if (sigs[i].required !== false && !o.sigs[sigs[i].id]) { allOk = false; break; } }
-  var nexts = NEXT[o.phase] || [];
+  var nexts = (NEXT[o.phase] || []).slice();
   var r = ROLES[role] || {};
   var sRole = r.tec ? 'tecnico' : role;
 
@@ -3619,6 +3608,38 @@ function openDrw(id) {
   if (o.phase === 'er' && role === 'jefe') {
     nexts = ['aa', 'ab'];
   }
+
+  return {sigs: sigs, allOk: allOk, nexts: nexts, gateOverride: gateOverride, effectiveOk: (gateOverride !== null) ? gateOverride : allOk, r: r, sRole: sRole};
+}
+
+function openDrw(id) {
+  var confirmBadge = '';
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  openId = id;
+  o._lr = Date.now();
+  save();
+  _leerResultadoAutorizacion(o);
+
+  if (window._drwRepInt) clearInterval(window._drwRepInt);
+  window._drwRepInt = setInterval(function() {
+    var drwEl = document.getElementById('drw');
+    if (!drwEl || !drwEl.classList.contains('on')) { clearInterval(window._drwRepInt); return; }
+    var badges = document.querySelectorAll('[data-rep-ts]');
+    for (var bi = 0; bi < badges.length; bi++) {
+      var b = badges[bi];
+      var ts = parseInt(b.getAttribute('data-rep-ts'));
+      var origenAttr = b.getAttribute('data-rep-origen') || 'local';
+      b.outerHTML = elapsedRepBadge(ts, origenAttr);
+    }
+  }, 30000);
+
+  var lane = null;
+  for (var i = 0; i < LANES.length; i++) { if (LANES[i].id === o.phase) { lane = LANES[i]; break; } }
+  var tc = (TM[o.phase] || ['tgr', '?'])[0];
+  var _nxG = _nextsYCompuerta(o);
+  var sigs = _nxG.sigs, allOk = _nxG.allOk, nexts = _nxG.nexts, r = _nxG.r, sRole = _nxG.sRole, gateOverride = _nxG.gateOverride;
 
   /* header */
   var hdr = document.getElementById('drw-hdr');
@@ -6677,6 +6698,97 @@ function _pideCotizadoAlCierre(o) {
   if (o.montoTotal) return true;
   return o.prio !== 'garantia' && o.prio !== 'interna';
 }
+// 30 oct 2026 (pedido de Byron): boton "Mover a" en cada ficha del tablero. Una sola ventana con las firmas de la
+// fase (se firma ahi mismo con doSign) y los destinos permitidos (se mueve con advance); no duplica ninguna regla:
+// las firmas, destinos y candados salen de _nextsYCompuerta y las preguntas del camino (horas, motivo, tecnico...)
+// son las de advance/doSign de siempre.
+var _moverAFase = null;
+function _moverAHtml(o) {
+  var nx = _nextsYCompuerta(o);
+  var h = '<div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--r);max-width:380px;width:92%;max-height:88vh;overflow-y:auto;padding:1rem">' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">' +
+      '<div><div style="font-size:15px;font-weight:700;font-family:var(--mo)">' + esc(o.plate) + ' <span style="color:var(--ac)">' + esc(o.ot) + '</span></div>' +
+      '<div style="font-size:11px;color:var(--tx3)">Ahora: ' + esc(NL[o.phase] || o.phase) + '</div></div>' +
+      '<button class="mv-cerrar" style="background:none;border:1px solid var(--bd);color:var(--tx2);border-radius:8px;padding:3px 9px;cursor:pointer">&#10005;</button>' +
+    '</div>';
+  if (nx.sigs.length) {
+    h += '<div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">1. Firmas</div>';
+    for (var i = 0; i < nx.sigs.length; i++) {
+      var s = nx.sigs[i];
+      var firmado = !!(o.sigs && o.sigs[s.id]);
+      var puede = (nx.sRole === s.id || role === 'jefe' || _asesorSuplePuedeFirmar(o.phase, s.id));
+      var estado = firmado ? '<span class="sg-ok">&#10003; Firmado</span>'
+        : (puede ? '<button class="btn-sg mv-firmar" data-sid="' + esc(s.id) + '">Firmar</button>'
+                 : '<span style="font-size:10px;color:var(--tx3)">Pendiente (' + esc(s.id) + ')</span>');
+      h += '<div class="sg-item"><div><div class="sg-n">' + esc(s.lb) + (s.required === false ? ' (opcional)' : '') + '</div></div>' + estado + '</div>';
+    }
+  }
+  h += '<div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;margin:10px 0 4px">' + (nx.sigs.length ? '2. ' : '') + 'Mover a</div>';
+  for (var j = 0; j < nx.nexts.length; j++) {
+    var n = nx.nexts[j];
+    var esRep = (n === 'reproceso');
+    h += '<button class="ph-btn ' + (esRep ? (nx.effectiveOk ? 'go' : 'lk') + ' rep-btn' : (nx.effectiveOk ? 'go' : 'lk')) + ' mv-dest"' + (esRep ? ' style="border-color:#8B0000;color:#FF6B6B;background:#1a0a0a"' : '') + ' data-phase="' + esc(n) + '">' +
+      '<span>' + (esRep ? '&#9851; ' : '') + esc(NL[n] || n) + '</span><span>' + (nx.effectiveOk ? '&rarr;' : '&#128274;') + '</span></button>';
+  }
+  if (!nx.effectiveOk) h += '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Completa las firmas para desbloquear los destinos.</div>';
+  return h + '</div>';
+}
+function abrirMoverA(id) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o) return;
+  if (!_nextsYCompuerta(o).nexts.length) { toast('Esta orden no tiene a donde moverse desde esta fase'); return; }
+  _moverAFase = o.phase;
+  _renderMoverA(id);
+}
+function cerrarMoverA() {
+  var el = document.getElementById('mover-a-ov');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+  _moverAFase = null;
+}
+function _renderMoverA(id) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  // Si la orden cambio de fase (se movio, o avanzo sola al firmar) la ventana ya no aplica.
+  if (!o || o.phase !== _moverAFase) { cerrarMoverA(); return; }
+  var ov = document.getElementById('mover-a-ov');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'mover-a-ov';
+    ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:100;display:flex;align-items:center;justify-content:center';
+    ov.addEventListener('click', function(ev) { if (ev.target === ov) cerrarMoverA(); });
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = _moverAHtml(o);
+  var bc = ov.querySelectorAll('.mv-cerrar');
+  for (var a = 0; a < bc.length; a++) bc[a].addEventListener('click', cerrarMoverA);
+  var bf = ov.querySelectorAll('.mv-firmar');
+  for (var b = 0; b < bf.length; b++) {
+    (function(btn) { btn.addEventListener('click', function() { _moverAFirmar(id, btn.getAttribute('data-sid')); }); })(bf[b]);
+  }
+  var bd = ov.querySelectorAll('.mv-dest');
+  for (var c = 0; c < bd.length; c++) {
+    (function(btn) { btn.addEventListener('click', function() { _moverAIr(id, btn.getAttribute('data-phase')); }); })(bd[c]);
+  }
+}
+function _moverAFirmar(id, sigId) {
+  doSign(id, sigId);
+  // doSign guarda y puede avanzar sola la orden (Recepcion, Presup. Partes, Lavado): se vuelve a pintar tras un respiro.
+  setTimeout(function() { _renderMoverA(id); }, 900);
+}
+function _moverAIr(id, fase) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || o.phase !== _moverAFase) { cerrarMoverA(); return; }
+  var nx = _nextsYCompuerta(o);
+  if (nx.nexts.indexOf(fase) < 0) { toast('Ese destino no esta permitido desde esta fase'); return; }
+  if (!nx.effectiveOk) { toast('Completa las firmas primero'); return; }
+  if (Date.now() - _recentSignAt < 900) { toast('Un momento... confirma de nuevo si es lo que querias hacer'); return; }
+  if (!confirm('¿Mover ' + o.plate + ' a ' + (NL[fase] || fase) + '?')) return;
+  cerrarMoverA();
+  advance(id, fase);
+}
+
 function doSign(id, sigId) {
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
