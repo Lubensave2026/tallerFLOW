@@ -3551,6 +3551,30 @@ function _trabTecLabelHtml(tw, twi, o, r, ordTecs) {
     (esMiTrabajo ? '&#10003; ' : '') + esc(tw.tecnico) + ' &#8635;</span>';
 }
 
+// 31 oct 2026 (pedido de Byron): encabezado de "Montos de facturacion". Si la orden ya tiene una parte facturada y congelada
+// (o.montoFacturadoTotal/MO, ver "Marcar como Ya Facturada"), el encabezado es un desplegable con el detalle: ya facturado,
+// pendiente de facturar y total de la orden. Sin parte facturada es el mismo titulo de siempre. Solo informativo.
+function _montosFacturacionHeaderHtml(o) {
+  var titulo = '&#128181; Montos de facturacion';
+  var facT = Number(o.montoFacturadoTotal) || 0, facM = Number(o.montoFacturadoMO) || 0;
+  if (!facT && !facM) return '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">' + titulo + '</div>';
+  var fq = function(n) { return 'Q.' + Number(n || 0).toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+  var totT = Number(o.montoTotal) || 0, totM = Number(o.montoMO) || 0;
+  var mes = o.montoFacturadoTs ? new Date(o.montoFacturadoTs).toLocaleDateString('es-GT', {month: 'long', year: 'numeric'}) : '';
+  var verMO = (role === 'jefe');
+  var fila = function(lb, a, b, col) {
+    return '<div class="irow"><span class="ik">' + lb + '</span><span style="font-family:var(--mo);font-weight:700;color:' + col + '">' + fq(a) + (verMO ? ' <span style="color:var(--tx3);font-weight:400">&middot;</span> ' + fq(b) : '') + '</span></div>';
+  };
+  return '<details style="margin-top:10px;margin-bottom:6px">' +
+    '<summary class="sec-l" style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none;margin-bottom:0">' + titulo +
+      '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#2a1f3d;color:#B794F6;border:1px solid #8B5CF6;white-space:nowrap">&#128176; Facturado parcial &#9662;</span></summary>' +
+    '<div style="background:#2a1f3d;border:1px solid #8B5CF6;border-radius:var(--rs);padding:8px 10px;margin-top:6px">' +
+      '<div style="font-size:10px;color:var(--tx3);margin-bottom:4px">General' + (verMO ? ' &middot; Mano de obra' : '') + '</div>' +
+      fila('Ya facturado' + (mes ? ' (' + esc(mes) + ')' : ''), facT, facM, '#B794F6') +
+      fila('Pendiente de facturar', Math.max(0, totT - facT), Math.max(0, totM - facM), 'var(--or)') +
+      fila('Total de esta orden', totT, totM, 'var(--gn)') +
+    '</div></details>';
+}
 // 31 oct 2026: fecha de pago por adelantado de un trabajo. Se muestra dd/mm (con /aa si no es el ano en curso).
 function _fmtPagadoFecha(ts) {
   var d = new Date(ts), s = d.toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit'});
@@ -3968,7 +3992,7 @@ function openDrw(id) {
     '<div class="irow"><span class="ik">Tiempo en esta fase</span><span style="color:var(--or)">' + (timeInPhase || 'Recien ingresado') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor') ?
-      '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
+      _montosFacturacionHeaderHtml(o) +
       // Encasillado en amarillo (29 sep 2026, pedido de Byron): mismo
       // tratamiento que ya usa el cuadro de "Tiempo calculado" (borde
       // #eab308), para ubicar estos 2 montos de un vistazo tanto en la
@@ -14313,7 +14337,7 @@ function openHistDetail(o) {
     '<div class="irow"><span class="ik">Sucursal</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor' || role === 'partes') ?
-      '<div class="sec-l" style="margin-top:10px;margin-bottom:6px">&#128181; Montos de facturacion</div>' +
+      _montosFacturacionHeaderHtml(o) +
       // Encasillado en amarillo (29 sep 2026, pedido de Byron) — mismo
       // tratamiento que su gemela en la ficha en vivo (openDrw, ver arriba).
       '<div style="border:2px solid #eab308;border-radius:var(--rs);background:var(--bg);padding:8px 10px">' +
