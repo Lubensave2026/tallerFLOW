@@ -3551,6 +3551,28 @@ function _trabTecLabelHtml(tw, twi, o, r, ordTecs) {
     (esMiTrabajo ? '&#10003; ' : '') + esc(tw.tecnico) + ' &#8635;</span>';
 }
 
+// 31 oct 2026: fecha de pago por adelantado de un trabajo. Se muestra dd/mm (con /aa si no es el ano en curso).
+function _fmtPagadoFecha(ts) {
+  var d = new Date(ts), s = d.toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit'});
+  return d.getFullYear() !== new Date().getFullYear() ? s + '/' + String(d.getFullYear()).slice(2) : s;
+}
+// Acepta dd/mm/aaaa o mm/aaaa (dia 15, al mediodia, para que la zona horaria no cambie el mes). Vacio = hoy. Invalido = null.
+function _parsePagadoFecha(txt) {
+  txt = String(txt == null ? '' : txt).trim();
+  if (!txt) return Date.now();
+  var m = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/), dia, mes, anio;
+  if (m) { dia = parseInt(m[1], 10); mes = parseInt(m[2], 10); anio = parseInt(m[3], 10); }
+  else {
+    m = txt.match(/^(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    dia = 15; mes = parseInt(m[1], 10); anio = parseInt(m[2], 10);
+  }
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31 || anio < 2024 || anio > 2100) return null;
+  var d = new Date(anio, mes - 1, dia, 12, 0, 0);
+  if (d.getMonth() !== mes - 1) return null;
+  return d.getTime();
+}
+
 // 30 oct 2026: firmas de la fase, destinos permitidos y candado segun el rol. Antes vivia dentro de openDrw; se saco
 // tal cual para que la ficha y el boton "Mover a" del tablero usen exactamente las mismas reglas.
 function _nextsYCompuerta(o) {
@@ -4844,8 +4866,10 @@ function openDrw(id) {
   // Control visual de comision ya pagada por adelantado (23 oct, pedido de
   // Byron): solo el Jefe marca/ve que trabajos ya se pagaron (tw.pagadoTs).
   // Es un aviso para descontar a mano: NO toca ningun reporte ni calculo.
+  // 31 oct 2026: tambien lo ven los tecnicos (solo lectura) para saber que al cerrar la orden solo se pagara lo que falta.
+  var verPagado = (role === 'jefe' || !!(ROLES[role] && ROLES[role].tec));
   var pagadoResumenHtml = '';
-  if (role === 'jefe') {
+  if (verPagado) {
     var hrsPagadas = 0, nPagados = 0;
     for (var tpg = 0; tpg < trabajosList.length; tpg++) {
       if (trabajosList[tpg].pagadoTs) { hrsPagadas += parseFloat(trabajosList[tpg].horas) || 0; nPagados++; }
@@ -4855,7 +4879,8 @@ function openDrw(id) {
       pagadoResumenHtml = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;margin-top:6px;padding:5px 8px;border-radius:var(--rs);background:var(--gnbg);border:1px solid var(--gnbd);font-size:11px">' +
         '<span style="color:var(--gn);font-weight:700">&#128176; Ya pagado: ' + hrsPagadas.toFixed(2).replace('.', ',') + ' hrs com. (' + nPagados + ' de ' + trabajosList.length + ')</span>' +
         '<span style="color:var(--tx);font-weight:700">Falta: ' + hrsFaltan.toFixed(2).replace('.', ',') + ' hrs com.</span>' +
-      '</div>';
+      '</div>' +
+      (role !== 'jefe' ? '<div style="font-size:10px;color:var(--tx3);margin-top:3px">Al cerrar la orden solo se pagan las horas que faltan; lo ya pagado por adelantado no se paga de nuevo.</div>' : '');
     }
   }
   trabajosHtml += '<div style="margin-bottom:8px">' +
@@ -4907,7 +4932,7 @@ function openDrw(id) {
         _trabTecLabelHtml(tw, twi2, o, r, ordTecs) +
         ' · ' + msgTs(tw.ts) + (tw.verificado ? ' · <span style="color:var(--gn)">&#10003; Realizado</span>' : '') +
         ((parseFloat(tw.tiempoEstimado) || 0) > 0 ? ' · Tiempo estimado ' + parseFloat(tw.tiempoEstimado).toFixed(2).replace('.', ',') + ' hrs' : '') +
-        (role === 'jefe' && tw.pagadoTs ? ' · <span style="color:var(--gn);font-weight:700">&#128176; Pagado ' + new Date(tw.pagadoTs).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit'}) + '</span>' : '') +
+        (verPagado && tw.pagadoTs ? ' · <span style="color:var(--gn);font-weight:700">&#128176; Pagado ' + _fmtPagadoFecha(tw.pagadoTs) + '</span>' : '') +
       '</div>' +
     '</div>';
   }
@@ -5636,8 +5661,13 @@ function openDrw(id) {
           delete twp.pagadoTs;
           ox.msgs.push({who:whoP, txt:'&#128176; Se quito la marca de pagado: "' + esc(twp.desc) + '"', ts:Date.now(), type:'system'});
         } else {
-          twp.pagadoTs = Date.now();
-          ox.msgs.push({who:whoP, txt:'&#128176; Marcado como ya pagado por adelantado: "' + esc(twp.desc) + '" (' + (parseFloat(twp.horas) || 0).toFixed(2).replace('.', ',') + ' hrs com.)', ts:Date.now(), type:'system'});
+          var hoyTxt = new Date().toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'});
+          var fechaIn = prompt('Fecha del pago por adelantado de "' + twp.desc + '"\n\nEscribe dd/mm/aaaa (o mm/aaaa si solo sabes el mes). Aceptar deja hoy.', hoyTxt);
+          if (fechaIn === null) return;
+          var fechaPag = _parsePagadoFecha(fechaIn);
+          if (fechaPag === null) { toast('Fecha no valida. Usa dd/mm/aaaa o mm/aaaa'); return; }
+          twp.pagadoTs = fechaPag;
+          ox.msgs.push({who:whoP, txt:'&#128176; Marcado como ya pagado por adelantado (' + _fmtPagadoFecha(fechaPag) + '): "' + esc(twp.desc) + '" (' + (parseFloat(twp.horas) || 0).toFixed(2).replace('.', ',') + ' hrs com.)', ts:Date.now(), type:'system'});
         }
         save(); openDrw(id);
       });
