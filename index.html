@@ -6777,14 +6777,35 @@ function _moverAHtml(o) {
       h += '<div class="sg-item"><div><div class="sg-n">' + esc(s.lb) + (s.required === false ? ' (opcional)' : '') + '</div></div>' + estado + '</div>';
     }
   }
-  h += '<div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;margin:10px 0 4px">' + (nx.sigs.length ? '2. ' : '') + 'Mover a</div>';
+  // Candado de tecnico: para ir a Trabajando la orden debe tener tecnico; se asigna aqui mismo (solo el Jefe asigna).
+  var sinTec = (nx.nexts.indexOf('ab') >= 0 && !o.tech);
+  var paso = nx.sigs.length ? 2 : 1;
+  if (sinTec) {
+    h += '<div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;margin:10px 0 4px">' + paso + '. Tecnico (obligatorio para pasar a Trabajando)</div>';
+    if (role === 'jefe') {
+      var opt1 = '<option value="">Sin asignar</option>', opt2 = '<option value="">Ninguno</option>';
+      for (var t = 0; t < TEC_ASIGNABLES.length; t++) {
+        opt1 += '<option value="' + esc(TEC_ASIGNABLES[t]) + '">' + esc(TEC_ASIGNABLES[t]) + '</option>';
+        opt2 += '<option value="' + esc(TEC_ASIGNABLES[t]) + '">' + esc(TEC_ASIGNABLES[t]) + '</option>';
+      }
+      h += '<select id="mv-tec1" class="fi" style="font-size:12px;padding:7px 10px;margin-bottom:6px">' + opt1 + '</select>' +
+        '<select id="mv-tec2" class="fi" style="font-size:12px;padding:7px 10px;margin-bottom:6px" title="Segundo tecnico (opcional)">' + opt2 + '</select>' +
+        '<button class="btn-sg mv-asignar" style="width:100%;padding:9px">Confirmar asignacion</button>';
+    } else {
+      h += '<div style="font-size:11px;color:var(--or)">Falta asignar tecnico: solo el Jefe de taller puede asignarlo.</div>';
+    }
+    paso++;
+  }
+  h += '<div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;margin:10px 0 4px">' + ((nx.sigs.length || sinTec) ? paso + '. ' : '') + 'Mover a</div>';
   for (var j = 0; j < nx.nexts.length; j++) {
     var n = nx.nexts[j];
     var esRep = (n === 'reproceso');
-    h += '<button class="ph-btn ' + (esRep ? (nx.effectiveOk ? 'go' : 'lk') + ' rep-btn' : (nx.effectiveOk ? 'go' : 'lk')) + ' mv-dest"' + (esRep ? ' style="border-color:#8B0000;color:#FF6B6B;background:#1a0a0a"' : '') + ' data-phase="' + esc(n) + '">' +
-      '<span>' + (esRep ? '&#9851; ' : '') + esc(NL[n] || n) + '</span><span>' + (nx.effectiveOk ? '&rarr;' : '&#128274;') + '</span></button>';
+    var destOk = nx.effectiveOk && !(n === 'ab' && sinTec);
+    h += '<button class="ph-btn ' + (esRep ? (destOk ? 'go' : 'lk') + ' rep-btn' : (destOk ? 'go' : 'lk')) + ' mv-dest"' + (esRep ? ' style="border-color:#8B0000;color:#FF6B6B;background:#1a0a0a"' : '') + ' data-phase="' + esc(n) + '">' +
+      '<span>' + (esRep ? '&#9851; ' : '') + esc(NL[n] || n) + '</span><span>' + (destOk ? '&rarr;' : '&#128274;') + '</span></button>';
   }
   if (!nx.effectiveOk) h += '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Completa las firmas para desbloquear los destinos.</div>';
+  else if (sinTec) h += '<div style="font-size:10px;color:var(--tx3);margin-top:4px">Asigna el tecnico para desbloquear Trabajando.</div>';
   return h + '</div>';
 }
 function abrirMoverA(id) {
@@ -6820,13 +6841,38 @@ function _renderMoverA(id) {
   for (var b = 0; b < bf.length; b++) {
     (function(btn) { btn.addEventListener('click', function() { _moverAFirmar(id, btn.getAttribute('data-sid')); }); })(bf[b]);
   }
+  var ba = ov.querySelectorAll('.mv-asignar');
+  for (var d = 0; d < ba.length; d++) ba[d].addEventListener('click', function() { _moverAAsignar(id); });
   var bd = ov.querySelectorAll('.mv-dest');
   for (var c = 0; c < bd.length; c++) {
     (function(btn) { btn.addEventListener('click', function() { _moverAIr(id, btn.getAttribute('data-phase')); }); })(bd[c]);
   }
 }
+// Mismo guardado que btn-assign-tec de la ficha, pero sin abrirla: la ventana Mover a se repinta sola.
+function _moverAAsignar(id) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || o.phase !== _moverAFase) { cerrarMoverA(); return; }
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede asignar tecnico'); return; }
+  var s1 = document.getElementById('mv-tec1'), s2 = document.getElementById('mv-tec2');
+  var tec1 = s1 ? s1.value : '', tec2 = s2 ? s2.value : '';
+  if (!tec1) { toast('Elige el tecnico principal'); return; }
+  if (tec2 && tec2 === tec1) { toast('No puedes asignar el mismo tecnico dos veces'); return; }
+  o.tech = tec1;
+  o.tech2 = tec2;
+  (o.trabajos || []).forEach(function(twA) { if (twA.desdePlantillaOperacion && !twA.tecnico && tec1) twA.tecnico = tec1; });
+  var msg = 'Tecnico asignado: ' + tec1 + (tec2 ? ' + ' + tec2 : '');
+  o.msgs = o.msgs || [];
+  o.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:msg, ts:Date.now(), type:'system'});
+  addNotif(msg + ' en orden ' + o.plate, id);
+  save();
+  toast('Asignacion guardada');
+  _renderMoverA(id);
+}
+var _moverAFirmando = false; // doSign no abre la ficha cuando la firma viene de la ventana Mover a
 function _moverAFirmar(id, sigId) {
-  doSign(id, sigId);
+  _moverAFirmando = true;
+  try { doSign(id, sigId); } finally { _moverAFirmando = false; }
   // doSign guarda y puede avanzar sola la orden (Recepcion, Presup. Partes, Lavado): se vuelve a pintar tras un respiro.
   setTimeout(function() { _renderMoverA(id); }, 900);
 }
@@ -6837,6 +6883,7 @@ function _moverAIr(id, fase) {
   var nx = _nextsYCompuerta(o);
   if (nx.nexts.indexOf(fase) < 0) { toast('Ese destino no esta permitido desde esta fase'); return; }
   if (!nx.effectiveOk) { toast('Completa las firmas primero'); return; }
+  if (fase === 'ab' && !o.tech) { toast('Asigna primero el tecnico: una orden no puede pasar a Trabajando sin tecnico asignado'); return; }
   if (Date.now() - _recentSignAt < 900) { toast('Un momento... confirma de nuevo si es lo que querias hacer'); return; }
   if (!confirm('¿Mover ' + o.plate + ' a ' + (NL[fase] || fase) + '?')) return;
   cerrarMoverA();
@@ -6844,6 +6891,7 @@ function _moverAIr(id, fase) {
 }
 
 function doSign(id, sigId) {
+  var _sinFicha = _moverAFirmando; // viene de la ventana Mover a: no se abre la ficha completa
   var o = null;
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
@@ -7034,7 +7082,8 @@ function doSign(id, sigId) {
     o.msgs.push({who:who, txt:'Firma: ' + lb, ts:Date.now(), type:'system'});
     addNotif(who + ' firmo en ' + o.plate, id);
     _recentSignAt = Date.now();
-    save(); toast('Firma registrada'); openDrw(id);
+    save(); toast('Firma registrada');
+    if (_sinFicha) _renderMoverA(id); else openDrw(id);
   }
   if (o.phase === 'prb' && sigId === 'jefe' && o.kmSalidaRuta != null) {
     showKmModal('Kilometraje de entrada', 'Salida fue ' + o.kmSalidaRuta.toLocaleString('es-GT') + ' km', function(kmEntradaInput) {
