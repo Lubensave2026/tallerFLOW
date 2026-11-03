@@ -2913,12 +2913,29 @@ function _bodVariantesDeGenerico(nombreGenerico, searchTerm) {
 // generico sin saber cual de los varios tipos que hay en inventario es,
 // Jefe o Partes eligen despues el codigo exacto. Agregar otro tipo despues
 // es solo sumar un arreglo de palabras aqui.
+// 2 nov 2026 (pedido de Byron): se suman plumilla, tapon de aceitera, fusible, quimicos y selladores — en estos el
+// catalogo en vivo acota por las mismas palabras (nombre, codigo o categoria; "quimico" trae la categoria QUIMICOS,
+// "limpiador"/"penetrante" los limpiadores y el penetrante, "sellador"/"loctite" los selladores). Sin respaldo local
+// para estos: si el catalogo no responde se avisa y se reintenta (el respaldo sigue siendo solo filtros y bombillas).
 var REPUESTOS_CONVERTIBLES_A_BODEGA = [
   ['filtro', 'aceite'],
-  ['bombilla']
+  ['bombilla'],
+  ['plumilla'],
+  ['tapon', 'aceitera'],
+  ['fusible'],
+  ['quimico'],
+  ['limpiador'],
+  ['penetrante'],
+  ['sellador'],
+  ['loctite']
 ];
+// Minusculas y sin tildes: el tecnico escribe "Tapón" o "Químico" y el catalogo dice "TAPON"/"QUIMICOS".
+function _sinTildesCv(s) {
+  s = String(s || '').toLowerCase();
+  return s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : s;
+}
 function _esRepuestoConvertibleABodega(desc) {
-  var t = (desc || '').toLowerCase();
+  var t = _sinTildesCv(desc);
   return REPUESTOS_CONVERTIBLES_A_BODEGA.some(function(palabras) {
     return palabras.every(function(p) { return t.indexOf(p) !== -1; });
   });
@@ -2932,14 +2949,14 @@ function _esRepuestoConvertibleABodega(desc) {
 // porque comparte una palabra. searchTerm (lo que se haya escrito, puede
 // ser vacio) acota mas adentro de ese mismo grupo, nunca lo amplia.
 function _bodCatalogoConvertible(descRepuesto, searchTerm) {
-  var t = (descRepuesto || '').toLowerCase();
+  var t = _sinTildesCv(descRepuesto);
   var grupo = REPUESTOS_CONVERTIBLES_A_BODEGA.filter(function(palabras) {
     return palabras.every(function(p) { return t.indexOf(p) !== -1; });
   })[0];
   if (!grupo) return [];
   var q = (searchTerm || '').trim().toLowerCase();
   return (_catalogoBodega.items || []).filter(function(it) {
-    var texto = ((it.nombre || '') + ' ' + (it.sku || '') + ' ' + (it.categoria || '')).toLowerCase();
+    var texto = _sinTildesCv((it.nombre || '') + ' ' + (it.sku || '') + ' ' + (it.categoria || ''));
     if (!grupo.every(function(p) { return texto.indexOf(p) !== -1; })) return false;
     return !q || texto.indexOf(q) !== -1;
   });
@@ -2955,11 +2972,13 @@ function _bodCatalogoConvertible(descRepuesto, searchTerm) {
 // hay riesgo de mostrar un codigo real desactualizado por encima del vivo.
 var REPUESTOS_BODEGA_RESPALDO = [
   { grupo: ['filtro', 'aceite'], items: [
-    { codigo: 'A006481', nombre: 'Filtro de aceite (10060)' },
-    { codigo: 'A004440', nombre: 'Filtro de aceite (10158)' },
+    // 2 nov 2026: codigos Z10 del catalogo activo; los A006481/A004440/A078879 quedaron duplicados por estos.
+    { codigo: 'Z10-1502020', nombre: 'Filtro de aceite (10060)' },
+    { codigo: 'Z10-1503020', nombre: 'Filtro de aceite (CH-10158) 150-3020 WIX 57173' },
+    { codigo: 'Z10-O1001', nombre: 'Filtro de aceite (7317) Bosch 1001' },
     { codigo: 'Z10-WL7570', nombre: 'Filtro de aceite WIX 51348' },
     { codigo: 'Z10-WL7572A', nombre: 'Filtro de aceite WIX 51394' },
-    { codigo: 'A078879', nombre: 'Filtro de aceite (7317)' },
+    { codigo: 'Z10-HU7008Z', nombre: 'Filtro de aceite Mann Filters (E115H01, D208, OX388D)' },
   ] },
   // Bombillas (10 oct 2026, pedido de Byron, captura real del catalogo de
   // Bodega Virtual) — mismo respaldo que filtro de aceite, por si el
@@ -2976,7 +2995,7 @@ var REPUESTOS_BODEGA_RESPALDO = [
   ] }
 ];
 function _bodRespaldoDeRepuesto(descRepuesto, searchTerm) {
-  var t = (descRepuesto || '').toLowerCase();
+  var t = _sinTildesCv(descRepuesto);
   var grupo = REPUESTOS_BODEGA_RESPALDO.filter(function(g) {
     return g.grupo.every(function(p) { return t.indexOf(p) !== -1; });
   })[0];
