@@ -2965,7 +2965,6 @@ var REPUESTOS_BODEGA_RESPALDO = [
   // Bodega Virtual) — mismo respaldo que filtro de aceite, por si el
   // catalogo en vivo falla justo cuando se necesita escoger una bombilla.
   { grupo: ['bombilla'], items: [
-    { codigo: 'A004825', nombre: 'Bombilla cola de pez peq.' },
     { codigo: 'A004797', nombre: 'Bombilla de placa cilindrica' },
     { codigo: 'A003003', nombre: 'Socket para bombilla 9006/9076 Flosser 9446' },
     { codigo: 'A004985', nombre: 'Bombilla H11 12V 55W' },
@@ -3034,11 +3033,14 @@ var SERVICIO_REPUESTOS_TEMPLATE = {
 // 17006 y WIPE02 se dieron de baja; los vigentes son Z10-STIW7043, Z10-1880 y
 // Z10-WIPE. Solo aplica a ordenes NUEVAS: las lineas ya guardadas en ordenes
 // abiertas conservan el codigo viejo (corregir con "Cambiar articulo").
+// 2 nov 2026: segunda tanda contra el catalogo activo de Bodega Virtual (CATALOGO_ACTIVO_BODEGA_VIRTUAL_02112026.xlsx):
+// SM1901. -> Z10-SM1901, 5021977 -> Z10-5021977, WF08 -> Z10-WF08, RACG50 -> Z10-RACG50, RRECG50 -> Z10-RRECG50,
+// 881791 -> Z10-881791. Los demas codigos de la plantilla ya estaban vigentes tal cual.
 var SERVICIO_BODEGA_TEMPLATE = [
   { desc: 'Brake cleaner', codigo: 'Z10-STIW7043', etiqueta: 'Z10-STIW7043 (Spray Limp. Frenos)' },
   { desc: 'Desengrasante de motor', codigo: 'Z10-1880' },
-  { desc: 'Abrillantador de motor', codigo: 'SM1901.' },
-  { desc: 'Liquido para chorritos', codigo: '5021977' },
+  { desc: 'Abrillantador de motor', codigo: 'Z10-SM1901' },
+  { desc: 'Liquido para chorritos', codigo: 'Z10-5021977' },
   { desc: 'Lija', codigo: 'LIJ01' },
   { desc: 'Wippe', codigo: 'Z10-WIPE' },
 ];
@@ -3048,7 +3050,7 @@ var SERVICIO_BODEGA_TEMPLATE = [
 // SERVICIO_BODEGA_MAYOR_EXTRA, SI entra al diff aQuitar/aAgregar al cambiar
 // de nivel (ver _bodegaDeNivel).
 var SERVICIO_BODEGA_INTERMEDIO_EXTRA = [
-  { desc: 'Plomos balance', codigo: 'WF08', cantidad: 24 },
+  { desc: 'Plomos balance', codigo: 'Z10-WF08', cantidad: 24 },
 ];
 // Materiales de bodega SOLO para Servicio Mayor (16 sep 2026, pedido de
 // Byron) — a diferencia de SERVICIO_BODEGA_TEMPLATE (igual en los 3
@@ -3073,8 +3075,8 @@ var SERVICIO_BODEGA_MAYOR_EXTRA = [
 // confirmados contra el catalogo real (mismos que ya ve el tecnico en el
 // buscador de Despacho Bodega).
 var SERVICIO_BODEGA_MAYOR_REFRIGERANTE_OPCIONES = {
-  '1': { desc: 'Refrigerante Azul Artic (Galon)', codigo: 'RACG50' },
-  '2': { desc: 'Refrigerante Rosado Artic (Galon)', codigo: 'RRECG50' },
+  '1': { desc: 'Refrigerante Azul Artic (Galon)', codigo: 'Z10-RACG50' },
+  '2': { desc: 'Refrigerante Rosado Artic (Galon)', codigo: 'Z10-RRECG50' },
   '3': { desc: 'Refrigerante Verde', codigo: 'RVCG33' }
 };
 function _refrigeranteMayorDescsPosibles() {
@@ -3111,8 +3113,8 @@ function _preguntarColorRefrigeranteMayor(o, who) {
 var SERVICIO_BODEGA_MAYOR_CONDICIONAL = [
   { desc: 'Aceite de caja (mecanica)', codigo: '17102', cantidad: 3,
     pregunta: '¿El vehiculo es de caja MECANICA (no automatica)?\n\nSi contestas que si, se va a agregar el aceite de caja (17102) a Despacho Bodega.' },
-  { desc: 'Aceite de diferencial', codigo: '881791', cantidad: 3,
-    pregunta: '¿El vehiculo usa diferencial trasero o doble traccion (4x4)?\n\nSi contestas que si, se va a agregar el aceite de diferencial (881791) a Despacho Bodega.' },
+  { desc: 'Aceite de diferencial', codigo: 'Z10-881791', cantidad: 3,
+    pregunta: '¿El vehiculo usa diferencial trasero o doble traccion (4x4)?\n\nSi contestas que si, se va a agregar el aceite de diferencial (Z10-881791) a Despacho Bodega.' },
 ];
 // Mapa de materiales de bodega con CODIGO FIJO conocido, por nombre en
 // minusculas (13 oct 2026, pedido de Byron) -- usado SOLO por "Pegar varios
