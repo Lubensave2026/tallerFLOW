@@ -2893,12 +2893,21 @@ function _bodEsGenericoDeVariantes(it, matches) {
 // Variantes especificas de un "generico" dado, acotadas a una busqueda
 // concreta (30 sep 2026) — usado tanto al forzar una eleccion especifica en
 // "+ Solicitar" (ver bodSugg click) como en "Cambiar articulo".
+// 3 nov 2026 (caso real de Byron: ABRAZADERA vs ABRAZADERA PARA GUARDAPOLVO): el "generico" tambien puede ser un
+// articulo real con su propio codigo. Si el catalogo lo trae con sku, se agrega AL FINAL de la lista de variantes para
+// poder elegirlo a proposito; antes solo salian las variantes y la abrazadera comun no se podia pedir con su codigo.
 function _bodVariantesDeGenerico(nombreGenerico, searchTerm) {
   nombreGenerico = (nombreGenerico || '').toLowerCase();
-  return _buscarEnCatalogoBodega(searchTerm).filter(function(it) {
+  var todos = _buscarEnCatalogoBodega(searchTerm);
+  var res = todos.filter(function(it) {
     var n = (it.nombre || '').toLowerCase();
     return n.indexOf(nombreGenerico) === 0 && n !== nombreGenerico;
   });
+  if (res.length) {
+    var propio = todos.filter(function(it) { return (it.nombre || '').toLowerCase() === nombreGenerico && it.sku; })[0];
+    if (propio) res.push(propio);
+  }
+  return res;
 }
 
 // Repuestos que se pueden convertir a Despacho Bodega (8 oct 2026, pedido
@@ -5576,6 +5585,8 @@ function openDrw(id) {
       });
       bodDescInp.addEventListener('focus', renderBodSugg);
       bodDescInp.addEventListener('blur', function() { setTimeout(function() { bodSugg.style.display = 'none'; }, 150); });
+      // 3 nov 2026: tocar una opcion no debe quitarle el foco al campo (el blur cerraba el desplegable antes del clic)
+      bodSugg.addEventListener('mousedown', function(e) { e.preventDefault(); });
       bodSugg.addEventListener('click', function(e) {
         var itemEl = e.target && e.target.closest ? e.target.closest('.bod-sugg-item') : null;
         if (itemEl) {
