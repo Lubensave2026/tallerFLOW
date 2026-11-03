@@ -11650,7 +11650,9 @@ function _repExportVisibleRows() {
   var tecFilter = (document.getElementById('rep-fil-tec') || {}).value || '';
   var phaseFilter = _repFasesSeleccionadas();
   var soloMonto = _repFilterMontoActivo();
-  var proySolo = _repProyActivo() && _repProy.soloMarcadas;
+  // 3 nov 2026 (pedido de Byron): con Proyeccion encendida y al menos una orden marcada, el Excel lleva solo las
+  // marcadas aunque no este activo "Solo marcadas" (sin ninguna marcada sale todo como antes).
+  var proySolo = _repProyActivo() && (_repProy.soloMarcadas || _repExportRows.some(function(r) { return !!_repProy.marks[r._oid]; }));
   return _repExportRows.filter(function(r) {
     return (!tecFilter || r._tec === tecFilter) && (!phaseFilter.length || phaseFilter.indexOf(r._phase) >= 0) && (!soloMonto || r._monto) &&
       (!proySolo || !!_repProy.marks[r._oid]);
