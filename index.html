@@ -2405,13 +2405,20 @@ function _aplicarKVigente(ord, k) {
   }
 }
 function _leerResultadoAutorizacion(o) {
+  // 4 nov 2026 (caso 5471): el resultado se aplica en Espera de autorizacion, pero tambien si la orden YA salio de ahi
+  // (p. ej. paso rapido a Trabajando) y todavia no tiene resultado guardado: antes se ignoraba y los montos quedaban en blanco.
+  var _aceptaResultadoCot = function(x) {
+    if (!x) return false;
+    if (x.phase === 'ea') return true;
+    return !!x.linkCotizacion && !x.cotizResultado && ['rec', 'pa', 'pb'].indexOf(x.phase) === -1;
+  };
   if (!o || !o.ot || typeof db === 'undefined' || !db) return;
   // Solo los roles que ven montos leen y aplican esto (29 oct 2026): un tecnico, el mensajero o el lavador no
   // deben ser quienes bajen ni asienten montos cotizados/autorizados.
   if (!_puedeVerMontos()) return;
   // En Entregado (cierre) tambien se lee, para sugerir el total cotizado en el cuadro de la firma "Jefe
   // verifica facturacion" (27 oct 2026, pedido de Byron); solo se guarda en memoria, no en la orden.
-  var quiereRes = o.phase === 'ea', quiereK = !!o.linkCotizacion, quiereSug = o.phase === 'ent' && !o.montoCotizado;
+  var quiereRes = _aceptaResultadoCot(o), quiereK = !!o.linkCotizacion, quiereSug = o.phase === 'ent' && !o.montoCotizado;
   var quiereAut = !!(o.linkCotizacion || o.linkCotizacionPartes) && !o.cotizAutorizadoTs && !o.cotizResultado;
   if (!quiereRes && !quiereK && !quiereSug && !quiereAut) return;
   var key = String(o.ot);
@@ -2435,7 +2442,7 @@ function _leerResultadoAutorizacion(o) {
       }
       if (!quiereRes || typeof v.resultadoTs !== 'number' || !(v.autorizado > 0)) return;
       var ord = ordK;
-      if (!ord || ord.phase !== 'ea') return;
+      if (!_aceptaResultadoCot(ord)) return;
       _aplicarResultadoCotizador({tipo: 'lns-cotizacion-resultado', ot: key, ts: v.resultadoTs,
         cotizado: v.cotizado, autorizado: v.autorizado, autorizadoMO: v.autorizadoMO, pendiente: v.pendiente,
         urgenteCotizado: v.urgenteCotizado, urgenteAutorizado: v.urgenteAutorizado,
