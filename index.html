@@ -2342,12 +2342,15 @@ function _aplicarResultadoCotizador(d) {
   if (!d.ot || typeof d.ts !== 'number' || !nm(d.cotizado) || !nm(d.autorizado) || !nm(d.pendiente)) return;
   var orr = orders.find(function(x){ return String(x.ot || x.id) === String(d.ot); });
   if (!orr) { toast('Resultado del Cotizador, pero no encontre la orden ' + d.ot); return; }
-  if (orr.cotizResultado && orr.cotizResultado.ts === d.ts) return; // mismo aviso repetido
+  // 4 nov 2026: un aviso repetido solo se ignora si los montos de la orden YA coinciden con lo autorizado; si no
+  // (p. ej. el resultado se guardo antes de que el dato del Cotizador mandara sobre lo puesto a mano) se vuelve a aplicar.
+  var _montosYaIguales = !nm(d.autorizadoMO) || !(d.autorizado > 0) || (orr.montoTotal === d.autorizado && orr.montoMO === d.autorizadoMO);
+  if (orr.cotizResultado && orr.cotizResultado.ts === d.ts && _montosYaIguales) return; // mismo aviso repetido
   // El mismo resultado puede llegar por la ventana Y por Firebase (otro ts): si los montos son
   // identicos a los ya guardados (con autorizadoMO), no se repite ni la linea de bitacora.
   var prevR = orr.cotizResultado;
   if (prevR && prevR.autorizadoMO != null && prevR.cotizado === d.cotizado && prevR.autorizado === d.autorizado &&
-      prevR.pendiente === d.pendiente && prevR.autorizadoMO === (nm(d.autorizadoMO) ? d.autorizadoMO : null)) return;
+      prevR.pendiente === d.pendiente && prevR.autorizadoMO === (nm(d.autorizadoMO) ? d.autorizadoMO : null) && _montosYaIguales) return;
   var nz = function(v){ return nm(v) ? v : 0; };
   orr.cotizResultado = {cotizado: d.cotizado, autorizado: d.autorizado, pendiente: d.pendiente,
     autorizadoMO: nm(d.autorizadoMO) ? d.autorizadoMO : null,
@@ -2363,19 +2366,17 @@ function _aplicarResultadoCotizador(d) {
   }
   // Montos de facturacion (Total autorizado y Mano de obra) desde lo que el
   // cliente autorizo. Solo si el aviso trae autorizadoMO (con IVA, igual que el
-  // total) y el autorizado es mayor a cero; no pisa lo que el Jefe puso a mano.
+  // total) y el autorizado es mayor a cero. 4 nov 2026 (pedido de Byron): el dato del Cotizador es el real que
+  // autorizo el cliente, asi que SIEMPRE pisa lo que hubiera (montos estimados puestos a mano para proyeccion);
+  // la linea de bitacora deja los montos anteriores si eran distintos.
   var notaAut = '';
   if (nm(d.autorizadoMO) && d.autorizado > 0 && d.autorizadoMO <= d.autorizado) {
-    var totalLibre = !orr.montoTotal || orr.montoTotalOrigen === 'cotizador';
-    var moLibre = !orr.montoMO || orr.montoMOOrigen === 'cotizador';
-    if (totalLibre && moLibre) {
-      orr.montoTotal = d.autorizado; orr.montoTotalOrigen = 'cotizador';
-      orr.montoMO = d.autorizadoMO; orr.montoMOOrigen = 'cotizador';
-      orr.montoMOTs = Date.now();
-      notaAut = ' · Montos autorizados pasados a la orden: Total ' + fq(d.autorizado) + ', Mano de obra ' + fq(d.autorizadoMO);
-    } else if (orr.montoTotal !== d.autorizado || orr.montoMO !== d.autorizadoMO) {
-      notaAut = ' (Total autorizado y Mano de obra puestos a mano, ' + fq(orr.montoTotal || 0) + ' y ' + fq(orr.montoMO || 0) + ', no se cambiaron)';
-    }
+    var antesTot = orr.montoTotal || 0, antesMO = orr.montoMO || 0;
+    orr.montoTotal = d.autorizado; orr.montoTotalOrigen = 'cotizador';
+    orr.montoMO = d.autorizadoMO; orr.montoMOOrigen = 'cotizador';
+    orr.montoMOTs = Date.now();
+    notaAut = ' · Montos autorizados pasados a la orden: Total ' + fq(d.autorizado) + ', Mano de obra ' + fq(d.autorizadoMO) +
+      ((antesTot !== d.autorizado || antesMO !== d.autorizadoMO) && (antesTot || antesMO) ? ' (antes: ' + fq(antesTot) + ' y ' + fq(antesMO) + ')' : '');
   }
   var quienRes = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
   orr.msgs = orr.msgs || [];
