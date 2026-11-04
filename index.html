@@ -661,8 +661,13 @@ button{cursor:pointer}
         <button type="button" onclick="addDescPreset('Servicio intermedio')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Servicio intermedio</button>
         <button type="button" onclick="addDescPreset('Servicio mayor')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Servicio mayor</button>
         <button type="button" onclick="addDescPreset('Revision compraventa')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Revision compraventa</button>
-        <button type="button" onclick="addDescPreset('Diagnostico')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Diagnostico</button>
+        <button type="button" onclick="addDescPreset('Diagnostico simple')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Diagnostico simple</button>
+        <button type="button" onclick="addDescPreset('Diagnostico normal')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Diagnostico normal</button>
+        <button type="button" onclick="addDescPreset('Diagnostico complejo')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Diagnostico complejo</button>
         <button type="button" onclick="addDescPreset('Revision de frenos')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Revision de frenos</button>
+        <button type="button" onclick="addDescPreset('Alineacion carro pequeno')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Alineacion carro pequeno</button>
+        <button type="button" onclick="addDescPreset('Alineacion carro mediano')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Alineacion carro mediano</button>
+        <button type="button" onclick="addDescPreset('Alineacion carro grande/europeo/camioneta')" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Alineacion carro grande/europeo/camioneta</button>
       </div>
       <textarea class="fi dta" id="f-dc" placeholder="Descripcion..."></textarea>
     </div>
@@ -1380,7 +1385,9 @@ var SIGS = {
   // ver repuesto.ck1/ck2/ck3 en getMyPendingSigs y los reportes de Repuestos
   // y Subcontratos / Despacho Bodega) es un mecanismo aparte, sin tocar.
   er: [{id:'jefe',lb:'Jefe confirma repuesto recibido',sb:false}],
-  ext:[{id:'asesor',lb:'Asesor envia externo',sb:false},{id:'partes',lb:'Partes coordina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo.',sb:false}],
+  // 4 nov 2026 (pedido de Byron): Trabajo externo queda en UNA sola firma, la del Asesor (el Jefe tambien puede firmarla
+  // por el, como en cualquier fase; ya no se piden Partes ni Vo.Bo. del Jefe).
+  ext:[{id:'asesor',lb:'Asesor envia externo',sb:false}],
   lav:[{id:'lavador',lb:'Lavador termina',sb:true},{id:'jefe',lb:'Jefe Vo.Bo. lavado',sb:false}],
   lst:[{id:'asesor',lb:'Asesor confirma entrega',sb:false}],
   ent:[{id:'jefe',lb:'Jefe verifica facturacion',sb:false}],
@@ -1395,7 +1402,7 @@ var NEXT = {
   // que se pidio.
   rec:['aa'],aa:['ab'],det:['aa'],ab:['prb','lav','pa','er','ext','det','lst'],
   prb:['lav','lst','ab','reproceso'],pa:['pb','ab'],pb:['ea','pa'],ea:['aa','lav','lst','prb','ext'],er:['aa'],
-  ext:['ab','prb'],lav:['lst'],lst:['ent'],ent:['cer'],cer:[]
+  ext:['ab','prb','lav','lst'],lav:['lst'],lst:['ent'],ent:['cer'],cer:[]
 };
 
 var PRIO_LABELS = {
@@ -3377,11 +3384,30 @@ var PLANTILLA_OPERACION_SERVICIO = {
 // Resto de operaciones del catalogo con valores de la plantilla (solo se usan para precargar "Hrs. com." al elegir
 // la operacion en el buscador de Trabajos realizados; el Jefe las confirma con "+ Agregar"). Soldadura, cambio de
 // filtro y subcontrato no tienen valores.
+// 4 nov 2026 (pedido de Byron): trabajos que el cliente puede pedir ademas del Servicio (botones de Nueva orden y de
+// la ficha en Recepcion / Espera-asignacion). Cada uno agrega SU PROPIA linea en Trabajos realizados con el tiempo
+// estimado y la comision sugerida (est/com, mismos valores sin importar el vehiculo; la alineacion y el diagnostico se
+// eligen por tamano/nivel). "grupo": dentro de un grupo solo cabe una opcion (un tamano de alineacion, un nivel de
+// diagnostico). "tipo" es la clave de TIPO_OPERACION_CATALOG, asi siguen valiendo Subcontrato y los reportes.
+var PLANTILLA_EXTRAS = {
+  revisionCompraVenta: {chip:'Revision compraventa',                     label:'08 REVISION COMPRA/VENTA',                    tipo:'revisionCompraVenta', grupo:'compraventa', est:2,    com:1.25},
+  diagnosticoSimple:   {chip:'Diagnostico simple',                       label:'02 DIAGNOSTICO SIMPLE',                       tipo:'diagnostico',         grupo:'diagnostico', est:2,    com:1},
+  diagnosticoNormal:   {chip:'Diagnostico normal',                       label:'02 DIAGNOSTICO NORMAL',                       tipo:'diagnostico',         grupo:'diagnostico', est:5,    com:3},
+  diagnosticoComplejo: {chip:'Diagnostico complejo',                     label:'02 DIAGNOSTICO COMPLEJO',                     tipo:'diagnostico',         grupo:'diagnostico', est:7.75, com:5},
+  revisionFrenos:      {chip:'Revision de frenos',                       label:'14 REVISION DE FRENOS',                       tipo:'revisionFrenos',      grupo:'frenos',      est:1,    com:0.5},
+  alineacionPequeno:   {chip:'Alineacion carro pequeno',                 label:'01 ALINEACION CARRO PEQUENO',                 tipo:'alineacion',          grupo:'alineacion',  est:1.5,  com:1},
+  alineacionMediano:   {chip:'Alineacion carro mediano',                 label:'01 ALINEACION CARRO MEDIANO',                 tipo:'alineacion',          grupo:'alineacion',  est:2,    com:1.5},
+  alineacionGrande:    {chip:'Alineacion carro grande/europeo/camioneta', label:'01 ALINEACION CARRO GRANDE/EUROPEO/CAMIONETA', tipo:'alineacion',          grupo:'alineacion',  est:2.25, com:1.75}
+};
+function _exv(k) { return {est: PLANTILLA_EXTRAS[k].est, com: PLANTILLA_EXTRAS[k].com}; }
 var PLANTILLA_OPERACION_OTRAS = {
-  alineacion:          {liviano:{est:1,com:1},      camioneta:{est:1.5,com:1.5},  pesado:{est:1.5,com:1.5}},
-  diagnostico:         {liviano:{est:3,com:3},      camioneta:{est:3,com:3},      pesado:{est:5,com:5}},
+  // Al elegir a mano en el buscador de Trabajos realizados (segun tipo de vehiculo): alineacion liviano = mediano,
+  // camioneta y pesado = grande; diagnostico = normal; compraventa y frenos parejos.
+  alineacion:          {liviano:_exv('alineacionMediano'), camioneta:_exv('alineacionGrande'), pesado:_exv('alineacionGrande')},
+  diagnostico:         {liviano:_exv('diagnosticoNormal'), camioneta:_exv('diagnosticoNormal'), pesado:_exv('diagnosticoNormal')},
   pinchazo:            {liviano:{est:0.5,com:0.5},  camioneta:{est:0.5,com:0.5},  pesado:{est:0.75,com:0.75}},
-  revisionCompraVenta: {liviano:{est:1.25,com:1},   camioneta:{est:1.25,com:1},   pesado:{est:1.5,com:1.25}},
+  revisionCompraVenta: {liviano:_exv('revisionCompraVenta'), camioneta:_exv('revisionCompraVenta'), pesado:_exv('revisionCompraVenta')},
+  revisionFrenos:      {liviano:_exv('revisionFrenos'), camioneta:_exv('revisionFrenos'), pesado:_exv('revisionFrenos')},
   pastillasDiscosDel:  {liviano:{est:1.5,com:1},    camioneta:{est:1.5,com:1},    pesado:{est:2,com:1.5}},
   pastillasDiscosTras: {liviano:{est:1.5,com:1},    camioneta:{est:1.5,com:1},    pesado:{est:2,com:1.5}},
   cambioCandelas:      {liviano:{est:1.5,com:1},    camioneta:{est:1.5,com:1},    pesado:{est:2,com:1.5}},
@@ -3402,7 +3428,7 @@ function _aplicarOperacionSugerida(o, who) {
   var vals = plan[o.tipoVehiculo] || plan.liviano;
   o.trabajos = o.trabajos || [];
   var previa = null;
-  for (var i = 0; i < o.trabajos.length; i++) { if (o.trabajos[i].desdePlantillaOperacion) { previa = o.trabajos[i]; break; } }
+  for (var i = 0; i < o.trabajos.length; i++) { if (o.trabajos[i].desdePlantillaOperacion && !o.trabajos[i].extraPlantilla) { previa = o.trabajos[i]; break; } }
   if (previa) {
     if ((parseFloat(previa.horas) || 0) > 0 || previa.subcontrato || previa.horasConfirmadas) return false;
     if (previa.tipoOperacion === nivel && previa.horasSugeridas === vals.com && previa.tiempoEstimado === vals.est) return false;
@@ -3415,6 +3441,67 @@ function _aplicarOperacionSugerida(o, who) {
   o.msgs = o.msgs || [];
   o.msgs.push({who: who, txt: '&#128295; Operacion agregada desde la plantilla: ' + esc(plan.label) + ' (' + vals.est.toFixed(2).replace('.', ',') + ' hrs. estimadas) — horas de comision pendientes de confirmar por el Jefe', ts: Date.now(), type: 'system'});
   return true;
+}
+
+// Extras (4 nov 2026): busca la clave de PLANTILLA_EXTRAS por el texto del boton (sin importar mayusculas).
+function _extraPorChip(txt) {
+  var t = String(txt || '').toLowerCase();
+  for (var k in PLANTILLA_EXTRAS) { if (PLANTILLA_EXTRAS[k].chip.toLowerCase() === t) return k; }
+  return null;
+}
+// Texto de "Trabajos solicitados": quita las etiquetas de OTRA opcion del mismo grupo y deja la elegida.
+function _descConChipExtra(desc, claveNueva) {
+  var ex = PLANTILLA_EXTRAS[claveNueva];
+  var propios = [];
+  for (var k in PLANTILLA_EXTRAS) { if (PLANTILLA_EXTRAS[k].grupo === ex.grupo && k !== claveNueva) propios.push(PLANTILLA_EXTRAS[k].chip.toLowerCase()); }
+  var partes = String(desc || '').split(/,\s*/).filter(function(p) { p = p.trim(); return p && propios.indexOf(p.toLowerCase()) === -1; });
+  if (!partes.some(function(p) { return p.trim().toLowerCase() === ex.chip.toLowerCase(); })) partes.push(ex.chip);
+  return partes.join(', ');
+}
+// Agrega (o cambia, si aun no esta confirmada) la linea del extra en Trabajos realizados. Devuelve:
+// 'ok' (agregada), 'cambio' (reemplazo otra opcion del mismo grupo), 'ya' (esa misma ya estaba),
+// 'confirmada' (la del grupo ya tiene horas confirmadas, no se toca), 'manual' (ya hay un trabajo manual del mismo tipo), 'no'.
+function _aplicarExtraPlantilla(o, clave, who) {
+  var ex = PLANTILLA_EXTRAS[clave];
+  if (!ex) return 'no';
+  o.trabajos = o.trabajos || [];
+  var delGrupo = null;
+  for (var i = 0; i < o.trabajos.length; i++) {
+    var ek = o.trabajos[i].extraPlantilla;
+    if (ek && PLANTILLA_EXTRAS[ek] && PLANTILLA_EXTRAS[ek].grupo === ex.grupo) { delGrupo = o.trabajos[i]; break; }
+  }
+  if (delGrupo) {
+    if (delGrupo.extraPlantilla === clave) return 'ya';
+    if ((parseFloat(delGrupo.horas) || 0) > 0 || delGrupo.subcontrato || delGrupo.horasConfirmadas) return 'confirmada';
+    delGrupo.extraPlantilla = clave; delGrupo.tipoOperacion = ex.tipo; delGrupo.desc = esc(ex.label);
+    delGrupo.horasSugeridas = ex.com; delGrupo.tiempoEstimado = ex.est;
+    return 'cambio';
+  }
+  for (var j = 0; j < o.trabajos.length; j++) { if (!o.trabajos[j].extraPlantilla && o.trabajos[j].tipoOperacion === ex.tipo) return 'manual'; }
+  o.trabajos.push({desc: esc(ex.label), horas: 0, horasSugeridas: ex.com, tiempoEstimado: ex.est, tecnico: o.tech || '', by: who, ts: Date.now(), tipoOperacion: ex.tipo, desdePlantillaOperacion: true, extraPlantilla: clave});
+  o.msgs = o.msgs || [];
+  o.msgs.push({who: who, txt: '&#128295; Operacion agregada desde la plantilla: ' + esc(ex.label) + ' (' + ex.est.toFixed(2).replace('.', ',') + ' hrs. estimadas) — horas de comision pendientes de confirmar por el Jefe', ts: Date.now(), type: 'system'});
+  return 'ok';
+}
+// Ficha (solo Recepcion y Espera-asignacion, Jefe/Asesor): el cliente pide otro trabajo ademas de lo ya registrado.
+function agregarExtraSolicitadoRetro(id, clave) {
+  if (!(role === 'jefe' || role === 'asesor')) { toast('Solo el Asesor de servicio o el Jefe de taller pueden marcar esto'); return; }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  var ex = PLANTILLA_EXTRAS[clave];
+  if (!o || !ex) return;
+  if (o.phase !== 'rec' && o.phase !== 'aa') { toast('Esto solo se agrega en Recepcion o Espera-asignacion'); return; }
+  if (!confirm('¿El cliente tambien esta pidiendo "' + ex.chip + '"?\n\nSe agrega a "Trabajos solicitados por el cliente" y a Trabajos realizados con ' + ex.est.toFixed(2).replace('.', ',') + ' hrs. de tiempo estimado.')) return;
+  var who = ROLES[role] ? ROLES[role].label : role;
+  var r = _aplicarExtraPlantilla(o, clave, who);
+  if (r === 'confirmada') { toast('Ya hay una opcion de ese grupo con horas confirmadas: el Jefe debe quitarla primero en Trabajos realizados'); return; }
+  if (r === 'ya') { toast('Esa opcion ya esta agregada'); return; }
+  o.desc = _descConChipExtra(o.desc, clave);
+  o.msgs = o.msgs || [];
+  o.msgs.push({who: who, txt: '&#128172; Se agrego "' + esc(ex.chip) + '" a la solicitud del cliente' + (r === 'cambio' ? ' (cambio la opcion anterior del mismo grupo)' : '') + (r === 'manual' ? ' (ya habia un trabajo de ese tipo registrado, no se duplico en Trabajos realizados)' : ''), ts: Date.now(), type: 'system'});
+  save();
+  toast('Agregado: ' + ex.chip);
+  openDrw(id);
 }
 
 // Marca o.tipoServicioSolicitado en una orden que YA esta abierta (caso
@@ -4084,6 +4171,21 @@ function openDrw(id) {
   /* desc — solo Asesor de servicio y Jefe de taller pueden editar; el
      resto del personal (tecnicos, mensajero, partes) solo lectura. */
   var canEditDesc = (role === 'jefe' || role === 'asesor');
+  // 4 nov 2026: otros trabajos que el cliente puede pedir (compraventa, diagnostico, frenos, alineacion) — solo en
+  // Recepcion y Espera-asignacion. Los ya agregados salen con palomita; el resto como boton.
+  var extrasRetroHtml = '';
+  if (canEditDesc && (o.phase === 'rec' || o.phase === 'aa')) {
+    var _yaExtras = {};
+    (o.trabajos || []).forEach(function(twX) { if (twX.extraPlantilla) _yaExtras[twX.extraPlantilla] = true; });
+    var _chipBtn = 'font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer';
+    extrasRetroHtml = '<div style="font-size:10px;color:var(--tx3);margin-top:10px;margin-bottom:4px">&#128295; Otros trabajos que pide el cliente (se agregan a Trabajos realizados con su tiempo estimado):</div>' +
+      '<div id="extras-retro" style="display:flex;gap:6px;flex-wrap:wrap">' +
+      Object.keys(PLANTILLA_EXTRAS).map(function(k) {
+        return _yaExtras[k]
+          ? '<span style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; ' + PLANTILLA_EXTRAS[k].chip + '</span>'
+          : '<button type="button" onclick="agregarExtraSolicitadoRetro(' + id + ',\'' + k + '\')" style="' + _chipBtn + '">&#10133; ' + PLANTILLA_EXTRAS[k].chip + '</button>';
+      }).join('') + '</div>';
+  }
   html += '<div class="sec"><div class="sec-l" style="color:var(--ac)">&#128221; Trabajos solicitados por el cliente</div>' +
     // Solo lectura: se sobreescribe el borde-acento fuerte de .dta (pensado
     // para marcar "aqui se escribe") por uno neutro, para no sugerirle a
@@ -4117,6 +4219,7 @@ function openDrw(id) {
               }).join('') +
             '</div>'
           : '')) +
+    extrasRetroHtml +
   '</div>';
 
   // Seccion 01) INFORMACION lista — todo lo de arriba (edicion, datos,
@@ -4915,7 +5018,7 @@ function openDrw(id) {
     pastillasDiscosDel: '09 C/ PASTILLAS Y D/M DISCOS FRENOS DEL.',
     pastillasDiscosTras: '10 C/ PASTILLAS Y D/M DISCOS FRENOS TRAS.',
     cambioCandelas: '11 CAMBIO DE CANDELAS', cambioFiltro: '12 CAMBIO DE FILTRO',
-    subcontrato: '13 SUBCONTRATO',
+    subcontrato: '13 SUBCONTRATO', revisionFrenos: '14 REVISION DE FRENOS',
   };
   // Control visual de comision ya pagada por adelantado (23 oct, pedido de
   // Byron): solo el Jefe marca/ve que trabajos ya se pagaron (tw.pagadoTs).
@@ -7598,6 +7701,7 @@ var _noRepDraft = []; // repuestos capturados en el modal de Nueva Orden, antes 
 // tecnicos, 1 sep 2026: unificar sin amarrar, porque lo pedido por el
 // cliente y lo realmente trabajado son dos hechos que pueden no coincidir).
 var _noTipoServicio = null;
+var _noExtras = []; // 4 nov 2026: claves de PLANTILLA_EXTRAS elegidas con los botones (solo cuentan si su texto sigue en la descripcion)
 // Autocompletar Vehiculo/Cliente desde la placa en "Nueva orden" (Byron, 21
 // sep 2026): al escribir la placa y salir del campo, si ese mismo carro ya
 // tuvo una orden antes, se jala su Vehiculo/Cliente en vez de escribirlos a
@@ -7709,6 +7813,7 @@ function _validarOtDuplicado() {
 function openNO() {
   _noRepDraft = [];
   _noTipoServicio = null;
+  _noExtras = [];
   renderNoRepList();
   // Boton siempre habilitado al abrir: si un intento anterior quedo a medias
   // (se corto la conexion), no debe heredarse el estado "Creando..."
@@ -7737,6 +7842,7 @@ function openNO() {
 function closeNO() {
   _noRepDraft = [];
   _noTipoServicio = null;
+  _noExtras = [];
   if (typeof _setSavingNO === 'function') _setSavingNO(false);
   document.getElementById('m-no').classList.remove('on');
 }
@@ -7826,6 +7932,14 @@ function addDescPreset(txt) {
   var el = document.getElementById('f-dc');
   if (!el) return;
   if (_PRESET_A_TIPO_SERVICIO[txt]) _noTipoServicio = _PRESET_A_TIPO_SERVICIO[txt];
+  var claveEx = _extraPorChip(txt);
+  if (claveEx) {
+    // un solo nivel/tamano por grupo: la opcion nueva reemplaza (en el texto y en la lista) a la anterior del mismo grupo
+    _noExtras = _noExtras.filter(function(k) { return PLANTILLA_EXTRAS[k].grupo !== PLANTILLA_EXTRAS[claveEx].grupo; });
+    _noExtras.push(claveEx);
+    el.value = _descConChipExtra(el.value.trim(), claveEx);
+    return;
+  }
   var current = el.value.trim();
   if (!current) { el.value = txt; return; }
   var parts = current.split(/,\s*/);
@@ -7908,6 +8022,8 @@ function saveNO() {
     var no = {id:assignedId,plate:plate,model:model,client:client,tech:tech,ot:ot,prio:prio,loc:loc,space:space,numFisico:numFisico,colorFisico:colorFisico,desc:desc,hrsEstimado:hrsEst||null,hrsEstimadoOriginal:hrsEst||null,km:km,tipoVehiculo:tipoVehiculo,tipoServicioSolicitado:_noTipoServicio||null,phase:'rec',sigs:{},cat:Date.now(),msgs:[{who:who,txt:'Orden creada'+(hrsEst?' — Tiempo estimado: '+hrsEst+'h':''),ts:Date.now()}]};
     if (cmUrlInput) no.cmUrl = cmUrlInput;
     if (no.tipoServicioSolicitado) _aplicarOperacionSugerida(no, who);
+    var _partesDescNo = String(desc || '').toLowerCase().split(/,\s*/).map(function(p) { return p.trim(); });
+    _noExtras.forEach(function(kx) { if (PLANTILLA_EXTRAS[kx] && _partesDescNo.indexOf(PLANTILLA_EXTRAS[kx].chip.toLowerCase()) !== -1) _aplicarExtraPlantilla(no, kx, who); });
     if (_noRepDraft.length) {
       no.repuestos = _noRepDraft.map(function(d0) {
         // El borrador guarda objetos {desc, cantidad?, especificacion?};
@@ -7935,6 +8051,7 @@ function saveNO() {
     addNotif('Nueva orden: ' + plate + ' - ' + model, no.id);
     _noRepDraft = [];
     _noTipoServicio = null;
+    _noExtras = [];
     save(); closeNO(); toast('Orden creada'); renderBoard();
     ['f-pl','f-ot','f-mo','f-cl','f-dc','f-num','f-col','f-hrs','f-km'].forEach(function(fid) { var el = document.getElementById(fid); if (el) el.value = ''; });
     _setSavingNO(false);
