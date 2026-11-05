@@ -4097,9 +4097,11 @@ function openDrw(id) {
     // orden desde cero (eso habria perdido el motivo/bitacora original).
     (o.phase === 'aa' && o.aaVenceTs
       ? '<div class="irow" style="align-items:center"><span class="ik" style="color:var(--ac)">&#9203; Pasa sola</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="color:var(--ac);font-size:11px">' + (NL.ab || 'Trabajando') + ' — ' + new Date(o.aaVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>' +
-          (role === 'jefe' ? '<button onclick="cancelarTemporizadorAsignacion(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Cancelar</button>' : '') +
+          (role === 'jefe' ? '<button onclick="programarInicioAsignacion(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Editar</button><button onclick="cancelarTemporizadorAsignacion(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Cancelar</button>' : '') +
         '</span></div>'
-      : '') +
+      : (o.phase === 'aa' && role === 'jefe'
+        ? '<div class="irow" style="align-items:center"><span class="ik" style="color:var(--ac)">&#9203; Inicio</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button onclick="programarInicioAsignacion(' + id + ')" style="background:none;border:1px solid var(--ac);color:var(--ac);border-radius:8px;padding:3px 9px;font-size:10px;cursor:pointer">Programar inicio</button><span style="color:var(--tx3);font-size:10px">Para que pase sola a Trabajando</span></span></div>'
+        : '')) +
     (o.phase === 'det' && o.detVenceTs && o.detDestino
       ? '<div class="irow" style="align-items:center"><span class="ik" style="color:var(--ac)">&#9203; Regresa sola</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="color:var(--ac);font-size:11px">' + (NL[o.detDestino] || o.detDestino) + ' — ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>' +
           (role === 'jefe' ? '<button onclick="editarTemporizadorDetenido(' + id + ')" style="background:none;border:1px solid var(--bd);color:var(--tx3);border-radius:8px;padding:2px 7px;font-size:9px;cursor:pointer">Editar</button>' : '') +
@@ -7561,13 +7563,80 @@ function _preguntarTiempoAsignacion(o, desde) {
   delete o.aaVenceTs; // nunca queda un tiempo viejo de una vuelta anterior
   desde = desde || o.phase;
   if (role !== 'jefe' || desde === 'rec' || desde === 'aa') return;
-  var inp = prompt('¿En cuantas horas debe asignarse "' + o.plate + '" y pasar a Trabajando?\n\nSi para entonces ya tiene tecnico, pasa sola a Trabajando.\nDejalo en blanco para no poner tiempo: entonces la mueves tu mismo.');
+  var inp = prompt('¿Cuando debe asignarse "' + o.plate + '" y pasar a Trabajando?\n\nEscribe horas (ej. 3) o fecha y hora (ej. manana 8:00, 06/11 14:30, hoy 3pm).\nSi para entonces ya tiene tecnico, pasa sola a Trabajando.\nDejalo en blanco para no poner tiempo: entonces la mueves tu mismo.');
   if (inp === null || inp.trim() === '') return;
-  var horas = parseFloat(inp);
-  if (!(horas > 0)) { toast('Numero invalido — sin tiempo: la mueves tu mismo'); return; }
-  o.aaVenceTs = _sumarHorasHabiles(Date.now(), horas);
+  _fijarInicioProgramado(o, inp);
+}
+// 5 nov 2026 (pedido de Byron): el tiempo para pasar a Trabajando se puede escribir en horas (habiles) o como fecha y hora
+// exacta. Acepta: "3", "3h", "hoy 3pm", "manana 8:00", "6/11 14:30", "06/11/2026 8:00", "8:00" (hoy, o manana si ya paso).
+// Devuelve {vacio:true} | {error:'...'} | {horas:n} | {ts:ms}.
+function _leerInicioProgramado(txt, ahora) {
+  ahora = ahora || Date.now();
+  var s = String(txt == null ? '' : txt).toLowerCase().replace(/\u00f1/g, 'n').replace(/\s+/g, ' ').trim();
+  if (!s) return {vacio: true};
+  var ERR = 'No entendi el tiempo — escribe horas (ej. 3) o fecha y hora (ej. manana 8:00)';
+  var m = s.match(/^(\d+(?:[.,]\d+)?)\s*(?:h|hr|hrs|hora|horas)?$/);
+  if (m) {
+    var hh = parseFloat(m[1].replace(',', '.'));
+    return hh > 0 ? {horas: hh} : {error: 'El tiempo debe ser mayor a 0'};
+  }
+  var base = new Date(ahora), resto = s, soloHora = false, conAnio = false;
+  var md = s.match(/^(pasado manana|manana|hoy)\b\s*(.*)$/);
+  if (md) {
+    if (md[1] === 'manana') base.setDate(base.getDate() + 1);
+    else if (md[1] === 'pasado manana') base.setDate(base.getDate() + 2);
+    resto = md[2];
+  } else {
+    var mf = s.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\s*(.*)$/);
+    if (mf) {
+      var dd = parseInt(mf[1], 10), mm = parseInt(mf[2], 10), yy = mf[3] ? parseInt(mf[3], 10) : base.getFullYear();
+      if (mf[3]) { conAnio = true; if (yy < 100) yy += 2000; }
+      var chk = new Date(yy, mm - 1, dd);
+      if (mm < 1 || mm > 12 || chk.getDate() !== dd) return {error: ERR};
+      base = chk;
+      resto = mf[4];
+    } else { soloHora = true; }
+  }
+  resto = resto.replace(/^(a\s+)?(las?\s+)?/, '').trim();
+  var hr = 8, mi = 0;
+  if (resto) {
+    var mt = resto.match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?\s*(?:h|hrs)?$/);
+    if (!mt) return {error: ERR};
+    hr = parseInt(mt[1], 10); mi = mt[2] ? parseInt(mt[2], 10) : 0;
+    if (mt[3]) { if (mt[3].charAt(0) === 'p' && hr < 12) hr += 12; else if (mt[3].charAt(0) === 'a' && hr === 12) hr = 0; }
+    if (hr > 23 || mi > 59) return {error: ERR};
+  } else if (soloHora) { return {error: ERR}; }
+  base.setHours(hr, mi, 0, 0);
+  var ts = base.getTime();
+  if (ts <= ahora) {
+    if (soloHora) { base.setDate(base.getDate() + 1); ts = base.getTime(); }
+    else return {error: 'Esa fecha y hora ya pasaron — escribe una futura'};
+  }
+  return {ts: ts};
+}
+// Pone o.aaVenceTs desde lo que escribio el Jefe y deja la linea en la bitacora. Devuelve true si cambio algo.
+function _fijarInicioProgramado(o, inp) {
+  var r = _leerInicioProgramado(inp);
+  if (r.vacio) return false;
+  if (r.error) { toast(r.error); return false; }
+  o.aaVenceTs = r.horas ? _sumarHorasHabiles(Date.now(), r.horas) : r.ts;
   o.msgs = o.msgs || [];
-  o.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:'&#9203; Tiempo para asignar: pasa sola a Trabajando el ' + new Date(o.aaVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + ' (' + horas + 'h)', ts:Date.now(), type:'system'});
+  o.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:'&#9203; Tiempo para asignar: pasa sola a Trabajando el ' + new Date(o.aaVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + (r.horas ? ' (' + r.horas + 'h)' : ' (hora fijada)'), ts:Date.now(), type:'system'});
+  return true;
+}
+// Boton "Programar inicio" / "Editar" de la ficha en Espera-asignacion (solo Jefe): pone o cambia el momento en que la
+// orden pasa sola a Trabajando, sin moverla de etapa.
+function programarInicioAsignacion(id) {
+  if (role !== 'jefe') { toast('Solo el Jefe puede programar esto'); return; }
+  var o = orders.find(function(x){ return x.id === id; });
+  if (!o || o.phase !== 'aa') return;
+  var actual = o.aaVenceTs ? 'Ahora mismo pasa sola el ' + new Date(o.aaVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '.\n\n' : '';
+  var inp = prompt(actual + '¿Cuando debe pasar "' + o.plate + '" a Trabajando?\n\nEscribe horas (ej. 3) o fecha y hora (ej. manana 8:00, 06/11 14:30, hoy 3pm).\nSi para entonces tiene tecnico libre, pasa sola. En blanco = dejarlo como esta.');
+  if (inp === null) return;
+  if (!_fijarInicioProgramado(o, inp)) return;
+  save();
+  toast('Inicio programado');
+  openDrw(id);
 }
 function _autoAdvanceAsignacion(o) {
   if (!o) return false;
@@ -7588,8 +7657,10 @@ function _autoAdvanceAsignacion(o) {
   }
   o.msgs = o.msgs || [];
   if (motivoNo) {
-    o.msgs.push({who:'Sistema', txt:'&#9203; Tiempo para asignar vencido — NO se movio porque ' + motivoNo + '. Asignala y muevela tu mismo', ts:Date.now(), type:'system'});
-    addNotif(o.plate + ': vencio el tiempo para asignarla, pero ' + motivoNo, o.id);
+    // Tecnico con otro vehiculo en Trabajando (5 nov 2026, pedido de Byron): avisar para ajustar los tiempos estimados de AMBOS
+    var pideAjuste = (motivoNo.indexOf('ya tiene el vehiculo') !== -1);
+    o.msgs.push({who:'Sistema', txt:'&#9203; Tiempo para asignar vencido — NO se movio porque ' + motivoNo + (pideAjuste ? '. Revisa los tiempos estimados de ambos vehiculos y muevela tu mismo' : '. Asignala y muevela tu mismo'), ts:Date.now(), type:'system'});
+    addNotif(o.plate + ': vencio el tiempo para asignarla, pero ' + motivoNo + (pideAjuste ? ' — ajusta los tiempos estimados de ambos' : ''), o.id);
     return true;
   }
   if (!o.phaseLog) o.phaseLog = [];
