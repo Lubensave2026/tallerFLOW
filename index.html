@@ -2360,8 +2360,8 @@ function _aplicarResultadoCotizador(d) {
     String(v).split(/\r?\n/).forEach(function(l) { if (!l.trim()) return; var p = l.split('	'), it = {}; for (var i = 0; i < cols.length; i++) it[cols[i]] = p[i]; out.push(it); });
     return out;
   };
-  var _repsRaw = _pick(['repuestosYSubcontratos', 'repuestos_y_subcontratos', 'repuestosSubcontratos', 'repuestos', 'repuestosAutorizados']);
-  var _moRaw = _pick(['manoDeObra', 'mano_de_obra', 'manoObra', 'manoObraAutorizada']);
+  var _repsRaw = _pick(['repuestosAutorizados', 'repuestosYSubcontratos', 'repuestos_y_subcontratos', 'repuestosSubcontratos', 'repuestos']);
+  var _moRaw = _pick(['manoObraAutorizada', 'manoDeObra', 'mano_de_obra', 'manoObra']);
   var _repsIn = (typeof _repsRaw === 'string') ? _txt(_repsRaw, ['cantidad', 'descripcion', 'especificacion']) : _arr(_repsRaw);
   var _moIn = (typeof _moRaw === 'string') ? _txt(_moRaw, ['tipoOperacion', 'descripcion', 'horas']) : _arr(_moRaw);
   var listas = null;
@@ -2424,7 +2424,14 @@ function _aplicarResultadoCotizador(d) {
   }
   var quienRes = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
   orr.msgs = orr.msgs || [];
-  orr.msgs.push({who: quienRes, txt: '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota + notaAut, ts: Date.now(), type: 'system'});
+  // 7 nov 2026 (pedido de Byron): una sola linea en los avisos de la orden. Si el asesor pulsa "Enviar resultado" varias veces
+  // (o llega por la ventana y por Firebase), dentro de 12 h se actualiza la linea anterior en vez de agregar otra; pasado ese
+  // tiempo se asume un complemento y queda una linea nueva.
+  var txtRes = '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota + notaAut;
+  var ultRes = null;
+  for (var mi = orr.msgs.length - 1; mi >= 0; mi--) { if (orr.msgs[mi] && orr.msgs[mi].cotizRes) { ultRes = orr.msgs[mi]; break; } }
+  if (ultRes && Date.now() - ultRes.ts < 12 * 3600000) { ultRes.txt = txtRes; ultRes.ts = Date.now(); }
+  else orr.msgs.push({who: quienRes, txt: txtRes, ts: Date.now(), type: 'system', cotizRes: true});
   if (listas) {
     // Paso 2 (7 nov 2026): los renglones se AGREGAN a la orden (nunca reemplazan nada) y quedan pendientes del Vo.Bo. del Jefe.
     var resL = (typeof _agregarListadosCotizador === 'function') ? _agregarListadosCotizador(orr, listas) : {rep: 0, mo: 0, ya: 0, dup: 0, repItems: [], moItems: []};
