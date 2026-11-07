@@ -2370,21 +2370,24 @@ function _aplicarResultadoCotizador(d) {
     _repsIn.slice(0, 100).forEach(function(r) {
       if (!r || typeof r !== 'object') return;
       var ds = _lim(r.descripcion != null ? r.descripcion : r.desc, 200); if (!ds) return;
-      var it = {desc: ds}, cn = _lim(r.cantidad, 20), ep = _lim(r.especificacion != null ? r.especificacion : r.espec, 200);
-      if (cn) it.cantidad = cn; if (ep) it.especificacion = ep;
+      var it = {desc: ds}, cn = _lim(r.cantidad, 20), ep = _lim(r.especificacion != null ? r.especificacion : r.espec, 200), pt = _lim(r.punto, 20);
+      if (cn) it.cantidad = cn; if (ep) it.especificacion = ep; if (pt) it.punto = pt;
       listas.repuestos.push(it);
     });
     _moIn.slice(0, 100).forEach(function(m) {
       if (!m || typeof m !== 'object') return;
       var ds = _lim(m.descripcion != null ? m.descripcion : m.desc, 200); if (!ds) return;
-      var it = {desc: ds}, hz = (typeof m.horas === 'number') ? m.horas : parseFloat(String(m.horas == null ? '' : m.horas).replace(',', '.')), tp = _lim(m.tipoOperacion != null ? m.tipoOperacion : m.tipo, 80);
+      var it = {desc: ds}, hz = (typeof m.horas === 'number') ? m.horas : parseFloat(String(m.horas == null ? '' : m.horas).replace(',', '.')), tp = _lim(m.tipoOperacion != null ? m.tipoOperacion : m.tipo, 80), pm = _lim(m.punto, 20);
       if (tp) it.tipoOperacion = tp;
+      if (pm) it.punto = pm;
       if (isFinite(hz) && hz >= 0 && hz < 1000) it.horas = hz;
       listas.manoObra.push(it);
     });
     if (!listas.repuestos.length && !listas.manoObra.length) listas = null;
   }
-  var _listasIguales = JSON.stringify((orr.cotizResultado && orr.cotizResultado.listas) || null) === JSON.stringify(listas);
+  // Sin listados nuevos en este aviso no hay nada que comparar ni que agregar (paso 2: tampoco se pierde el listado anterior).
+  var _listasPrev = (orr.cotizResultado && orr.cotizResultado.listas) || null;
+  var _listasIguales = !listas || JSON.stringify(_listasPrev) === JSON.stringify(listas);
   if (orr.cotizResultado && orr.cotizResultado.ts === d.ts && _montosYaIguales && _listasIguales) return; // mismo aviso repetido
   // El mismo resultado puede llegar por la ventana Y por Firebase (otro ts): si los montos son
   // identicos a los ya guardados (con autorizadoMO), no se repite ni la linea de bitacora.
@@ -2397,7 +2400,7 @@ function _aplicarResultadoCotizador(d) {
     urgenteCotizado: nz(d.urgenteCotizado), urgenteAutorizado: nz(d.urgenteAutorizado),
     sugeridoCotizado: nz(d.sugeridoCotizado), sugeridoAutorizado: nz(d.sugeridoAutorizado),
     puntos: nz(d.puntos), puntosAutorizados: nz(d.puntosAutorizados), ts: d.ts};
-  if (listas) orr.cotizResultado.listas = listas;
+  if (listas || _listasPrev) orr.cotizResultado.listas = listas || _listasPrev;
   var fq = function(n){ return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
   var nota = '';
   if (!orr.montoCotizado || orr.montoCotizadoOrigen === 'cotizador') {
@@ -2423,13 +2426,76 @@ function _aplicarResultadoCotizador(d) {
   orr.msgs = orr.msgs || [];
   orr.msgs.push({who: quienRes, txt: '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota + notaAut, ts: Date.now(), type: 'system'});
   if (listas) {
-    var detL = '';
-    listas.repuestos.forEach(function(r) { detL += '<br>&bull; Repuesto: ' + (r.cantidad ? r.cantidad + ' x ' : '') + r.desc + (r.especificacion ? ' (' + r.especificacion + ')' : ''); });
-    listas.manoObra.forEach(function(m) { detL += '<br>&bull; Mano de obra: ' + (m.tipoOperacion ? m.tipoOperacion + ' — ' : '') + m.desc + (m.horas != null ? ' — ' + m.horas + ' h' : ''); });
-    orr.msgs.push({who: quienRes, txt: '&#128203; Listados autorizados por el cliente (recibidos, pendientes de revisar): ' + listas.repuestos.length + ' repuesto(s) y ' + listas.manoObra.length + ' de mano de obra' + detL, ts: Date.now(), type: 'system'});
+    // Paso 2 (7 nov 2026): los renglones se AGREGAN a la orden (nunca reemplazan nada) y quedan pendientes del Vo.Bo. del Jefe.
+    var resL = (typeof _agregarListadosCotizador === 'function') ? _agregarListadosCotizador(orr, listas) : {rep: 0, mo: 0, ya: 0, dup: 0, repItems: [], moItems: []};
+    if (resL.rep + resL.mo > 0) {
+      var detL = '';
+      resL.repItems.forEach(function(r) { detL += '<br>&bull; Repuesto: ' + (r.cantidad ? r.cantidad + ' x ' : '') + r.desc + (r.especificacion ? ' (' + r.especificacion + ')' : '') + (r.posibleDuplicado ? ' &#9888; revisa: ya habia algo igual' : ''); });
+      resL.moItems.forEach(function(m) { detL += '<br>&bull; Mano de obra: ' + m.desc + (m.tiempoEstimado ? ' — ' + m.tiempoEstimado + ' h' : '') + (m.posibleDuplicado ? ' &#9888; revisa: ya habia algo igual' : ''); });
+      orr.msgs.push({who: quienRes, txt: '&#128203; Listados autorizados por el cliente: ' + resL.rep + ' repuesto(s) y ' + resL.mo + ' de mano de obra agregados, pendientes del Vo.Bo. del Jefe' + (resL.ya ? ' (' + resL.ya + ' ya estaban y no se repitieron)' : '') + detL, ts: Date.now(), type: 'system'});
+      if (typeof addNotif === 'function') addNotif((orr.plate || orr.ot) + ': el Cotizador agrego ' + resL.rep + ' repuesto(s) y ' + resL.mo + ' de mano de obra autorizados, pendientes de tu Vo.Bo.', orr.id);
+    }
   }
   save(); toast('Resultado del Cotizador guardado en la orden ' + (orr.ot || orr.id));
   if (typeof openId !== 'undefined' && openId === orr.id) openDrw(orr.id);
+}
+// Paso 2 (7 nov 2026, pedido de Byron y del Cotizador): los listados que el cliente autorizo se AGREGAN a los repuestos
+// y a los trabajos de la orden; nunca reemplazan ni tocan lo que ya hay (lo puesto a mano se conserva). Cada renglon queda
+// PENDIENTE del Vo.Bo. del Jefe: los repuestos reusan el Vo.Bo. que ya existe (addedByTec: el Mensajero no puede marcar
+// hasta que el Jefe lo da) y la mano de obra queda con pendienteCotizador hasta que el Jefe la aprueba. Sin horas de
+// comision (horas: 0): las horas del Cotizador van como Tiempo estimado. No toca Bodega Virtual.
+// Contra duplicados: o.cotizAgregados guarda cuantas veces de cada renglon se agrego ya (aprobado, rechazado o borrado:
+// no vuelve a aparecer), asi que pulsar "Enviar resultado" otra vez solo agrega lo NUEVO. Si ya habia un renglon igual puesto
+// a mano se agrega igual, marcado posibleDuplicado para que el Jefe decida.
+function _cotizClave(s) {
+  return String(s == null ? '' : s).toLowerCase().replace(/&[a-z#0-9]+;/g, ' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function _cotizHash(s) {
+  var hs = 5381;
+  for (var i = 0; i < s.length; i++) { hs = ((hs * 33) ^ s.charCodeAt(i)) >>> 0; }
+  return hs.toString(36) + s.length.toString(36);
+}
+function _agregarListadosCotizador(o, listas) {
+  var res = {rep: 0, mo: 0, ya: 0, dup: 0, repItems: [], moItems: []};
+  if (!o || !listas || o.phase === 'cer') return res;
+  var ag = o.cotizAgregados = o.cotizAgregados || {};
+  ag.r = ag.r || {}; ag.m = ag.m || {};
+  var ahora = Date.now();
+  var parecido = function(a, b) { return !!a && !!b && (a === b || (Math.min(a.length, b.length) >= 6 && (a.indexOf(b) !== -1 || b.indexOf(a) !== -1))); };
+  var yaHabia = function(lista, clave) { return (lista || []).some(function(x) { return x && !x.desdeCotizador && parecido(_cotizClave(x.desc), clave); }); };
+  var vistos = {r: {}, m: {}};
+  o.repuestos = o.repuestos || [];
+  o.trabajos = o.trabajos || [];
+  (listas.repuestos || []).forEach(function(r) {
+    var hk = _cotizHash(_cotizClave(r.desc) + '|' + _cotizClave(r.especificacion));
+    vistos.r[hk] = (vistos.r[hk] || 0) + 1;
+    if (vistos.r[hk] <= (ag.r[hk] || 0)) { res.ya++; return; }
+    ag.r[hk] = vistos.r[hk];
+    var it = {desc: r.desc, ck1: false, ck2: false, ck3: false, by: 'Cotizador', ts: ahora, origen: 'local', addedByTec: true, desdeCotizador: true};
+    if (r.cantidad) it.cantidad = r.cantidad;
+    if (r.especificacion) it.especificacion = r.especificacion;
+    if (r.punto) it.punto = r.punto;
+    if (yaHabia(o.repuestos, _cotizClave(r.desc))) { it.posibleDuplicado = true; res.dup++; }
+    o.repuestos.push(it); res.rep++; res.repItems.push(it);
+  });
+  (listas.manoObra || []).forEach(function(m) {
+    var hk = _cotizHash(_cotizClave(m.desc) + '|' + _cotizClave(m.tipoOperacion));
+    vistos.m[hk] = (vistos.m[hk] || 0) + 1;
+    if (vistos.m[hk] <= (ag.m[hk] || 0)) { res.ya++; return; }
+    ag.m[hk] = vistos.m[hk];
+    var it = {desc: (m.tipoOperacion ? m.tipoOperacion + ' — ' : '') + m.desc, horas: 0, tecnico: o.tech || '', by: 'Cotizador', ts: ahora, desdeCotizador: true, pendienteCotizador: true};
+    if (m.horas > 0) it.tiempoEstimado = m.horas;
+    if (m.punto) it.punto = m.punto;
+    if (yaHabia(o.trabajos, _cotizClave(m.desc))) { it.posibleDuplicado = true; res.dup++; }
+    o.trabajos.push(it); res.mo++; res.moItems.push(it);
+  });
+  return res;
+}
+// Etiquetas chicas para los renglones que vienen del Cotizador (repuestos y trabajos).
+function _cotizBadgeHtml(x) {
+  if (!x || !x.desdeCotizador) return '';
+  return ' <span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(61,126,255,.15);color:#3D7EFF;border:1px solid #3D7EFF;font-weight:600;white-space:nowrap">&#128202; Cotizador</span>' +
+    (x.posibleDuplicado ? ' <span style="font-size:9px;padding:1px 6px;border-radius:8px;background:var(--orbg);color:var(--or);border:1px solid var(--orbd);font-weight:600;white-space:nowrap">&#9888; revisa: ya habia algo igual</span>' : '');
 }
 // Respaldo cuando la ventana del Cotizador no tiene conexion (app instalada, etc.): al abrir una orden
 // en Espera de autorizacion se lee UNA vez cotizador/autorizaciones/{OT} (no la carpeta, no listener;
@@ -4781,12 +4847,12 @@ function openDrw(id) {
       voboRow = voboGiven
         ? '<div style="margin-bottom:6px"><span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Vo.Bo. Jefe</span></div>'
         : (role === 'jefe'
-          ? '<div style="margin-bottom:6px"><button class="btn-rep-vobo" data-ri="' + ri + '" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. — pedido por tecnico</button></div>'
+          ? '<div style="margin-bottom:6px"><button class="btn-rep-vobo" data-ri="' + ri + '" style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. — ' + (rep.desdeCotizador ? 'autorizado en el Cotizador' : 'pedido por tecnico') + '</button></div>'
           : '<div style="margin-bottom:6px"><span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Pendiente Vo.Bo. Jefe</span></div>');
     }
     repuestosHtml += '<div style="background:var(--bg3);border:1px solid ' + (isDone ? 'var(--gnbd)' : 'var(--orbd)') + ';border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;' + (isDone ? 'opacity:.6' : '') + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">' +
-        '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + repLabel(rep) + repEspecHtml(rep) + '</div>' +
+        '<div style="font-size:12px;font-weight:500' + (isDone ? ';text-decoration:line-through' : '') + '">' + repLabel(rep) + repEspecHtml(rep) + _cotizBadgeHtml(rep) + '</div>' +
         '<div style="display:flex;align-items:center;gap:5px">' + origenBadge + (isDone ? '' : elapsedRepBadge(rep.ts, origen)) +
           (role === 'jefe' ? '<button class="btn-rep-del" data-ri="' + ri + '" title="Eliminar repuesto" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
         '</div>' +
@@ -5134,7 +5200,12 @@ function openDrw(id) {
     var hrsVal = parseFloat(tw.horas) || 0;
     var isCatalogOp = tw.tipoOperacion && TIPO_OPERACION_CATALOG[tw.tipoOperacion];
     var hrsBadge;
-    if (tw.subcontrato) {
+    if (tw.pendienteCotizador) {
+      // Mano de obra que llego del Cotizador (autorizada por el cliente): pendiente del Vo.Bo. del Jefe (7 nov 2026).
+      hrsBadge = (role === 'jefe')
+        ? '<button class="btn-trab-vobo" data-ti="' + twi2 + '" title="Aprobar: queda como un trabajo normal (despues se asignan las horas de comision). Para rechazarla usa la X." style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:700;cursor:pointer;white-space:nowrap">&#9888; Dar Vo.Bo. — del Cotizador</button>'
+        : '<span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;white-space:nowrap">&#9888; Pendiente Vo.Bo. Jefe</span>';
+    } else if (tw.subcontrato) {
       hrsBadge = '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para cambiar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:#2a1f3d;color:#B794F6;border:1px solid #8B5CF6;white-space:nowrap">&#128230; Subcontrato' + (role==='jefe'?' &#8635;':'') + '</span>';
     } else if (hrsVal > 0) {
       hrsBadge = '<span class="btn-trab-hrs' + (role === 'jefe' ? ' jf' : '') + '" ' + (role === 'jefe' ? 'data-ti="' + twi2 + '" title="Toca para ajustar (Jefe)" style="cursor:pointer;' : 'style="') + 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--bg4);color:var(--tx);border:1px solid var(--tx2);white-space:nowrap">' + hrsVal.toFixed(2).replace('.', ',') + ' hrs. com.' + (role==='jefe'?' &#8635;':'') + '</span>';
@@ -5155,7 +5226,7 @@ function openDrw(id) {
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
         '<div style="display:flex;align-items:center;gap:8px;min-width:0">' +
           verChk +
-          '<div style="font-size:12px;font-weight:500">' + tw.desc + '</div>' +
+          '<div style="font-size:12px;font-weight:500">' + tw.desc + _cotizBadgeHtml(tw) + '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">' +
           (role === 'jefe' ? '<button class="btn-trab-pagado" data-ti="' + twi2 + '" title="' + (tw.pagadoTs ? 'Ya pagado por adelantado (toca para desmarcar)' : 'Marcar como ya pagado por adelantado') + '" style="background:' + (tw.pagadoTs ? 'var(--gnbg)' : 'none') + ';border:1px solid ' + (tw.pagadoTs ? 'var(--gn)' : 'var(--bd)') + ';color:' + (tw.pagadoTs ? 'var(--gn)' : 'var(--tx3)') + ';border-radius:8px;padding:2px 6px;font-size:11px;cursor:pointer;line-height:1.2;opacity:' + (tw.pagadoTs ? '1' : '.7') + '">&#128176;</button>' : '') +
@@ -5287,7 +5358,7 @@ function openDrw(id) {
         // ck1 only for mensajero or jefe
         if (ck === 'ck1' && role !== 'jefe' && role !== 'mensajero' && role !== 'partes') { toast('Solo el mensajero o asesor de partes puede confirmar este paso'); return; }
         // ck1: si el tecnico pidio este repuesto, primero necesita el Vo.Bo. del Jefe
-        if (ck === 'ck1' && ox.repuestos[ri2].addedByTec && !ox.repuestos[ri2].vobo) { toast('Este repuesto lo pidio el tecnico — falta el Vo.Bo. del Jefe de taller'); return; }
+        if (ck === 'ck1' && ox.repuestos[ri2].addedByTec && !ox.repuestos[ri2].vobo) { toast('Este repuesto ' + (ox.repuestos[ri2].desdeCotizador ? 'viene del Cotizador' : 'lo pidio el tecnico') + ' — falta el Vo.Bo. del Jefe de taller'); return; }
         // ck2 only for partes or jefe
         if (ck === 'ck2' && role !== 'jefe' && role !== 'partes') { toast('Solo el asesor de partes puede confirmar este paso'); return; }
         ox.repuestos[ri2][ck] = !ox.repuestos[ri2][ck];
@@ -5909,6 +5980,23 @@ function openDrw(id) {
         save(); openDrw(id);
       });
     })(pagTrabBtns[pgi]);
+  }
+  var voboTrabBtns = body.querySelectorAll('.btn-trab-vobo');
+  for (var vti = 0; vti < voboTrabBtns.length; vti++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede dar el Vo.Bo.'); return; }
+        var tiV = parseInt(this.getAttribute('data-ti'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.trabajos || !ox.trabajos[tiV] || !ox.trabajos[tiV].pendienteCotizador) return;
+        ox.trabajos[tiV].pendienteCotizador = false;
+        ox.trabajos[tiV].voboTs = Date.now();
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:'&#10003; Vo.Bo. Jefe a mano de obra del Cotizador: "' + esc(ox.trabajos[tiV].desc) + '"', ts:Date.now(), type:'system'});
+        save(); toast('Vo.Bo. otorgado'); openDrw(id);
+      });
+    })(voboTrabBtns[vti]);
   }
   var delTrabBtns = body.querySelectorAll('.btn-trab-del');
   for (var dti = 0; dti < delTrabBtns.length; dti++) {
@@ -7167,7 +7255,7 @@ function doSign(id, sigId) {
   // muestra un aviso con boton "VER" que abre esa seccion. Si aun no hay
   // ningun trabajo registrado, no hay nada que verificar y se deja firmar.
   if (sigId === 'tecnico' && o.phase === 'ab') {
-    var trabajosAVerificar = o.trabajos || [];
+    var trabajosAVerificar = (o.trabajos || []).filter(function(tw) { return !tw.pendienteCotizador; });
     var hayPendientes = trabajosAVerificar.some(function(tw) { return !tw.verificado; });
     if (trabajosAVerificar.length > 0 && hayPendientes) {
       showVerificarTrabajosModal(id);
@@ -13827,13 +13915,13 @@ function buildRepsContent() {
         voboRow2 = voboGiven2
           ? '<div style="margin-bottom:7px"><span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);font-weight:600">&#10003; Vo.Bo. Jefe</span></div>'
           : (role === 'jefe'
-            ? '<div style="margin-bottom:7px"><button class="btn-reps-vobo" data-oid="' + o.id + '" data-ri="' + ri + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. — pedido por tecnico</button></div>'
+            ? '<div style="margin-bottom:7px"><button class="btn-reps-vobo" data-oid="' + o.id + '" data-ri="' + ri + '" style="font-size:10px;padding:4px 10px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600;cursor:pointer">&#9888; Dar Vo.Bo. — ' + (rep.desdeCotizador ? 'autorizado en el Cotizador' : 'pedido por tecnico') + '</button></div>'
             : '<div style="margin-bottom:7px"><span style="font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--orbd);background:var(--orbg);color:var(--or);font-weight:600">&#9888; Pendiente Vo.Bo. Jefe</span></div>');
       }
 
       html += '<div style="background:var(--bg2);border:1px solid var(--orbd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px">' +
-          '<div style="font-size:12px;font-weight:500">' + repLabel(rep) + repEspecHtml(rep) + '</div>' +
+          '<div style="font-size:12px;font-weight:500">' + repLabel(rep) + repEspecHtml(rep) + _cotizBadgeHtml(rep) + '</div>' +
           elapsedRepBadge(rep.ts, rep.origen || 'local') +
         '</div>' +
         voboRow2 +
@@ -13910,7 +13998,7 @@ function buildRepsContent() {
         var rep2 = ox.repuestos[ri2];
         // Sequential check
         if (ck === 'ck1' && role !== 'mensajero' && role !== 'jefe' && role !== 'partes') { toast('Solo el mensajero o asesor de partes puede confirmar este paso'); return; }
-        if (ck === 'ck1' && rep2.addedByTec && !rep2.vobo) { toast('Este repuesto lo pidio el tecnico — falta el Vo.Bo. del Jefe de taller'); return; }
+        if (ck === 'ck1' && rep2.addedByTec && !rep2.vobo) { toast('Este repuesto ' + (rep2.desdeCotizador ? 'viene del Cotizador' : 'lo pidio el tecnico') + ' — falta el Vo.Bo. del Jefe de taller'); return; }
         if (ck === 'ck2') {
           if (role !== 'partes' && role !== 'jefe') { toast('Solo el asesor de partes puede confirmar este paso'); return; }
           if (!rep2.ck1) { toast('El mensajero debe confirmar primero'); return; }
