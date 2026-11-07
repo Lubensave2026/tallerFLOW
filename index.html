@@ -2345,18 +2345,59 @@ function _aplicarResultadoCotizador(d) {
   // 4 nov 2026: un aviso repetido solo se ignora si los montos de la orden YA coinciden con lo autorizado; si no
   // (p. ej. el resultado se guardo antes de que el dato del Cotizador mandara sobre lo puesto a mano) se vuelve a aplicar.
   var _montosYaIguales = !nm(d.autorizadoMO) || !(d.autorizado > 0) || (orr.montoTotal === d.autorizado && orr.montoMO === d.autorizadoMO);
-  if (orr.cotizResultado && orr.cotizResultado.ts === d.ts && _montosYaIguales) return; // mismo aviso repetido
+  // 7 nov 2026 (paso 1, pedido de Byron): el aviso puede traer los listados que el cliente aprobo (repuestos con
+  // descripcion/cantidad/especificacion y mano de obra con descripcion/horas). Aqui solo se LIMPIAN y se guardan en
+  // o.cotizResultado.listas + una linea en la bitacora: todavia no se crean lineas en la orden (eso es el paso 2).
+  // Sin precios ni costos. Todo texto pasa por esc y con tope de largo; tope tecnico de 100 lineas por listado.
+  var _lim = function(s, n) { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n); return typeof esc === 'function' ? esc(s) : s; };
+  var _arr = function(v) { if (Array.isArray(v)) return v; if (v && typeof v === 'object') return Object.keys(v).map(function(k){ return v[k]; }); return []; };
+  // Nombres: el Cotizador los llama "Repuestos y subcontratos" y "Mano de obra"; se aceptan varias formas de escribirlos.
+  // Tambien se acepta el texto separado por tabulaciones, una linea por renglon (repuestos: Cantidad, Descripcion,
+  // Especificacion; mano de obra: Tipo de operacion, Descripcion, Horas), igual a lo que copia el Cotizador.
+  var _pick = function(ks) { for (var i = 0; i < ks.length; i++) { if (d[ks[i]] != null) return d[ks[i]]; } return null; };
+  var _txt = function(v, cols) {
+    var out = [];
+    String(v).split(/\r?\n/).forEach(function(l) { if (!l.trim()) return; var p = l.split('	'), it = {}; for (var i = 0; i < cols.length; i++) it[cols[i]] = p[i]; out.push(it); });
+    return out;
+  };
+  var _repsRaw = _pick(['repuestosYSubcontratos', 'repuestos_y_subcontratos', 'repuestosSubcontratos', 'repuestos', 'repuestosAutorizados']);
+  var _moRaw = _pick(['manoDeObra', 'mano_de_obra', 'manoObra', 'manoObraAutorizada']);
+  var _repsIn = (typeof _repsRaw === 'string') ? _txt(_repsRaw, ['cantidad', 'descripcion', 'especificacion']) : _arr(_repsRaw);
+  var _moIn = (typeof _moRaw === 'string') ? _txt(_moRaw, ['tipoOperacion', 'descripcion', 'horas']) : _arr(_moRaw);
+  var listas = null;
+  if (_repsIn.length || _moIn.length) {
+    listas = {repuestos: [], manoObra: []};
+    _repsIn.slice(0, 100).forEach(function(r) {
+      if (!r || typeof r !== 'object') return;
+      var ds = _lim(r.descripcion != null ? r.descripcion : r.desc, 200); if (!ds) return;
+      var it = {desc: ds}, cn = _lim(r.cantidad, 20), ep = _lim(r.especificacion != null ? r.especificacion : r.espec, 200);
+      if (cn) it.cantidad = cn; if (ep) it.especificacion = ep;
+      listas.repuestos.push(it);
+    });
+    _moIn.slice(0, 100).forEach(function(m) {
+      if (!m || typeof m !== 'object') return;
+      var ds = _lim(m.descripcion != null ? m.descripcion : m.desc, 200); if (!ds) return;
+      var it = {desc: ds}, hz = (typeof m.horas === 'number') ? m.horas : parseFloat(String(m.horas == null ? '' : m.horas).replace(',', '.')), tp = _lim(m.tipoOperacion != null ? m.tipoOperacion : m.tipo, 80);
+      if (tp) it.tipoOperacion = tp;
+      if (isFinite(hz) && hz >= 0 && hz < 1000) it.horas = hz;
+      listas.manoObra.push(it);
+    });
+    if (!listas.repuestos.length && !listas.manoObra.length) listas = null;
+  }
+  var _listasIguales = JSON.stringify((orr.cotizResultado && orr.cotizResultado.listas) || null) === JSON.stringify(listas);
+  if (orr.cotizResultado && orr.cotizResultado.ts === d.ts && _montosYaIguales && _listasIguales) return; // mismo aviso repetido
   // El mismo resultado puede llegar por la ventana Y por Firebase (otro ts): si los montos son
   // identicos a los ya guardados (con autorizadoMO), no se repite ni la linea de bitacora.
   var prevR = orr.cotizResultado;
   if (prevR && prevR.autorizadoMO != null && prevR.cotizado === d.cotizado && prevR.autorizado === d.autorizado &&
-      prevR.pendiente === d.pendiente && prevR.autorizadoMO === (nm(d.autorizadoMO) ? d.autorizadoMO : null) && _montosYaIguales) return;
+      prevR.pendiente === d.pendiente && prevR.autorizadoMO === (nm(d.autorizadoMO) ? d.autorizadoMO : null) && _montosYaIguales && _listasIguales) return;
   var nz = function(v){ return nm(v) ? v : 0; };
   orr.cotizResultado = {cotizado: d.cotizado, autorizado: d.autorizado, pendiente: d.pendiente,
     autorizadoMO: nm(d.autorizadoMO) ? d.autorizadoMO : null,
     urgenteCotizado: nz(d.urgenteCotizado), urgenteAutorizado: nz(d.urgenteAutorizado),
     sugeridoCotizado: nz(d.sugeridoCotizado), sugeridoAutorizado: nz(d.sugeridoAutorizado),
     puntos: nz(d.puntos), puntosAutorizados: nz(d.puntosAutorizados), ts: d.ts};
+  if (listas) orr.cotizResultado.listas = listas;
   var fq = function(n){ return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
   var nota = '';
   if (!orr.montoCotizado || orr.montoCotizadoOrigen === 'cotizador') {
@@ -2381,6 +2422,12 @@ function _aplicarResultadoCotizador(d) {
   var quienRes = (typeof role !== 'undefined' && ROLES[role]) ? ROLES[role].label : 'Cotizador';
   orr.msgs = orr.msgs || [];
   orr.msgs.push({who: quienRes, txt: '&#128202; Resultado del Cotizador: cotizado ' + fq(d.cotizado) + ', autorizado ' + fq(d.autorizado) + ', pendiente ' + fq(d.pendiente) + nota + notaAut, ts: Date.now(), type: 'system'});
+  if (listas) {
+    var detL = '';
+    listas.repuestos.forEach(function(r) { detL += '<br>&bull; Repuesto: ' + (r.cantidad ? r.cantidad + ' x ' : '') + r.desc + (r.especificacion ? ' (' + r.especificacion + ')' : ''); });
+    listas.manoObra.forEach(function(m) { detL += '<br>&bull; Mano de obra: ' + (m.tipoOperacion ? m.tipoOperacion + ' — ' : '') + m.desc + (m.horas != null ? ' — ' + m.horas + ' h' : ''); });
+    orr.msgs.push({who: quienRes, txt: '&#128203; Listados autorizados por el cliente (recibidos, pendientes de revisar): ' + listas.repuestos.length + ' repuesto(s) y ' + listas.manoObra.length + ' de mano de obra' + detL, ts: Date.now(), type: 'system'});
+  }
   save(); toast('Resultado del Cotizador guardado en la orden ' + (orr.ot || orr.id));
   if (typeof openId !== 'undefined' && openId === orr.id) openDrw(orr.id);
 }
@@ -2448,7 +2495,10 @@ function _leerResultadoAutorizacion(o) {
         cotizado: v.cotizado, autorizado: v.autorizado, autorizadoMO: v.autorizadoMO, pendiente: v.pendiente,
         urgenteCotizado: v.urgenteCotizado, urgenteAutorizado: v.urgenteAutorizado,
         sugeridoCotizado: v.sugeridoCotizado, sugeridoAutorizado: v.sugeridoAutorizado,
-        puntos: v.puntos, puntosAutorizados: v.puntosAutorizados});
+        puntos: v.puntos, puntosAutorizados: v.puntosAutorizados,
+        repuestosYSubcontratos: v.repuestosYSubcontratos, repuestos_y_subcontratos: v.repuestos_y_subcontratos, repuestosSubcontratos: v.repuestosSubcontratos,
+        repuestos: v.repuestos, repuestosAutorizados: v.repuestosAutorizados,
+        manoDeObra: v.manoDeObra, mano_de_obra: v.mano_de_obra, manoObra: v.manoObra, manoObraAutorizada: v.manoObraAutorizada});
     }).catch(function(){});
   } catch (e) {}
 }
