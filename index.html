@@ -2068,9 +2068,6 @@ function renderBoard() {
         var detTimerHtml = (o.phase === 'det' && o.detVenceTs && o.detDestino)
           ? '<div style="font-size:9px;color:var(--ac);margin-top:1px">&#9203; Regresa sola a ' + (NL[o.detDestino] || o.detDestino) + ' — ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>'
           : '';
-        var pendingHtml = (o.pendingConfirm && role === 'jefe')
-          ? '<div style="font-size:9px;color:var(--or);margin-top:2px">&#9888; Pendiente confirmar</div>'
-          : '';
         var needsConfirm = o.pending_confirm && role === 'jefe';
         var spHtml = o.space ? '<div class="card-sp">Esp.' + o.space + '</div>' : '';
         var colorMap = {azul:'#1565C0', amarillo:'#F9A825', verde:'#2E7D32'};
@@ -2095,7 +2092,6 @@ function renderBoard() {
             stagLimit = null; // no alert for these phases without estimate
           }
           if (stagLimit !== null && stagMins > stagLimit) {
-            var stagHrs = (stagMins/60).toFixed(1);
             var overBy = (stagMins - stagLimit);
             var overTxt = overBy < 60 ? Math.round(overBy)+'min' : (overBy/60).toFixed(1)+'h';
             stagHtml = '<span class="tag" style="background:#1a0000;color:#FF4444;border:1px solid #8B0000;font-size:9px">&#9888; +' + overTxt + ' sobre estimado</span>';
@@ -2385,15 +2381,32 @@ function _aplicarResultadoCotizador(d) {
     });
     if (!listas.repuestos.length && !listas.manoObra.length) listas = null;
   }
+  // 11 nov 2026 (pedido de Byron): puntos que el cliente NO autorizo, con su encabezado:
+  // puntosNoAutorizados: [{numero, punto, prioridad}]. null = el aviso no lo trae (no se toca la nota). [] = todo autorizado.
+  // Tambien se toma como "todo autorizado" cuando puntos == puntosAutorizados (Firebase no guarda listas vacias).
+  var _pendRaw = d.puntosNoAutorizados;
+  var pend = null;
+  if (_pendRaw != null && typeof _pendRaw === 'object') {
+    pend = [];
+    _arr(_pendRaw).slice(0, 100).forEach(function(p) {
+      if (!p || typeof p !== 'object') return;
+      var pt = _lim(p.punto != null ? p.punto : p.descripcion, 120); if (!pt) return;
+      var itp = {punto: pt}, nup = _lim(p.numero, 20), prp = _lim(p.prioridad, 20);
+      if (nup) itp.numero = nup; if (prp) itp.prioridad = prp;
+      pend.push(itp);
+    });
+  } else if (_pendRaw == null && nm(d.puntos) && d.puntos > 0 && d.puntos === d.puntosAutorizados) pend = [];
+  var _pendPrev = (orr.cotizResultado && orr.cotizResultado.puntosNoAutorizados) || null;
+  var _pendIguales = pend === null || JSON.stringify(_pendPrev || []) === JSON.stringify(pend);
   // Sin listados nuevos en este aviso no hay nada que comparar ni que agregar (paso 2: tampoco se pierde el listado anterior).
   var _listasPrev = (orr.cotizResultado && orr.cotizResultado.listas) || null;
   var _listasIguales = !listas || JSON.stringify(_listasPrev) === JSON.stringify(listas);
-  if (orr.cotizResultado && orr.cotizResultado.ts === d.ts && _montosYaIguales && _listasIguales) return; // mismo aviso repetido
+  if (orr.cotizResultado && orr.cotizResultado.ts === d.ts && _montosYaIguales && _listasIguales && _pendIguales) return; // mismo aviso repetido
   // El mismo resultado puede llegar por la ventana Y por Firebase (otro ts): si los montos son
   // identicos a los ya guardados (con autorizadoMO), no se repite ni la linea de bitacora.
   var prevR = orr.cotizResultado;
   if (prevR && prevR.autorizadoMO != null && prevR.cotizado === d.cotizado && prevR.autorizado === d.autorizado &&
-      prevR.pendiente === d.pendiente && prevR.autorizadoMO === (nm(d.autorizadoMO) ? d.autorizadoMO : null) && _montosYaIguales && _listasIguales) return;
+      prevR.pendiente === d.pendiente && prevR.autorizadoMO === (nm(d.autorizadoMO) ? d.autorizadoMO : null) && _montosYaIguales && _listasIguales && _pendIguales) return;
   var nz = function(v){ return nm(v) ? v : 0; };
   orr.cotizResultado = {cotizado: d.cotizado, autorizado: d.autorizado, pendiente: d.pendiente,
     autorizadoMO: nm(d.autorizadoMO) ? d.autorizadoMO : null,
@@ -2401,6 +2414,7 @@ function _aplicarResultadoCotizador(d) {
     sugeridoCotizado: nz(d.sugeridoCotizado), sugeridoAutorizado: nz(d.sugeridoAutorizado),
     puntos: nz(d.puntos), puntosAutorizados: nz(d.puntosAutorizados), ts: d.ts};
   if (listas || _listasPrev) orr.cotizResultado.listas = listas || _listasPrev;
+  if (pend || _pendPrev) orr.cotizResultado.puntosNoAutorizados = pend || _pendPrev;
   var fq = function(n){ return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
   var nota = '';
   if (!orr.montoCotizado || orr.montoCotizadoOrigen === 'cotizador') {
@@ -2441,6 +2455,30 @@ function _aplicarResultadoCotizador(d) {
       resL.moItems.forEach(function(m) { detL += '<br>&bull; Mano de obra: ' + m.desc + (m.tiempoEstimado ? ' — ' + m.tiempoEstimado + ' h' : '') + (m.posibleDuplicado ? ' &#9888; revisa: ya habia algo igual' : ''); });
       orr.msgs.push({who: quienRes, txt: '&#128203; Listados autorizados por el cliente: ' + resL.rep + ' repuesto(s) y ' + resL.mo + ' de mano de obra agregados, pendientes del Vo.Bo. del Jefe' + (resL.ya ? ' (' + resL.ya + ' ya estaban y no se repitieron)' : '') + detL, ts: Date.now(), type: 'system'});
       if (typeof addNotif === 'function') addNotif((orr.plate || orr.ot) + ': el Cotizador agrego ' + resL.rep + ' repuesto(s) y ' + resL.mo + ' de mano de obra autorizados, pendientes de tu Vo.Bo.', orr.id);
+    }
+  }
+  // 11 nov 2026: nota automatica en "Notas de entrega" con los puntos que NO se autorizaron. Una sola nota (cotizPend): se
+  // actualiza en su lugar si cambia la lista y se quita si ya todo quedo autorizado; las notas escritas a mano no se tocan.
+  // Si el Jefe la borra y la lista sigue igual, no se vuelve a crear. Una sola campanita por cambio de lista.
+  if (pend && orr.phase !== 'cer') {
+    var _pClave = pend.map(function(p) { return (p.numero || '') + '|' + p.punto + '|' + (p.prioridad || ''); }).join(';');
+    if (_pClave !== (orr.cotizPendClave || '')) {
+      orr.notasEntrega = orr.notasEntrega || [];
+      var _ixP = -1;
+      orr.notasEntrega.forEach(function(n, i) { if (n && n.cotizPend) _ixP = i; });
+      if (!pend.length) {
+        if (_ixP >= 0) {
+          orr.notasEntrega.splice(_ixP, 1);
+          orr.msgs.push({who: quienRes, txt: '&#128221; Todos los puntos quedaron autorizados: se quito la nota de entrega de puntos pendientes', ts: Date.now(), type: 'system'});
+        }
+      } else {
+        var _txtP = 'Quedan pendientes los siguientes puntos: ' + pend.map(function(p) { return (p.numero ? p.numero + ' ' : '') + p.punto + (p.prioridad ? ' (' + p.prioridad + ')' : ''); }).join(', ');
+        var _notaP = {texto: _txtP, by: quienRes, ts: Date.now(), cotizPend: true};
+        if (_ixP >= 0) orr.notasEntrega[_ixP] = _notaP; else orr.notasEntrega.push(_notaP);
+        orr.msgs.push({who: quienRes, txt: '&#128221; ' + _txtP + ' — quedo en las Notas de entrega (Preparar Facturacion)', ts: Date.now(), type: 'system'});
+        if (typeof addNotif === 'function') addNotif((orr.plate || orr.ot) + ': el cliente no autorizo ' + pend.length + ' punto(s); quedaron en las Notas de entrega', orr.id);
+      }
+      orr.cotizPendClave = _pClave;
     }
   }
   save(); toast('Resultado del Cotizador guardado en la orden ' + (orr.ot || orr.id));
@@ -2568,7 +2606,7 @@ function _leerResultadoAutorizacion(o) {
         cotizado: v.cotizado, autorizado: v.autorizado, autorizadoMO: v.autorizadoMO, pendiente: v.pendiente,
         urgenteCotizado: v.urgenteCotizado, urgenteAutorizado: v.urgenteAutorizado,
         sugeridoCotizado: v.sugeridoCotizado, sugeridoAutorizado: v.sugeridoAutorizado,
-        puntos: v.puntos, puntosAutorizados: v.puntosAutorizados,
+        puntos: v.puntos, puntosAutorizados: v.puntosAutorizados, puntosNoAutorizados: v.puntosNoAutorizados,
         repuestosYSubcontratos: v.repuestosYSubcontratos, repuestos_y_subcontratos: v.repuestos_y_subcontratos, repuestosSubcontratos: v.repuestosSubcontratos,
         repuestos: v.repuestos, repuestosAutorizados: v.repuestosAutorizados,
         manoDeObra: v.manoDeObra, mano_de_obra: v.mano_de_obra, manoObra: v.manoObra, manoObraAutorizada: v.manoObraAutorizada});
@@ -2895,11 +2933,6 @@ function pegarLinkCotizacion(oid) {
   if (!url) { toast('Pega primero el link de cotizacion'); return; }
   if (!_urlCotizPartesValida(url)) { toast('Ese link no es del Cotizador (o esta incompleto) — copialo de nuevo con "Copiar link para asesor de servicio"'); return; }
   _guardarLinkCotizPartes(o, url, ROLES[role] ? ROLES[role].label : role);
-}
-function abrirCotizacionPartes(oid) {
-  var o = orders.find(function(x){ return x.id === oid; });
-  if (!o || !o.linkCotizacionPartes || !_puedeVerLinkCotizPartes()) return;
-  window.open(o.linkCotizacionPartes, '_blank');
 }
 var CATALOGO_BODEGA_TTL_MS = 10 * 60 * 1000; // 10 min — con margen sobre los 5 min de cache del lado de Bodega Virtual
 var _catalogoBodega = { items: null, ts: 0, loading: false, error: false, _pendientes: [] };
