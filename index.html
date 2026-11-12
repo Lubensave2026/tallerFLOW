@@ -1121,6 +1121,14 @@ function initFirebase() {
         _scheduleRender();
       });
 
+      // Metas del mes (12 nov 2026): las edita solo el Jefe desde el Reporte; los demas roles solo las ven.
+      db.ref('taller/metas').on('value', function(snap) {
+        var mv = snap.val();
+        if (mv && mv.total > 0 && mv.mo >= 0 && mv.mo <= mv.total) { META_TOTAL = mv.total; META_MO = mv.mo; }
+        var rmeta = document.getElementById('m-rep');
+        if (rmeta && rmeta.classList.contains('on')) buildRepContent();
+      });
+
       // '.info/connected' es un path especial de Firebase: true mientras el
       // cliente tiene conexion real con el servidor (no solo con internet).
       // En cuanto vuelve a true, si quedo un guardado fallido pendiente (ver
@@ -8811,6 +8819,9 @@ var _jefeVerCerradasDeTec = '';
 // Monto) de las ordenes que componen la tarjeta "Ya cerrado este mes". Se
 // reinicia cada vez que se abre el reporte.
 var _jefeShowCerradosDetalle = false;
+// 12 nov 2026 (pedido de Byron): desplegable "Avance de meta e historial del mes" dentro de "Ya cerrado este mes"
+// (reemplaza a la pantalla "Meta"). Se reinicia cada vez que se abre el reporte.
+var _jefeShowMeta = false;
 // Navegador de mes de la tarjeta "Ya cerrado este mes" (jefe/asesor/partes)
 // — pedido de Byron 1 sep 2026, para poder ver con cuanto cerro un mes
 // anterior sin salir del Reporte General. Independiente de
@@ -8835,6 +8846,7 @@ function openRep() {
   _tecRepShowClosed = false;
   _jefeVerCerradasDeTec = '';
   _jefeShowCerradosDetalle = false;
+  _jefeShowMeta = false;
   _repCerradoMonthOffset = 0;
   _repProyReset(); // las marcas de la Proyeccion solo duran mientras el reporte esta abierto
   // Auto-refresh every 30 seconds while report is open
@@ -9207,6 +9219,7 @@ function buildRepContent() {
       }
       html += '</tbody></table></div>';
     }
+    html += _repMetaHtml(semCerradoData);
   }
 
   if (tecActivo) {
@@ -12338,8 +12351,50 @@ function refreshArchived(onDone) {
 }
 
 /* HISTORY */
+// Restaurar una orden ELIMINADA por error (12 nov 2026, caso de la orden 5474). Eliminar una orden la borra de Firebase
+// para todo el equipo, pero cada dia se guarda un respaldo en taller/backups/AAAA-MM-DD con las ordenes activas. Solo el
+// Jefe: pide el No. de OT, busca en el respaldo de hoy y de los 10 dias anteriores (el mas reciente primero), muestra lo que
+// encontro y, con confirmacion, la vuelve a crear con su mismo id. Solo LEE la parte "orders" del respaldo (no el historial,
+// que es pesado) y no toca ninguna otra orden. Lo hecho en la orden despues de ese respaldo no se recupera.
+function _fechaRespaldo(atras) {
+  var d = new Date(); d.setDate(d.getDate() - atras);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function restaurarOrdenDeRespaldo() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede restaurar una orden'); return; }
+  if (!fbReady || !db) { toast('Sin conexion con Firebase: no se puede leer el respaldo'); return; }
+  var ot = String(prompt('No. de OT de la orden eliminada que quieres restaurar:') || '').trim();
+  if (!ot) return;
+  if (orders.some(function(x) { return String(x.ot) === ot; })) { toast('Ya hay una orden activa con la OT ' + ot + ': no se restaura'); return; }
+  var buscarEn = function(atras) {
+    if (atras > 10) { toast('No encontre la OT ' + ot + ' en los respaldos de los ultimos 11 dias'); return; }
+    var fecha = _fechaRespaldo(atras);
+    db.ref('taller/backups/' + fecha + '/orders').once('value').then(function(snap) {
+      var v = snap.val(), lista = Array.isArray(v) ? v : Object.keys(v || {}).map(function(k) { return v[k]; });
+      var hallada = null;
+      lista.forEach(function(x) { if (x && String(x.ot) === ot && !hallada) hallada = x; });
+      if (!hallada) { buscarEn(atras + 1); return; }
+      var o = JSON.parse(JSON.stringify(hallada));
+      if (orders.some(function(x) { return x.id === o.id; })) { toast('Ya existe otra orden con el mismo id interno: no se restaura'); return; }
+      var faseLbl = (PHASE_COLORS[o.phase] || {label: o.phase}).label;
+      if (!confirm('RESTAURAR ORDEN\n\nPlaca: ' + o.plate + '\nNo. OT: ' + o.ot + '\nCliente: ' + (o.client || '—') + '\nFase: ' + faseLbl +
+        '\nRespaldo del: ' + fecha + '\n\nSe vuelve a crear tal como estaba en ese respaldo; lo hecho despues no se recupera. ¿Continuar?')) return;
+      if (!o.sigs) o.sigs = {};
+      if (!o.msgs) o.msgs = [];
+      o.msgs.push({who: ROLES[role] ? ROLES[role].label : role, txt: '&#8617; Orden restaurada desde el respaldo del ' + fecha + ' (habia sido eliminada)', ts: Date.now(), type: 'system'});
+      orders.push(o);
+      save();
+      renderBoard();
+      updateNDot();
+      toast('Orden ' + o.plate + ' restaurada desde el respaldo del ' + fecha);
+    }).catch(function() { toast('No pude leer el respaldo del ' + fecha); });
+  };
+  buscarEn(0);
+}
 function openHist() {
   document.getElementById('m-hist').classList.add('on');
+  var btnRestaurar = document.getElementById('btn-hist-restaurar');
+  if (btnRestaurar) btnRestaurar.style.display = role === 'jefe' ? '' : 'none';
   var si = document.getElementById('hist-srch');
   if (si) si.value = '';
   // Arranca siempre en Tarjetas, sin ningun detalle abierto — mismo
@@ -15869,6 +15924,74 @@ function toggleJefeCerradosDetalle() {
   _jefeShowCerradosDetalle = !_jefeShowCerradosDetalle;
   buildRepContent();
 }
+function toggleRepMeta() {
+  if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) return;
+  _jefeShowMeta = !_jefeShowMeta;
+  buildRepContent();
+}
+// Solo el Jefe cambia las metas; quedan en Firebase (taller/metas) para que se vean igual en todos los equipos.
+function editarMetas() {
+  if (role !== 'jefe') { toast('Solo el Jefe puede cambiar las metas'); return; }
+  var leer = function(txt) { if (txt === null) return null; var n = parseFloat(String(txt).replace(/^\s*[Qq]\.?/, '').replace(/[\s,]/g, '')); return (isFinite(n) && n > 0 && n < 1e9) ? Math.round(n) : NaN; };
+  var t = leer(prompt('Meta de Total general del mes (Q). Ahora: ' + META_TOTAL, META_TOTAL));
+  if (t === null) return;
+  if (isNaN(t)) { toast('Numero no valido'); return; }
+  var m = leer(prompt('Meta de Mano de obra del mes (Q). Ahora: ' + META_MO, META_MO));
+  if (m === null) return;
+  if (isNaN(m) || m > t) { toast('La meta de mano de obra debe ser un numero y no mayor a la de Total'); return; }
+  META_TOTAL = t; META_MO = m;
+  if (fbReady && db && _hasReceivedFirebaseData) {
+    db.ref('taller/metas').set({total: t, mo: m, by: (ROLES[role] ? ROLES[role].label : role), ts: Date.now()}).catch(function(e) { console.log('Error al guardar las metas:', e); });
+  }
+  toast('Metas actualizadas');
+  buildRepContent();
+}
+// Desplegable del Reporte (12 nov 2026): avance contra la meta (solo Total y Mano de obra; solo en el mes actual),
+// ticket promedio, dias con cierre, promedio diario e historial por dia. Usa los datos del mes que se esta viendo
+// en "Ya cerrado este mes" (semCerradoData), asi siempre cuadra con esa tarjeta.
+function _repMetaHtml(d) {
+  var fmt = function(n) { return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+  var out = '<div style="margin-bottom:1rem"><button onclick="toggleRepMeta()" style="font-size:11px;padding:5px 12px;border-radius:10px;border:1px solid ' + (_jefeShowMeta ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowMeta ? 'rgba(61,126,255,.15)' : 'var(--bg4)') + ';color:' + (_jefeShowMeta ? '#3D7EFF' : 'var(--tx2)') + ';cursor:pointer">&#128200; ' + (_jefeShowMeta ? 'Ocultar' : 'Ver') + ' avance de meta e historial del mes</button>';
+  if (!_jefeShowMeta) return out + '</div>';
+  var nOrd = d.countCerradas || 0;
+  var ticket = function(m) { return nOrd ? fmt(m / nOrd) : '—'; };
+  var col = function(p) { return p > 75 ? '#27AE60' : p > 50 ? '#F39C12' : '#E74C3C'; };
+  var fila = function(nombre, monto, meta, colMonto) {
+    var real = meta ? monto / meta * 100 : 0, c = col(Math.min(100, real));
+    var barra = d.isCurrentMonth
+      ? '<div style="background:var(--bg3);border-radius:6px;height:14px;margin:4px 0 10px"><div style="background:' + c + ';width:' + Math.min(100, real) + '%;height:100%;border-radius:6px"></div></div>'
+      : '<div style="height:8px"></div>';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--tx3);margin-bottom:2px">' +
+      '<span>' + nombre + (d.isCurrentMonth ? '<span style="font-size:10px;font-weight:700;color:#fff;background:var(--bg4);border:1px solid ' + c + ';border-radius:8px;padding:1px 6px;margin-left:6px">' + real.toFixed(1) + '%</span>' : '') +
+      '<span style="font-size:10px;margin-left:6px">Ticket prom. <strong style="color:var(--tx2)">' + ticket(monto) + '</strong></span></span>' +
+      '<span style="color:' + colMonto + ';font-weight:700">' + fmt(monto) + (d.isCurrentMonth ? ' / ' + fmt(meta) : '') + '</span></div>' + barra;
+  };
+  var dias = d.dias || [];
+  out += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px;margin-top:8px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px">' + (d.isCurrentMonth ? 'Meta del mes (ya cerrado / facturado)' : 'Con que se cerro ' + d.monthLabel) + '</div>' +
+    (role === 'jefe' ? '<button onclick="editarMetas()" style="font-size:10px;padding:3px 8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx2);cursor:pointer;white-space:nowrap">&#9998; Cambiar metas</button>' : '') + '</div>' +
+    fila('Total general', d.totalFact, META_TOTAL, 'var(--gn)') +
+    fila('Mano de obra', d.totalMO, META_MO, 'var(--ac)') +
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:10px;color:var(--tx3)">' +
+      '<span>Ordenes cerradas: <strong style="color:var(--tx)">' + nOrd + '</strong></span>' +
+      '<span>Dias con cierre: <strong style="color:var(--tx)">' + dias.length + '</strong></span>' +
+      '<span>Prom. diario: <strong style="color:var(--tx)">' + (dias.length ? fmt(d.totalFact / dias.length) : 'Q.0') + '</strong></span></div>' +
+  '</div>';
+  if (dias.length) {
+    out += '<div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--tx3);margin:10px 0 6px">Historial de ' + d.monthLabel + ' (ordenes cerradas por dia)</div>' +
+      '<div style="overflow-y:auto;max-height:220px"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:var(--bg3);color:var(--tx3)">' +
+      '<th style="padding:5px 8px;text-align:left">Fecha</th><th style="padding:5px 8px;text-align:right">Total</th><th style="padding:5px 8px;text-align:right">M.O.</th><th style="padding:5px 8px;text-align:right">Repuestos</th><th style="padding:5px 8px;text-align:center">Ordenes</th></tr></thead><tbody>';
+    dias.forEach(function(x) {
+      out += '<tr style="border-bottom:1px solid var(--bd)"><td style="padding:5px 8px">' + x.fecha + '</td>' +
+        '<td style="padding:5px 8px;text-align:right;color:var(--gn)">' + fmt(x.total) + '</td><td style="padding:5px 8px;text-align:right;color:var(--ac)">' + fmt(x.mo) + '</td>' +
+        '<td style="padding:5px 8px;text-align:right;color:#F39C12">' + fmt(x.rep) + '</td><td style="padding:5px 8px;text-align:center;color:var(--tx3)">' + x.count + '</td></tr>';
+    });
+    out += '</tbody></table></div>';
+  } else {
+    out += '<div style="font-size:11px;color:var(--tx3);text-align:center;padding:10px">Aun no se ha cerrado ninguna orden en ' + d.monthLabel + '.</div>';
+  }
+  return out + '</div>';
+}
 function setTecRepClosed(val) {
   var rMe = role ? ROLES[role] : null;
   if (!(rMe && rMe.tec)) return;
@@ -16041,6 +16164,7 @@ window.addEventListener('load', function() {
     <div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn-s" id="btn-hist-vista-tarjetas" style="font-size:12px;padding:6px 12px">&#128193; Tarjetas</button>
       <button class="btn-s" id="btn-hist-vista-tabla" style="font-size:12px;padding:6px 12px">&#128203; Tabla</button>
+      <button class="btn-s" id="btn-hist-restaurar" onclick="restaurarOrdenDeRespaldo()" style="display:none;font-size:12px;padding:6px 12px;margin-left:auto">&#8617; Restaurar orden eliminada</button>
     </div>
     <div class="no-print" id="hist-tabla-acciones" style="display:none;margin-bottom:10px;gap:8px;flex-wrap:wrap">
       <button class="btn-s" id="btn-hist-imprimir" style="font-size:12px;padding:6px 12px">&#128424; Imprimir</button>
