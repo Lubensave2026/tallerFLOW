@@ -4833,10 +4833,14 @@ function openDrw(id) {
     // (ej. una orden duplicada por doble toque en "Crear orden"). Es la
     // unica accion que borra una orden entera, asi que va aparte, al final,
     // y con confirmacion que obliga a leer que orden se esta borrando.
-    html += '<div class="sec">' +
+    // 12 nov 2026 (pedido de Byron, tras borrar la 5474 por error desde el celular): el boton va dentro de una seccion
+    // PLEGADA ("Acciones peligrosas"), cerrada por defecto, y la confirmacion exige escribir el No. de OT (ver mas abajo).
+    html += '<div class="sec"><details style="border:1px solid var(--rd);border-radius:8px;padding:8px 10px">' +
+      '<summary style="cursor:pointer;color:var(--rd);font-size:12px;font-weight:600">&#9888; Acciones peligrosas</summary>' +
+      '<div style="margin-top:10px">' +
       '<button id="btn-del-order" data-oid="' + id + '" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;font-weight:600;cursor:pointer">&#128465; Eliminar esta orden</button>' +
-      '<div style="font-size:10px;color:var(--tx3);margin-top:5px">Para corregir errores de captura, como una orden duplicada. Borra la orden y todo su historial para todo el equipo, y no se puede deshacer.</div>' +
-    '</div>';
+      '<div style="font-size:10px;color:var(--tx3);margin-top:5px">Para corregir errores de captura, como una orden duplicada. Borra la orden y todo su historial para todo el equipo, y no se puede deshacer (solo se puede recuperar del respaldo diario desde Historial).</div>' +
+      '</div></details></div>';
   }
 
   // Seccion 02) FIRMAS Y CAMBIOS DE FASE lista.
@@ -6678,16 +6682,21 @@ function openDrw(id) {
       var faseLbl = (PHASE_COLORS[ox.phase] || {label: ox.phase}).label;
       // La confirmacion nombra la orden concreta (placa, No. OT y fase) para
       // que no se borre otra por equivocacion al tener varias abiertas.
-      if (!confirm(
+      // 12 nov 2026: ya no se confirma con un simple "Aceptar" (se aceptaba por costumbre en el celular): hay que ESCRIBIR
+      // el No. de OT de la orden. Si no coincide, no se borra nada.
+      var claveEliminar = String(ox.ot || ox.plate || '').trim();
+      var tecleado = prompt(
         'ELIMINAR LA ORDEN\n\n' +
         'Placa: ' + ox.plate + '\n' +
         'No. OT: ' + ox.ot + '\n' +
         'Cliente: ' + (ox.client || '—') + '\n' +
         'Fase actual: ' + faseLbl + '\n\n' +
         'Se borra para TODO el equipo, junto con sus firmas, repuestos, ' +
-        'trabajos y bitacora. Esta accion NO se puede deshacer.\n\n' +
-        '¿Continuar?'
-      )) return;
+        'trabajos y bitacora.\n\n' +
+        'Para confirmar, escribe el No. de OT (' + claveEliminar + '):'
+      );
+      if (tecleado === null) return;
+      if (String(tecleado).trim().toLowerCase() !== claveEliminar.toLowerCase() || !claveEliminar) { toast('No coincide con el No. de OT: la orden NO se elimino'); return; }
       orders.splice(oxIdx, 1);
       // save() detecta que esta orden ya no esta en el arreglo local y
       // escribe null en su path de Firebase (ver el bloque de "ordenes que
