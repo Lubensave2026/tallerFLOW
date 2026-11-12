@@ -205,6 +205,13 @@ button{cursor:pointer}
 .ph-btn{width:100%;padding:10px 14px;border-radius:var(--rs);border:1px solid;font-size:12px;font-weight:500;text-align:left;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .ph-btn.go{border-color:var(--gnbd);background:var(--gnbg);color:var(--gn)}
 .ph-btn.lk{border-color:var(--bd);background:var(--bg3);color:var(--tx3);cursor:not-allowed}
+/* Ficha de la orden (12 nov 2026, pedido de Byron, sobre todo para el celular): mismo recurso que el panel de
+   "Repuestos y Subcontratos" (--rep-panel): el espacio ENTRE y alrededor de las etapas es mas claro, las etapas (cajas
+   01, 02, ...) conservan su fondo oscuro, y las filas de firma, "Avanzar a fase" bloqueado y el selector "Mover orden a
+   cualquier fase" llevan ese mismo tono claro para distinguirse dentro de la caja. Solo estilo: no cambia ninguna funcion. */
+.drw-body{background:var(--rep-panel)}
+.sg-item,.ph-btn.lk,#jefe-phase-sel{background:var(--rep-panel)}
+.ph-btn.lk,.sg-item .sg-r{color:var(--tx2)}
 .chat-box{background:var(--bg);border:1px solid var(--bd);border-radius:var(--rs);padding:8px;max-height:150px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;margin-bottom:7px}
 .cmsg{background:var(--bg3);border-radius:6px;padding:6px 9px}
 .cw{font-size:10px;font-weight:600;color:var(--ac);margin-bottom:2px}
