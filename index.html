@@ -868,6 +868,17 @@ function _todayKey() {
   var dd = String(d.getDate()).padStart(2,'0');
   return d.getFullYear() + '-' + mm + '-' + dd;
 }
+// Borra los respaldos de hace 31 a 37 dias (ventana de 7 dias por si algun dia no se creo respaldo y quedo uno huerfano). Se borra
+// por clave calculada: remove() de una clave que no existe no hace nada ni descarga nada. Nunca se borran los del dia 1 de cada mes.
+function _podarRespaldosViejos() {
+  if (!fbReady || !db) return;
+  for (var atras = 31; atras <= 37; atras++) {
+    var d = new Date(); d.setDate(d.getDate() - atras);
+    if (d.getDate() === 1) continue;
+    var clave = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    db.ref('taller/backups/' + clave).remove().catch(function(e) { console.log('Poda de respaldo:', e); });
+  }
+}
 function maybeDailyBackup(currentData) {
   if (_backupCheckedToday || !fbReady || !db) return;
   _backupCheckedToday = true;
@@ -880,28 +891,27 @@ function maybeDailyBackup(currentData) {
   // descargas de Realtime Database). Que exista el hijo = existe el respaldo.
   ref.child('nxtId').once('value').then(function(snap) {
     if (snap.exists()) return; // ya hay respaldo de hoy, no tocar
-    // El historial ya no vive en memoria permanentemente (ver taller/historial
-    // + openHist), asi que para que el respaldo diario siga completo hay que
-    // leerlo aqui — una vez al dia, no en cada cambio de meta.
+    // 15 nov 2026 (pedido de Byron, tras ver que taller/backups era el 98 % del almacenamiento de Firebase): el respaldo diario
+    // YA NO copia el historial completo (3 de sus 4 MB, repetido cada dia): lleva solo ordenes activas, notificaciones y contador.
+    // El del DIA 1 de cada mes si lleva el historial completo, como copia mensual. Ademas, al crear el de hoy se borran los
+    // de hace mas de 30 dias (por clave calculada, SIN leer nada; nunca los del dia 1).
+    var diaUno = key.slice(8) === '01';
+    var escribir = function(archivadas) {
+      ref.set({
+        orders:   currentData.orders   || [],
+        notifs:   currentData.notifs   || [],
+        nxtId:    currentData.nxtId    || 0,
+        archived: archivadas,
+        _backupTs: Date.now()
+      }).then(function() { _podarRespaldosViejos(); }).catch(function(e){ console.log('Backup diario error:', e); });
+    };
+    if (!diaUno) { escribir([]); return; }
     db.ref('taller/historial').once('value').then(function(histSnap) {
       var histData = histSnap.val() || {};
-      var histArr = Object.keys(histData).map(function(k){ return histData[k]; }).filter(Boolean);
-      ref.set({
-        orders:   currentData.orders   || [],
-        notifs:   currentData.notifs   || [],
-        nxtId:    currentData.nxtId    || 0,
-        archived: histArr,
-        _backupTs: Date.now()
-      }).catch(function(e){ console.log('Backup diario error:', e); });
+      escribir(Object.keys(histData).map(function(k){ return histData[k]; }).filter(Boolean));
     }).catch(function(e){
-      console.log('Backup diario: error al leer historial, se respalda sin el', e);
-      ref.set({
-        orders:   currentData.orders   || [],
-        notifs:   currentData.notifs   || [],
-        nxtId:    currentData.nxtId    || 0,
-        archived: [],
-        _backupTs: Date.now()
-      }).catch(function(e2){ console.log('Backup diario error:', e2); });
+      console.log('Backup mensual: error al leer historial, se respalda sin el', e);
+      escribir([]);
     });
   }).catch(function(e){ console.log('Backup diario check error:', e); });
 }
