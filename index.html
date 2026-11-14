@@ -2462,10 +2462,8 @@ function _aplicarResultadoCotizador(d) {
     // Paso 2 (7 nov 2026): los renglones se AGREGAN a la orden (nunca reemplazan nada) y quedan pendientes del Vo.Bo. del Jefe.
     var resL = (typeof _agregarListadosCotizador === 'function') ? _agregarListadosCotizador(orr, listas) : {rep: 0, mo: 0, ya: 0, dup: 0, repItems: [], moItems: []};
     if (resL.rep + resL.mo > 0) {
-      var detL = '';
-      resL.repItems.forEach(function(r) { detL += '<br>&bull; Repuesto: ' + (r.cantidad ? r.cantidad + ' x ' : '') + r.desc + (r.especificacion ? ' (' + r.especificacion + ')' : '') + (r.posibleDuplicado ? ' &#9888; revisa: ya habia algo igual' : ''); });
-      resL.moItems.forEach(function(m) { detL += '<br>&bull; Mano de obra: ' + m.desc + (m.tiempoEstimado ? ' — ' + m.tiempoEstimado + ' h' : '') + (m.posibleDuplicado ? ' &#9888; revisa: ya habia algo igual' : ''); });
-      orr.msgs.push({who: quienRes, txt: '&#128203; Listados autorizados por el cliente: ' + resL.rep + ' repuesto(s) y ' + resL.mo + ' de mano de obra agregados, pendientes del Vo.Bo. del Jefe' + (resL.ya ? ' (' + resL.ya + ' ya estaban y no se repitieron)' : '') + detL, ts: Date.now(), type: 'system'});
+      // 13 nov 2026 (pedido de Byron): el aviso es corto, sin el listado renglon por renglon (se ve en "Repuestos y Subcontratos").
+      orr.msgs.push({who: quienRes, txt: '&#128203; Listados autorizados por el cliente: ' + resL.rep + ' repuesto(s) y ' + resL.mo + ' de mano de obra agregados, pendientes del Vo.Bo. del Jefe' + (resL.ya ? ' (' + resL.ya + ' ya estaban y no se repitieron)' : '') + '. Revisalos en Repuestos y Subcontratos', ts: Date.now(), type: 'system'});
       if (typeof addNotif === 'function') addNotif((orr.plate || orr.ot) + ': el Cotizador agrego ' + resL.rep + ' repuesto(s) y ' + resL.mo + ' de mano de obra autorizados, pendientes de tu Vo.Bo.', orr.id);
     }
   }
