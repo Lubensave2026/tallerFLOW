@@ -581,7 +581,6 @@ button{cursor:pointer}
     <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS<span id="reps-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-presq-pend" onclick="openPresqPend()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#128221; Presupuestos pendientes (OT cerradas)<span id="presq-pend-count" style="display:none;background:#8B5CF6;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
-    <button class="btn-map" id="btn-sem" onclick="openSem()" style="display:none;border-color:#27AE60;color:#27AE60">&#128200; Meta</button>
     <button class="btn-map" id="btn-cap" onclick="openCapacidad()" style="display:none;border-color:#3D7EFF;color:#3D7EFF">&#128677; Capacidad</button>
     <button class="btn-map" id="btn-repparts" onclick="openRepParts()" style="display:none;border-color:var(--ac);color:var(--ac)">&#128203; Despacho, Repuestos y Subcontratos<span id="repparts-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-avisolav" onclick="openAvisoLav()" style="display:none;border-color:var(--gnbd);color:var(--gn)">&#129534; Preparar Facturacion<span id="avisolav-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
@@ -782,7 +781,7 @@ button{cursor:pointer}
 // Asistencia de técnicos .................. «ASISTENCIA DE TECNICOS»
 // Capacidad del taller ..................... «CAPACIDAD DEL TALLER»
 // Comisiones / % de productividad técnica «function calcTecHoras(» «function _calcTecHorasCerradasEnMes(»
-// Semáforo Financiero ...................... «function buildSemContent(»
+// Meta / semáforo financiero (ahora dentro del Reporte) «function _repMetaHtml(» «function semComputeFromOrders(»
 // Firmas pendientes (panel/campana) ........ «function buildSigsContent(»
 // Presupuestos pendientes (órdenes cerradas) «function buildPresqPendContent(»
 // ═══════════════════════════════════════════════════════════════════════
@@ -1807,7 +1806,6 @@ function doLogin(rk) {
   // para ambos, ver mas abajo) — partes/mensajero/lavador no lo necesitan.
   document.getElementById('btn-map').style.display = (rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
-  document.getElementById('btn-sem').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes') ? 'inline-flex' : 'none';
   // Capacidad del taller: herramienta de planeacion del dia, solo para
   // quienes deciden a quien asignar que — no aporta nada a partes, mensajero
   // ni a los tecnicos verla.
@@ -1842,7 +1840,6 @@ function logout() {
   document.getElementById('btn-presq-pend').style.display = 'none';
   document.getElementById('btn-sigs').style.display = 'none';
   document.getElementById('btn-autoriz').style.display = 'none';
-  document.getElementById('btn-sem').style.display = 'none';
   document.getElementById('btn-cap').style.display = 'none';
   document.getElementById('btn-export').style.display = 'none';
   document.getElementById('btn-map').style.display = 'none';
@@ -15403,187 +15400,6 @@ function semComputeFromOrders(monthOffset) {
   };
 }
 
-var _semMonthOffset = 0; // 0 = mes actual, 1 = mes anterior, 2 = hace 2 meses, etc.
-
-function openSem() {
-  _semMonthOffset = 0; // siempre abre mostrando el mes actual
-  buildSemContent(); // primer render con lo que ya haya en memoria (rapido)
-  document.getElementById('m-sem').classList.add('on');
-  // Refresca 'archived' por si esta sesion nunca abrio Historial — sin esto
-  // los totales de meses pasados podian salir incompletos (ver refreshArchived).
-  refreshArchived(function() { buildSemContent(); });
-}
-function closeSem() {
-  document.getElementById('m-sem').classList.remove('on');
-}
-function semChangeMonth(delta) {
-  _semMonthOffset = Math.max(0, _semMonthOffset + delta); // nunca hacia el futuro
-  buildSemContent();
-}
-
-function buildSemContent() {
-  var data = semComputeFromOrders(_semMonthOffset);
-  var dias = data.dias;
-  var totalFact = data.totalFact, totalMO = data.totalMO;
-
-  // Meta de "costo de facturacion" (repuestos y subcontratos) derivada de
-  // las mismas metas ya definidas — igual que totalRep/potRep/hoyRep en
-  // semComputeFromOrders(), no se agrega una constante nueva.
-  var META_REP = META_TOTAL - META_MO;
-  var totalRep = data.totalRep;
-
-  // Semaforo por logro (color de las BARRAS, no de los montos): rojo hasta
-  // 50%, amarillo apenas se pasa de 50% y hasta 75%, verde arriba de 75%.
-  function semColor(pct) { return pct > 75 ? '#27AE60' : pct > 50 ? '#F39C12' : '#E74C3C'; }
-
-  var pctTotal = Math.min(100, (totalFact/META_TOTAL)*100);
-  var pctMO    = Math.min(100, (totalMO/META_MO)*100);
-  var pctRep   = Math.min(100, (totalRep/META_REP)*100);
-  var colTotal = semColor(pctTotal);
-  var colMO    = semColor(pctMO);
-  var colRep   = semColor(pctRep);
-
-  // El porcentaje que se MUESTRA no va topado en 100: las barras si se topan
-  // (no pueden pasarse del ancho), pero si el mes supera la meta hay que
-  // poder verlo — mostrar "100%" cuando en realidad se logro 118% escondería
-  // justo el mes bueno.
-  var pctTotalReal = META_TOTAL ? (totalFact/META_TOTAL)*100 : 0;
-  var pctMOReal    = META_MO    ? (totalMO/META_MO)*100      : 0;
-  var pctRepReal   = META_REP   ? (totalRep/META_REP)*100    : 0;
-
-  function fmt(n) { return 'Q.' + n.toLocaleString('es-GT', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-
-  // Ticket promedio = lo facturado entre el numero de ordenes cerradas CON
-  // MONTO (data.countCerradas ya excluye las que cerraron en cero, ver
-  // semComputeFromOrders). Solo aplica a Total general y Mano de obra.
-  var nOrd = data.countCerradas || 0;
-  function ticket(monto) { return nOrd ? fmt(monto / nOrd) : '—'; }
-  // Insignia de porcentaje, del mismo color que su barra
-  function pctBadge(p, col) {
-    // El contorno y el fondo llevan el color del semaforo (rojo/naranja/
-    // verde) pero el numero va en blanco — el numero coloreado sobre fondo
-    // oscuro costaba de leer, sobre todo en celular (pedido de Byron).
-    return '<span style="font-size:10px;font-weight:700;color:#fff;background:var(--bg4);border:1px solid ' + col + ';border-radius:8px;padding:1px 6px;margin-left:6px">' + p.toFixed(1) + '%</span>';
-  }
-  function ticketTxt(monto) {
-    return '<span style="font-size:10px;color:var(--tx3);margin-left:6px">Ticket prom. <strong style="color:var(--tx2)">' + ticket(monto) + '</strong></span>';
-  }
-  function bar(pct, col) {
-    return '<div style="background:var(--bg3);border-radius:6px;height:14px;margin:4px 0 10px">' +
-      '<div style="background:'+col+';width:'+pct+'%;height:100%;border-radius:6px;transition:width .4s"></div></div>';
-  }
-
-  var html = '';
-
-  // Navegador de mes — permite consultar meses anteriores (ej. con cuanto
-  // cerro julio), ademas del mes actual que se muestra por defecto al abrir.
-  var monthLabelCap = data.monthLabel.charAt(0).toUpperCase() + data.monthLabel.slice(1);
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:8px 10px">' +
-    '<button id="btn-sem-prev" title="Mes anterior" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx);cursor:pointer;font-size:13px">&#9664;</button>' +
-    '<span style="font-size:13px;font-weight:700;color:var(--tx)">' + monthLabelCap + (data.isCurrentMonth ? ' (actual)' : '') + '</span>' +
-    '<button id="btn-sem-next" title="Mes siguiente" ' + (data.isCurrentMonth ? 'disabled' : '') + ' style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd);background:' + (data.isCurrentMonth ? 'var(--bg3)' : 'var(--bg4)') + ';color:' + (data.isCurrentMonth ? 'var(--tx3)' : 'var(--tx)') + ';cursor:' + (data.isCurrentMonth ? 'not-allowed' : 'pointer') + ';font-size:13px">&#9654;</button>' +
-  '</div>';
-
-  if (data.isCurrentMonth) {
-    // HOY — vista diaria real (REQ004): solo lo cerrado en la fecha de hoy,
-    // usando la fecha de cierre de la orden, no la de creacion
-    var now = new Date();
-    var hoyStr = now.toLocaleDateString('es-GT', {day:'2-digit', month:'2-digit', year:'numeric'});
-    html += '<div style="background:var(--bg3);border:1px solid var(--ac);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
-      '<div style="font-size:10px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128197; Hoy (' + hoyStr + ') — ' + data.hoyCount + ' orden(es) cerrada(s)</div>' +
-      '<div style="display:flex;gap:20px;flex-wrap:wrap">' +
-        '<div><div style="font-size:17px;font-weight:700;color:var(--gn)">'+fmt(data.hoyTotal)+'</div><div style="font-size:10px;color:var(--tx3)">Total</div></div>' +
-        '<div><div style="font-size:17px;font-weight:700;color:var(--ac)">'+fmt(data.hoyMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
-        '<div><div style="font-size:17px;font-weight:700;color:#F39C12">'+fmt(data.hoyRep)+'</div><div style="font-size:10px;color:var(--tx3)">Repuestos</div></div>' +
-      '</div>' +
-    '</div>';
-
-    // KPI bars — meta del mes vs cerrado
-    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
-      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128200; Meta del mes (ya cerrado / facturado)</div>' +
-      // Cada rubro lleva, en su misma linea: el % alcanzado de su meta y —
-      // para Total general y Mano de obra — el ticket promedio. Se envuelve
-      // en flex-wrap para que en celular baje a dos renglones en vez de
-      // apretarse.
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--tx3);margin-bottom:2px">' +
-        '<span>Total general' + pctBadge(pctTotalReal, colTotal) + ticketTxt(totalFact) + '</span>' +
-        '<span style="color:var(--gn);font-weight:700">'+fmt(totalFact)+' / '+fmt(META_TOTAL)+'</span></div>' +
-      bar(pctTotal, colTotal) +
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--tx3);margin-bottom:2px">' +
-        '<span>Mano de obra' + pctBadge(pctMOReal, colMO) + ticketTxt(totalMO) + '</span>' +
-        '<span style="color:var(--ac);font-weight:700">'+fmt(totalMO)+' / '+fmt(META_MO)+'</span></div>' +
-      bar(pctMO, colMO) +
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--tx3);margin-bottom:2px">' +
-        '<span>Rep./Lub/Mat/Tr. Ext.' + pctBadge(pctRepReal, colRep) + '</span>' +
-        '<span style="color:#F39C12;font-weight:700">'+fmt(totalRep)+' / '+fmt(META_REP)+'</span></div>' +
-      bar(pctRep, colRep) +
-      '<div style="display:flex;gap:16px;font-size:10px;color:var(--tx3);margin-top:6px">' +
-        '<span>Ordenes cerradas: <strong style="color:var(--tx)">'+data.countCerradas+'</strong></span>' +
-        '<span>Dias con cierre: <strong style="color:var(--tx)">'+dias.length+'</strong></span>' +
-        '<span>Prom. diario: <strong style="color:var(--tx)">'+(dias.length ? fmt(totalFact/dias.length) : 'Q.0')+'</strong></span>' +
-      '</div>' +
-    '</div>';
-
-    // Proyectado (potencial, ordenes activas con monto autorizado)
-    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
-      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#128181; Proyectado (activas con monto autorizado, aun no cerradas)</div>' +
-      '<div style="display:flex;gap:20px;flex-wrap:wrap">' +
-        '<div><div style="font-size:17px;font-weight:700;color:var(--tx2)">'+fmt(data.potTotal)+'</div><div style="font-size:10px;color:var(--tx3)">Total — '+data.countPotencial+' ordenes</div></div>' +
-        '<div><div style="font-size:17px;font-weight:700;color:var(--tx)">'+fmt(data.potMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div></div>' +
-        '<div><div style="font-size:17px;font-weight:700;color:var(--tx3)">'+fmt(data.potRep)+'</div><div style="font-size:10px;color:var(--tx3)">Rep./Lub/Mat/Tr. Ext.</div></div>' +
-      '</div>' +
-    '</div>';
-  } else {
-    // Mes anterior: solo los datos con que se cerro ese mes — Total, Mano
-    // de obra y Repuestos — sin barras de meta ni "Hoy" ni "Proyectado"
-    // (esos dos conceptos no aplican retroactivamente a un mes ya cerrado).
-    html += '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
-      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">&#9989; Con que se cerro ' + data.monthLabel + ' (' + data.countCerradas + ' orden(es))</div>' +
-      '<div style="display:flex;gap:20px;flex-wrap:wrap">' +
-        '<div><div style="font-size:19px;font-weight:700;color:var(--gn)">'+fmt(totalFact)+'</div><div style="font-size:10px;color:var(--tx3)">Total</div>' +
-          '<div style="font-size:10px;color:var(--tx3);margin-top:2px">Ticket prom. <strong style="color:var(--tx2)">'+ticket(totalFact)+'</strong></div></div>' +
-        '<div><div style="font-size:19px;font-weight:700;color:var(--ac)">'+fmt(totalMO)+'</div><div style="font-size:10px;color:var(--tx3)">Mano de obra</div>' +
-          '<div style="font-size:10px;color:var(--tx3);margin-top:2px">Ticket prom. <strong style="color:var(--tx2)">'+ticket(totalMO)+'</strong></div></div>' +
-        '<div><div style="font-size:19px;font-weight:700;color:#F39C12">'+fmt(totalRep)+'</div><div style="font-size:10px;color:var(--tx3)">Rep./Lub/Mat/Tr. Ext.</div></div>' +
-      '</div>' +
-    '</div>';
-  }
-
-  // History table — dias con cierre, calculado automaticamente
-  if (dias.length) {
-    html += '<div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--tx3);margin-bottom:6px">Historial de ' + data.monthLabel + ' (ordenes cerradas por dia)</div>' +
-      '<div style="overflow-y:auto;max-height:220px">' +
-      '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
-      '<thead><tr style="background:var(--bg3);color:var(--tx3)">' +
-        '<th style="padding:5px 8px;text-align:left">Fecha</th>' +
-        '<th style="padding:5px 8px;text-align:right">Total</th>' +
-        '<th style="padding:5px 8px;text-align:right">M.O.</th>' +
-        '<th style="padding:5px 8px;text-align:right">Repuestos</th>' +
-        '<th style="padding:5px 8px;text-align:center">Ordenes</th>' +
-      '</tr></thead><tbody>';
-    for (var j = 0; j < dias.length; j++) {
-      var d = dias[j];
-      html += '<tr style="border-bottom:1px solid var(--bd)">' +
-        '<td style="padding:5px 8px">'+d.fecha+'</td>' +
-        '<td style="padding:5px 8px;text-align:right;color:var(--gn)">'+fmt(d.total)+'</td>' +
-        '<td style="padding:5px 8px;text-align:right;color:var(--ac)">'+fmt(d.mo)+'</td>' +
-        '<td style="padding:5px 8px;text-align:right;color:#F39C12">'+fmt(d.rep)+'</td>' +
-        '<td style="padding:5px 8px;text-align:center;color:var(--tx3)">'+d.count+'</td>' +
-      '</tr>';
-    }
-    html += '</tbody></table></div>';
-  } else {
-    html += '<div style="font-size:11px;color:var(--tx3);text-align:center;padding:10px">Aun no se ha cerrado ninguna orden en ' + data.monthLabel + '.</div>';
-  }
-
-  document.getElementById('sem-body').innerHTML = html;
-
-  var semPrevBtn = document.getElementById('btn-sem-prev');
-  if (semPrevBtn) semPrevBtn.addEventListener('click', function() { semChangeMonth(1); });
-  var semNextBtn = document.getElementById('btn-sem-next');
-  if (semNextBtn) semNextBtn.addEventListener('click', function() { semChangeMonth(-1); });
-}
-
 /* REPORT FILTERS */
 // Lee si el toggle "Solo con monto" esta activo — funcion compartida por
 // repApplyFilters() (tabla en pantalla) y _repExportVisibleRows() (Excel),
@@ -16248,16 +16064,6 @@ window.addEventListener('load', function() {
          muestra AL IMPRIMIR, en vez de #hist-detail-body, para esos 2 roles
          (ver @media print / .print-restringido mas arriba en el <style>). -->
     <div id="hist-detail-print-only" style="display:none"></div>
-  </div>
-</div>
-
-<!-- SEMAFORO FINANCIERO -->
-<div class="mwrap" id="m-sem">
-  <div class="rep-modal" style="max-width:480px">
-    <div class="modal-t">&#128200; Semaforo Financiero
-      <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeSem()">&#x2715;</button>
-    </div>
-    <div id="sem-body" style="padding-bottom:1rem"></div>
   </div>
 </div>
 
