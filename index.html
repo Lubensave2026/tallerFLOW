@@ -122,7 +122,6 @@ button{cursor:pointer}
 .card-ot{font-size:16px;font-weight:800;font-family:var(--mo);color:var(--ac);margin-bottom:2px;letter-spacing:.5px}
 .card-mt{font-size:11px;color:var(--tx2);font-weight:600}
 .card-tm{font-size:10px;color:var(--tx2)}
-.card-sp{font-size:10px;color:var(--ac);background:var(--blbg);border:1px solid var(--blbd);padding:1px 6px;border-radius:8px;margin-top:3px;display:inline-block}
 .card-tg{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
 .tag{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:500}
 .tg{background:var(--gnbg);color:var(--gn);border:1px solid var(--gnbd)}
@@ -577,7 +576,6 @@ button{cursor:pointer}
   <div id="paro-banner"></div>
   <div class="toolbar">
     <button class="btn-new" id="btn-new" onclick="openNO()" style="display:none">+ Nueva orden</button>
-    <button class="btn-map" id="btn-map" onclick="openMap()" style="display:none">🗺 Mapa</button>
     <button class="btn-map" id="btn-reps" onclick="openReps()" style="display:none;border-color:var(--orbd);color:var(--or)">&#128230; REPUESTOS Y SUBCONTRATOS<span id="reps-count" style="display:none;background:var(--rd);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-presq-pend" onclick="openPresqPend()" style="display:none;border-color:#8B5CF6;color:#8B5CF6">&#128221; Presupuestos pendientes (OT cerradas)<span id="presq-pend-count" style="display:none;background:#8B5CF6;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px"></span></button>
     <button class="btn-map" id="btn-arch" onclick="openHist()" style="display:none;border-color:var(--tx3);background:var(--bg3)">📁 Historial</button>
@@ -738,14 +736,6 @@ button{cursor:pointer}
   </div>
 </div>
 
-<!-- MAP -->
-<div class="mwrap" id="m-map">
-  <div class="modal">
-    <div class="modal-t">🗺 Mapa del taller <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeMap()">✕</button></div>
-    <div id="map-body"></div>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
 <script>
@@ -766,7 +756,6 @@ button{cursor:pointer}
 // Reproceso .............................. «function advanceReproceso(»
 // Nueva orden ............................ «function saveNO(»
 // Notificaciones y contadores (badges) ... «function updateNDot(»
-// Mapa del taller (espacios físicos) ..... «function openMap(»
 // Repuestos Locales/Importación (reporte) «function buildRepContent(»
 // Filtros Estado/Orden de Repuestos y Bodega «function setRepEstadoFilter(» «function setBodegaEstadoFilter(»
 // Menú Despacho, Repuestos y Subcontratos «function buildRepPartsContent(»
@@ -1800,11 +1789,6 @@ function doLogin(rk) {
   // propio boton para no mezclar los presupuestos de ordenes ya cerradas
   // con los repuestos pendientes de ordenes activas.
   document.getElementById('btn-presq-pend').style.display = (rk === 'jefe' || rk === 'partes' || rk === 'asesor') ? 'inline-flex' : 'none';
-  // Mapa: el Jefe lo usa para asignar espacios (funcional); los tecnicos y,
-  // desde el 28 sep 2026, tambien el Asesor, solo lo ven para saber donde
-  // esta cada vehiculo y en que etapa (openMap() lo deja de solo lectura
-  // para ambos, ver mas abajo) — partes/mensajero/lavador no lo necesitan.
-  document.getElementById('btn-map').style.display = (rk === 'jefe' || rk === 'asesor' || (r && r.tec)) ? 'inline-flex' : 'none';
   document.getElementById('btn-arch').style.display = (rk === 'jefe' || rk === 'asesor' || rk === 'partes' || (r && r.tec)) ? 'inline-flex' : 'none';
   // Capacidad del taller: herramienta de planeacion del dia, solo para
   // quienes deciden a quien asignar que — no aporta nada a partes, mensajero
@@ -1842,8 +1826,7 @@ function logout() {
   document.getElementById('btn-autoriz').style.display = 'none';
   document.getElementById('btn-cap').style.display = 'none';
   document.getElementById('btn-export').style.display = 'none';
-  document.getElementById('btn-map').style.display = 'none';
-  closeDrw(); closeNO(); closeRep(); closeMap(); closeAutoriz();
+  closeDrw(); closeNO(); closeRep(); closeAutoriz();
   if (window._ri) clearInterval(window._ri);
   showSc('lg');
 }
@@ -2081,7 +2064,6 @@ function renderBoard() {
           ? '<div style="font-size:9px;color:var(--ac);margin-top:1px">&#9203; Regresa sola a ' + (NL[o.detDestino] || o.detDestino) + ' — ' + new Date(o.detVenceTs).toLocaleString('es-GT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>'
           : '';
         var needsConfirm = o.pending_confirm && role === 'jefe';
-        var spHtml = o.space ? '<div class="card-sp">Esp.' + o.space + '</div>' : '';
         var colorMap = {azul:'#1565C0', amarillo:'#F9A825', verde:'#2E7D32'};
         var numColor = o.colorFisico ? colorMap[o.colorFisico] || '#555' : '#555';
         var numHtml = o.numFisico
@@ -2166,7 +2148,7 @@ function renderBoard() {
             '<div class="card-mt">' + esc(o.tech || 'Sin asignar') + (o.tech2 ? ' + ' + esc(o.tech2.split(' ')[0]) : '') + '</div>' +
             (o.timestamps && o.timestamps[o.phase] ? '<div class="card-tm">&#9201; ' + _horasFaseTxt(o.phase, o.timestamps[o.phase], Date.now()) + '</div>' : '') +
           '</div>' +
-          spHtml + numHtml +
+          numHtml +
           '<div class="card-tg"><span class="tag ' + tc[0] + '">' + tc[1] + '</span>' + prioHtml + stagHtml + repHtml + repuestoHtml + misTrabHtml + '</div>' +
           motivoHtml + largaDuracionHtml + detTimerHtml + aaTimerHtml +
           '<div class="card-sg">' + sigHtml + '</div>' +
@@ -3981,12 +3963,6 @@ function openDrw(id) {
   /* header */
   var hdr = document.getElementById('drw-hdr');
   var prio = o.prio !== 'normal' ? '<span class="dbg tag ' + (o.prio === 'urgente' ? 'tr' : o.prio === 'garantia' ? 'tw' : 'tb') + '">' + (PRIO_LABELS[o.prio] || o.prio.toUpperCase()) + '</span>' : '';
-  // Boton "cambiar espacio" (28 sep 2026, pedido de Byron): justo en el
-  // badge de Espacio, para moverla de espacio sin tener que ir al Mapa.
-  // Solo Jefe (mismo candado de siempre para asignar/mover espacios).
-  var spBadge = o.space ? '<span class="dbg" style="background:var(--blbg);color:var(--ac);border:1px solid var(--blbd)">Espacio ' + o.space +
-    (role === 'jefe' ? ' <button id="btn-cambiar-espacio" data-oid="' + id + '" title="Cambiar de espacio" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:10px;padding:0 2px;vertical-align:middle">&#9998;</button>' : '') +
-    '</span>' : '';
   var confirmBadge = (o.pendingConfirm && role === 'jefe')
     ? '<span class="dbg" style="background:#2E1F0A;color:#F39C12;border:1px solid #6B4510">&#9888; Confirmar movimiento de ' + o.pendingConfirm.by + '</span>'
     : '';
@@ -4010,7 +3986,7 @@ function openDrw(id) {
       '<div class="drw-bg">' +
         '<span class="dbg tag ' + tc + '">' + (lane ? lane.label : o.phase) + '</span>' +
         '<span class="dbg tag ' + tc + '">' + esc(o.ot) + '</span>' +
-        prio + spBadge + confirmBadge +
+        prio + confirmBadge +
       '</div>' +
     '</div>' +
     '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
@@ -4337,12 +4313,6 @@ function openDrw(id) {
       '<button id="btn-assign-tec" class="btn-sg" style="margin-top:8px;width:100%;padding:9px">Confirmar asignacion</button>' +
     '</div>';
   }
-
-  // La asignacion de espacio (donde esta parqueado dentro del taller) se
-  // dejo de hacer desde aqui — ahora es exclusiva del boton &#127757; Mapa
-  // (ver openMap()/mapPick()), para no duplicar la interaccion en 2 lugares
-  // y liberar espacio en la ficha para el kilometraje (ver "Espacio" ->
-  // "Kilometraje" en el irow de arriba).
 
   /* desc — solo Asesor de servicio y Jefe de taller pueden editar; el
      resto del personal (tecnicos, mensajero, partes) solo lectura. */
@@ -6751,10 +6721,6 @@ function openDrw(id) {
       showReprocesoCausaModal(id, registrarReprocesoSinAvance);
     });
   }
-  var cambiarEspacioBtn = document.getElementById('btn-cambiar-espacio');
-  if (cambiarEspacioBtn) {
-    cambiarEspacioBtn.addEventListener('click', function() { showCambiarEspacioModal(id); });
-  }
   var cmLinkBtn = document.getElementById('btn-cm-link');
   if (cmLinkBtn) {
     cmLinkBtn.addEventListener('click', function() {
@@ -6921,18 +6887,6 @@ function saveDesc(id) {
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   var el = document.getElementById('d-desc');
   if (o && el) { o.desc = el.value; save(); }
-}
-
-function setSpace(id, sp) {
-  var o = null;
-  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
-  if (!o) return;
-  o.space = sp;
-  var who = ROLES[role] ? ROLES[role].label : role;
-  o.msgs = o.msgs || [];
-  o.msgs.push({who:who, txt:'Espacio asignado: ' + sp, ts:Date.now(), type:'system'});
-  addNotif('Espacio ' + sp + ' asignado a ' + o.plate, id);
-  save(); toast('Espacio ' + sp + ' asignado'); openDrw(id);
 }
 
 function marcarNoAut(id) {
@@ -8471,339 +8425,6 @@ document.addEventListener('click', function(e) {
   }
 });
 
-// Tipos especiales de espacio (3=Alineadora, 4/5/10/11=Elevador) -- fuente
-// unica reusada por openMap() y por "Cambiar espacio" en la ficha (28 sep
-// 2026, ver showCambiarEspacioModal), para no mantener esta lista 2 veces.
-var ESPACIO_TIPOS = {'3':'Alineadora', '4':'Elevador', '5':'Elevador', '10':'Elevador', '11':'Elevador'};
-
-// Cualquier orden activa (cualquier fase menos Cerrada) puede tener un
-// espacio asignado y ocuparlo en el mapa — el carro sigue fisicamente en el
-// taller sin importar en que parte del flujo este (Detenido, Esp. de
-// repuestos, etc. incluidos). Antes solo se marcaba ocupado en 4 fases
-// puntuales, lo que dejaba espacios "asignados" pero mostrandose como
-// libres — mismo reporte de Byron (14 sep 2026) que tambien corrigio
-// mapPick() para poder asignar esas ordenes desde el inicio. Cada espacio
-// ocupado distingue "Trabajando" (fase ab, el tecnico esta realmente
-// operando ahi en este momento) de "Parqueado" (ocupa el espacio fisico
-// pero esta en cualquier otra fase), derivado directo de la fase de la
-// orden, sin campo nuevo que mantener. Factorizada aparte (28 sep 2026)
-// para que openMap() y "Cambiar espacio" en la ficha compartan el mismo
-// criterio de "ocupado" en vez de 2 loops paralelos.
-function _espaciosOcupados() {
-  var occ = {};
-  for (var i = 0; i < orders.length; i++) {
-    var o = orders[i];
-    if (o.space && o.phase !== 'cer') {
-      occ[o.space] = {tech:o.tech, plate:o.plate, id:o.id, trabajando: o.phase === 'ab', model:o.model, phase:o.phase};
-    }
-  }
-  return occ;
-}
-
-// Espacios LIBRES (1 al 36), en orden -- excluye el espacio actual de la
-// orden (no tiene sentido "moverla" al mismo espacio donde ya esta).
-function _espaciosLibres(excluirSp) {
-  var occ = _espaciosOcupados();
-  var libres = [];
-  for (var spn = 1; spn <= 36; spn++) {
-    var spnS = String(spn);
-    if (!occ[spnS] && spnS !== excluirSp) libres.push(spnS);
-  }
-  return libres;
-}
-
-function _espacioDisplayLabel(sp) {
-  return ESPACIO_TIPOS[sp] ? (sp + ' - ' + ESPACIO_TIPOS[sp]) : sp;
-}
-
-// Modal para mover una orden de espacio directo desde su propia ficha (28
-// sep 2026, pedido de Byron: "cuando haya que cambiarle de espacio se
-// pueda hacer directamente ahi", sin tener que abrir el Mapa primero).
-// Reusa setSpace() -- el mismo mecanismo ya probado que usa mapPick() --
-// asi que mover desde aqui o desde el Mapa tiene exactamente el mismo
-// resultado. Solo Jefe, mismo candado que ya rige quien puede asignar
-// espacios en el Mapa.
-function showCambiarEspacioModal(id) {
-  if (role !== 'jefe') { toast('Solo el Jefe de taller puede cambiar el espacio'); return; }
-  var o = null;
-  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
-  if (!o) return;
-  var libres = _espaciosLibres(o.space ? String(o.space) : null);
-  if (!libres.length) { toast('No hay espacios libres en este momento'); return; }
-  var opciones = libres.map(function(sp) { return '<option value="' + sp + '">' + _espacioDisplayLabel(sp) + '</option>'; }).join('');
-  var tempDiv = document.createElement('div');
-  tempDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;display:flex;align-items:center;justify-content:center';
-  tempDiv.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);max-width:320px;width:90%;padding:1rem">' +
-    '<div style="font-weight:600;margin-bottom:10px;color:var(--ac)">&#128663; Cambiar espacio' + (o.space ? ' (actual: ' + esc(String(o.space)) + ')' : '') + '</div>' +
-    '<select id="cambiar-espacio-sel" class="fi" style="width:100%;margin-bottom:10px">' + opciones + '</select>' +
-    '<div style="display:flex;gap:8px">' +
-      '<button id="btn-cambiar-espacio-cancel" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">Cancelar</button>' +
-      '<button id="btn-cambiar-espacio-ok" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--ac);color:#000;font-weight:600;cursor:pointer">Mover</button>' +
-    '</div>' +
-  '</div>';
-  document.body.appendChild(tempDiv);
-  document.getElementById('btn-cambiar-espacio-cancel').addEventListener('click', function() { document.body.removeChild(tempDiv); });
-  document.getElementById('btn-cambiar-espacio-ok').addEventListener('click', function() {
-    var nuevoSp = document.getElementById('cambiar-espacio-sel').value;
-    document.body.removeChild(tempDiv);
-    setSpace(id, nuevoSp);
-  });
-}
-
-/* MAP */
-function openMap() {
-  var r = role ? ROLES[role] : null;
-  var myTec = r && r.tec ? r.tn : null;
-  // Solo el Jefe de taller puede asignar espacios — los tecnicos ven el mapa
-  // para saber donde esta cada vehiculo, pero ya no pueden auto-asignarse un
-  // espacio (queda de solo lectura para ellos).
-  var readOnlyMap = (role !== 'jefe');
-
-  var occ = _espaciosOcupados();
-
-  // Distribucion real del taller (foto de Byron, 14 sep 2026) — reemplaza
-  // la rejilla abstracta de 11 espacios que habia antes. 36 espacios en
-  // total; Alineadora y Elevadores quedan en los mismos numeros que ya
-  // tenian confirmados (3=Alineadora, 4/5 y 10/11=Elevador) — el resto son
-  // espacios normales de parqueo/trabajo. Parqueo de motos, Comedor, rutas
-  // de evacuacion y area verde son solo referencia visual del taller, no
-  // son espacios asignables a una orden — por eso ni siquiera entran a este
-  // mapa (que solo asigna vehiculos).
-  var spTypes = {};
-  var spLabels = {};
-  for (var spn = 1; spn <= 36; spn++) {
-    var spnS = String(spn);
-    spTypes[spnS] = 'normal';
-    spLabels[spnS] = spnS;
-  }
-  spTypes['3'] = 'alin'; spLabels['3'] = '3\nAlin.';
-  spTypes['4'] = 'elev'; spLabels['4'] = '4\nElev.';
-  spTypes['5'] = 'elev'; spLabels['5'] = '5\nElev.';
-  spTypes['10'] = 'elev'; spLabels['10'] = '10\nElev.';
-  spTypes['11'] = 'elev'; spLabels['11'] = '11\nElev.';
-
-  function makeSlot(sp) {
-    var tipo = spTypes[sp] || 'normal';
-    var taken = occ[sp];
-    var isMine = taken && taken.tech === myTec;
-    var bc = '#2E3447', bg = '#252A3A', tc2 = '#5A6280', cur = 'pointer', clickable = true;
-    if (tipo === 'alin') { bc='#D4A017'; bg='#1A1200'; tc2='#D4A017'; }
-    else if (tipo === 'elev') { bc='#1A3A6B'; bg='#0D1A2E'; tc2='#3D7EFF'; }
-    if (taken) {
-      if (isMine) { bc='#1A5C35'; bg='#0D2E1A'; tc2='#2ECC71'; }
-      else { bc='#6B4510'; bg='#2E1F0A'; tc2='#F39C12'; }
-      // Un espacio OCUPADO siempre se puede tocar para abrir la ficha de esa
-      // orden (28 sep 2026, pedido de Byron) — para cualquier rol que vea el
-      // Mapa, incluida la vista de solo lectura de tecnico/asesor (ver el
-      // switch mas abajo: openDrw(), no mapPick(), asi que readOnlyMap no
-      // aplica aqui — solo bloquea ASIGNAR un espacio libre).
-      clickable = true;
-    } else if (readOnlyMap) {
-      clickable = false; cur = 'default';
-    }
-
-    // Color del punto (28 sep 2026, pedido de Byron): antes era fijo
-    // verde/naranja (mio/de otro). Ahora, para Jefe/Asesor (myTec === null,
-    // no tienen "mio") el punto muestra el color REAL de la etapa de esa
-    // orden (mismo PHASE_COLORS que el resto de la app), para identificar
-    // en que parte del proceso esta cada carro sin abrir la ficha. Para un
-    // tecnico viendo SU PROPIA orden: verde si la esta trabajando ahora
-    // mismo (como siempre), o el color de la etapa real si esta en otra
-    // fase (ej. Prueba, Detenido) — el recuadro se queda verde de todas
-    // formas para que la siga reconociendo como suya de un vistazo. Viendo
-    // la orden de OTRO tecnico: se queda naranja fijo, sin cambios.
-    var dotColor = '#F39C12';
-    if (taken) {
-      if (isMine && taken.trabajando) {
-        dotColor = '#2ECC71';
-      } else if (isMine || !myTec) {
-        dotColor = (PHASE_COLORS[taken.phase] && PHASE_COLORS[taken.phase].bg) || dotColor;
-      }
-    }
-
-    var lparts = spLabels[sp].split('\n');
-    var div = document.createElement('div');
-    div.style.cssText = 'width:60px;height:82px;border-radius:6px;border:1.5px solid '+bc+';background:'+bg+';display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3px;cursor:'+cur+';text-align:center;transition:all .15s';
-    var inner = '';
-    if (taken) {
-      var estadoTxt = taken.trabajando ? 'Trab.' : 'Parq.';
-      var dotSpan = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+dotColor+';vertical-align:middle"></span>';
-      inner = '<div style="font-size:11px;white-space:nowrap">' + dotSpan + ' <span style="font-size:8px;font-weight:700;vertical-align:middle">' + estadoTxt + '</span></div>';
-      inner += '<div style="font-size:14px;font-weight:700;font-family:var(--mo);color:'+tc2+'">' + lparts[0] + '</div>';
-      if (lparts[1]) inner += '<div style="font-size:8px;color:'+tc2+';opacity:.8">' + lparts[1] + '</div>';
-      inner += '<div style="font-size:8px;color:var(--tx2);margin-top:2px;overflow:hidden;white-space:nowrap;width:56px;text-overflow:ellipsis">' + esc(taken.tech.split(' ')[0]) + '</div>';
-      inner += '<div style="font-size:7px;font-family:var(--mo);color:var(--tx3)">' + esc(taken.plate) + '</div>';
-      if (taken.model) inner += '<div style="font-size:7px;color:var(--tx3);overflow:hidden;white-space:nowrap;width:56px;text-overflow:ellipsis">' + esc(taken.model) + '</div>';
-    } else {
-      inner = '<div style="font-size:16px;opacity:.3">' + (tipo==='alin'?'&#9881;':tipo==='elev'?'&#128295;':'&#128663;') + '</div>';
-      inner += '<div style="font-size:14px;font-weight:700;font-family:var(--mo);color:'+tc2+'">' + lparts[0] + '</div>';
-      if (lparts[1]) inner += '<div style="font-size:8px;color:'+tc2+';opacity:.7">' + lparts[1] + '</div>';
-      inner += '<div style="font-size:9px;color:var(--tx3)">Libre</div>';
-    }
-    div.innerHTML = inner;
-    if (clickable) {
-      if (taken) {
-        (function(oid) {
-          div.addEventListener('click', function() { closeMap(); openDrw(oid); });
-        })(taken.id);
-      } else {
-        (function(s) {
-          div.addEventListener('click', function() { mapPick(s); });
-        })(sp);
-      }
-    }
-    return div;
-  }
-
-  var mapDiv = document.createElement('div');
-
-  var leg = document.createElement('div');
-  leg.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1rem;font-size:11px;color:var(--tx3)';
-  // Leyenda actualizada (28 sep 2026): el punto de color ya no es solo
-  // verde/naranja fijo -- ver el comentario en makeSlot() sobre dotColor.
-  leg.innerHTML = '<span>Trab. = Trabajando &middot; Parq. = Parqueado</span><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ECC71;vertical-align:middle"></span> = trabajando ahora</span><span>El resto del color del punto = etapa del vehiculo</span>' +
-    (myTec ? '<span>(recuadro verde = es tu orden)</span>' : '') +
-    '<span style="color:#D4A017">&#9881; Alineadora</span><span style="color:#3D7EFF">&#128295; Elevador</span><span style="opacity:.5">Libre</span>';
-  mapDiv.appendChild(leg);
-
-  // Distribucion real del taller — 36 espacios en 5 filas (ver comentario
-  // arriba de spTypes). Los grupos siguen el orden fisico que confirmo
-  // Byron: A y B son las filas de siempre (con Alineadora/Elevadores); C es
-  // la fila 15-19 mas la ampliacion nueva 20-24; D es la fila que antes
-  // eran los espacios "20 al 27" (se corrio +5 con la ampliacion); E es la
-  // columna que antes eran los espacios "31/30/29/28" (se renumeraron al
-  // final, 33 al 36).
-  var MAP_ROWS = [
-    { label: 'Fila A — Espacios 1 al 7', spaces: ['1','2','3','4','5','6','7'] },
-    { label: 'Fila B — Espacios 8 al 14', spaces: ['8','9','10','11','12','13','14'] },
-    { label: 'Fila C — Espacios 15 al 24', spaces: ['15','16','17','18','19','20','21','22','23','24'] },
-    { label: 'Fila D — Espacios 25 al 32', spaces: ['25','26','27','28','29','30','31','32'] },
-    { label: 'Fila E — Espacios 33 al 36', spaces: ['33','34','35','36'] },
-  ];
-  MAP_ROWS.forEach(function(rowDef) {
-    var rowLbl = document.createElement('div');
-    rowLbl.style.cssText = 'font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:6px';
-    rowLbl.textContent = rowDef.label;
-    mapDiv.appendChild(rowLbl);
-
-    var rowDiv = document.createElement('div');
-    rowDiv.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1.25rem';
-    rowDef.spaces.forEach(function(sp) { rowDiv.appendChild(makeSlot(sp)); });
-    mapDiv.appendChild(rowDiv);
-  });
-
-  var note = document.createElement('div');
-  note.style.cssText = 'font-size:11px;color:var(--tx3);padding:8px;background:var(--bg3);border-radius:var(--rs);border:1px solid var(--bd)';
-  note.textContent = readOnlyMap
-    ? 'Solo el Jefe de taller puede asignar espacios — esta vista es de solo lectura. Toca un espacio ocupado para ver la ficha de esa orden.'
-    : 'Toca un espacio libre para asignarlo a una de las ordenes activas, o un espacio ocupado para ver su ficha.';
-  mapDiv.appendChild(note);
-
-  var mapBody = document.getElementById('map-body');
-  mapBody.innerHTML = '';
-  mapBody.appendChild(mapDiv);
-  document.getElementById('m-map').classList.add('on');
-}
-
-function closeMap() { document.getElementById('m-map').classList.remove('on'); }
-
-function mapPick(sp) {
-  var r = role ? ROLES[role] : null;
-  var myOrders = [];
-  // Cualquier orden activa (cualquier fase menos Cerrada) tiene un lugar
-  // fisico real en el taller, sin importar en que parte del flujo de
-  // trabajo este — antes solo se podia asignar espacio a ordenes en
-  // Trabajando/Espera-asignacion, y Byron reporto que le faltaban opciones
-  // al querer asignar un carro que estaba, por ejemplo, Detenido o Esp. de
-  // repuestos (14 sep 2026). Mismo criterio ya usado para "ordenesActivas"
-  // en Capacidad del taller (ver _capacidadCalc), para no tener 2 reglas
-  // distintas de "que cuenta como activo".
-  for (var i = 0; i < orders.length; i++) {
-    var o = orders[i];
-    if (o.phase !== 'cer') {
-      if (r && r.tec ? (o.tech === r.tn || o.tech2 === r.tn) : role === 'jefe') myOrders.push(o);
-    }
-  }
-  if (!myOrders.length) { toast('Sin ordenes activas para asignar'); return; }
-
-  // Se separan en 2 grupos (26 sep 2026, pedido de Byron): "sin espacio" son
-  // las candidatas normales para este espacio libre; "en otro espacio" son
-  // las que YA estan en otro lugar del taller y se quieren MOVER aqui — se
-  // muestran aparte, con su boton propio, para que mover algo sea siempre
-  // una accion explicita (nunca implicita por el atajo de "solo hay 1").
-  var sinEspacio = myOrders.filter(function(o) { return !o.space; });
-  var enOtroEspacio = myOrders.filter(function(o) { return o.space && o.space !== sp; });
-
-  if (sinEspacio.length === 1 && !enOtroEspacio.length) {
-    setSpace(sinEspacio[0].id, sp); closeMap(); return;
-  }
-
-  var wrap = document.createElement('div');
-  wrap.style.cssText = 'margin-top:1rem;border-top:1px solid var(--bd);padding-top:1rem';
-  wrap.innerHTML = '<div style="font-size:12px;color:var(--tx2);margin-bottom:8px">Asignar espacio ' + esc(sp) + ' a:</div>';
-
-  var srch = document.createElement('input');
-  srch.className = 'fi';
-  srch.placeholder = 'Buscar por No. orden, vehiculo, placa o cliente...';
-  srch.style.cssText = 'margin-bottom:10px';
-  wrap.appendChild(srch);
-
-  var results = document.createElement('div');
-  wrap.appendChild(results);
-
-  function cardFor(o, esMover) {
-    var pc = PHASE_COLORS[o.phase] || {bg:'#333', color:'#fff', label:o.phase};
-    var row = document.createElement('div');
-    row.style.cssText = 'background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);padding:10px;margin-bottom:8px';
-    var html = '<div style="font-size:13px;font-weight:700;font-family:var(--mo)">OR #' + esc(o.ot || '—') + ' &middot; ' + esc(o.model) + ' &middot; ' + esc(o.plate) + '</div>';
-    html += '<div style="font-size:12px;color:var(--tx2);margin-top:2px">' + esc(o.client || '—') + '</div>';
-    html += '<div style="margin-top:8px"><span style="display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:' + pc.bg + ';color:' + pc.color + '">' + esc(pc.label) + '</span></div>';
-    html += '<div style="font-size:11px;color:var(--tx3);margin-top:3px">' + esc(o.tech || '—') + '</div>';
-    if (esMover) html += '<div style="font-size:10px;color:#F39C12;margin-top:6px">Actualmente en espacio ' + esc(o.space) + '</div>';
-    row.innerHTML = html;
-    var btn = document.createElement('button');
-    btn.className = 'btn-sg';
-    btn.style.cssText = 'margin-top:8px;width:100%';
-    btn.textContent = esMover ? 'Mover aqui' : 'Asignar';
-    (function(oid, s) {
-      btn.addEventListener('click', function() { setSpace(oid, s); closeMap(); });
-    })(o.id, sp);
-    row.appendChild(btn);
-    return row;
-  }
-
-  function renderResults(q) {
-    var ql = (q || '').toLowerCase();
-    function matches(o) {
-      if (!ql) return true;
-      return ((o.ot||'') + (o.model||'') + (o.plate||'') + (o.client||'')).toLowerCase().indexOf(ql) >= 0;
-    }
-    var listSin = sinEspacio.filter(matches);
-    var listCon = enOtroEspacio.filter(matches);
-    results.innerHTML = '';
-    if (!listSin.length && !listCon.length) {
-      var vacio = document.createElement('div');
-      vacio.style.cssText = 'font-size:12px;color:var(--tx3);text-align:center;padding:12px';
-      vacio.textContent = 'Sin resultados';
-      results.appendChild(vacio);
-      return;
-    }
-    listSin.forEach(function(o) { results.appendChild(cardFor(o, false)); });
-    if (listCon.length) {
-      var lbl = document.createElement('div');
-      lbl.style.cssText = 'font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin:10px 0 6px';
-      lbl.textContent = 'Ya en otro espacio — mover aqui';
-      results.appendChild(lbl);
-      listCon.forEach(function(o) { results.appendChild(cardFor(o, true)); });
-    }
-  }
-
-  srch.addEventListener('input', function() { renderResults(srch.value); });
-  renderResults('');
-
-  document.getElementById('map-body').appendChild(wrap);
-}
-
 /* REPORT */
 var _repProdMonthOffset = 0; // 0 = mes actual, 1 = mes anterior, etc. — solo para la tarjeta "Mi productividad (cerradas)"
 // Toggles jefe-only del reporte general: (1) columnas de Hrs. Trabajando /
@@ -9613,12 +9234,7 @@ function buildRepContent() {
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);text-align:center">' +
         (o.numFisico ? '<div style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:' + (o.colorFisico==='azul'?'#1565C0':o.colorFisico==='amarillo'?'#F9A825':o.colorFisico==='verde'?'#2E7D32':'#555') + ';color:#fff;font-size:11px;font-weight:700">' + o.numFisico + '</div>' : '<span style="color:var(--tx3);font-size:10px">—</span>') +
       '</td>' +
-      // Espacio asignado, como etiqueta chica pegada a la Placa (30 sep
-      // 2026, pedido de Byron) -- en vez de una columna nueva, para no
-      // ensanchar el reporte.
-      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + esc(o.plate||'—') +
-        (o.space ? '<span style="margin-left:6px;font-family:var(--fn);font-size:9px;font-weight:600;color:var(--tx3);background:var(--bg4);border:1px solid var(--bd);border-radius:8px;padding:1px 6px;white-space:nowrap">Esp.' + esc(String(o.space)) + '</span>' : '') +
-      '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);font-family:var(--mo)">' + esc(o.plate||'—') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid var(--bd)">' + esc(o.tech||'Sin asignar') + (o.tech2?' + '+esc(o.tech2.split(' ')[0]):'') + '</td>' +
       (tecActivo ? tecRowCells : ((role === 'jefe' && _jefeShowProdCols) ? jefeProdRowCells : '<td style="padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--or)">' + tFase + '</td>')) +
       factPotencialCell + moPotencialCell + propCells +
