@@ -9567,11 +9567,15 @@ function getBodegaRows() {
   var rows = [];
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
-    if (o.phase === 'cer') continue;
+    var cerrada = o.phase === 'cer';
     var items = o.bodega || [];
     for (var j = 0; j < items.length; j++) {
       var it = items[j];
       if (!it.vobo) continue;
+      // 16 nov 2026 (caso de la orden 5457): una orden CERRADA ya no aparecia aqui, y un material con Vo.Bo. que se olvido marcar
+      // como despachado no se podia marcar nunca (y Bodega Virtual no lo rebajaba). Ahora, de una orden cerrada solo se listan los
+      // que siguen SIN despachar; no se toca nada del cierre (monto, horas, fecha). Mientras la orden no se archive.
+      if (cerrada && it.despachado) continue;
       rows.push({o:o, item:it, idx:j});
     }
   }
