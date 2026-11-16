@@ -10535,14 +10535,21 @@ function updateAutorizBadge() {
   if (m && m.classList.contains('on')) buildAutorizContent();
 }
 
+// 16 nov 2026 (pedido de Byron): el Jefe puede quitar de esta lista items que
+// no proceden. Para que no sea facil hacerlo por error, la X NO se dibuja hasta
+// que se activa el modo "quitar" con un enlace pequeno al pie; ademas pide
+// confirmacion por cada item y el modo se apaga al abrir/cerrar la ventana.
+var _autorizModoQuitar = false;
+
 function openAutoriz() {
+  _autorizModoQuitar = false;
   if (_AUTORIZ_ROLES_VISIBLES.indexOf(role) === -1) { toast('Solo el Jefe, Partes, Mensajero o Asesor pueden ver estas solicitudes'); return; }
   var t = document.getElementById('autoriz-modal-title');
   if (t) t.textContent = role === 'jefe' ? '🔒 Esperando tu autorizacion' : '📦 PENDIENTE DESPACHO';
   buildAutorizContent();
   document.getElementById('m-autoriz').classList.add('on');
 }
-function closeAutoriz() { document.getElementById('m-autoriz').classList.remove('on'); }
+function closeAutoriz() { _autorizModoQuitar = false; document.getElementById('m-autoriz').classList.remove('on'); }
 
 function buildAutorizContent() {
   var body = document.getElementById('autoriz-body');
@@ -10572,7 +10579,9 @@ function buildAutorizContent() {
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
         '<div style="font-size:12px;color:var(--tx);min-width:0">' + p.desc + '</div>' +
         (esJefe
-          ? '<button class="btn-autoriz-ok" data-tipo="' + p.tipo + '" data-oid="' + p.o.id + '" data-ri="' + p.ri + '" style="font-size:11px;padding:5px 12px;border-radius:10px;border:1px solid var(--orbd);background:var(--or);color:#000;font-weight:700;cursor:pointer;white-space:nowrap">&#10003; Dar Vo.Bo.</button>'
+          ? '<span style="display:flex;align-items:center;gap:6px">' +
+            (_autorizModoQuitar ? '<button class="btn-autoriz-del" data-tipo="' + p.tipo + '" data-oid="' + p.o.id + '" data-ri="' + p.ri + '" title="Quitar este item (no procede)" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:4px 8px;font-size:11px;cursor:pointer;line-height:1">&#x2715;</button>' : '') +
+            '<button class="btn-autoriz-ok" data-tipo="' + p.tipo + '" data-oid="' + p.o.id + '" data-ri="' + p.ri + '" style="font-size:11px;padding:5px 12px;border-radius:10px;border:1px solid var(--orbd);background:var(--or);color:#000;font-weight:700;cursor:pointer;white-space:nowrap">&#10003; Dar Vo.Bo.</button></span>'
           // Mario/William: solo informativo, no pueden autorizar — sin boton,
           // mismo patron de solo-lectura que ya usa esta app en otros paneles
           // (ej. "Regresa sola" del temporizador de Detenido).
@@ -10580,7 +10589,49 @@ function buildAutorizContent() {
       '</div>' +
     '</div>';
   }
+  if (esJefe) {
+    html += '<div style="text-align:center;margin-top:14px"><a href="#" id="autoriz-toggle-quitar" style="font-size:10px;color:var(--tx3);text-decoration:underline;opacity:.7">' +
+      (_autorizModoQuitar ? 'Ocultar la opcion de quitar items' : 'Quitar items que no proceden…') + '</a></div>';
+  }
   body.innerHTML = html;
+
+  var tgQ = document.getElementById('autoriz-toggle-quitar');
+  if (tgQ) tgQ.addEventListener('click', function(ev) {
+    ev.preventDefault();
+    if (role !== 'jefe') return;
+    _autorizModoQuitar = !_autorizModoQuitar;
+    buildAutorizContent();
+  });
+  var delBtns = body.querySelectorAll('.btn-autoriz-del');
+  for (var di = 0; di < delBtns.length; di++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede quitar items'); return; }
+        var tipo = this.getAttribute('data-tipo');
+        var oid = parseInt(this.getAttribute('data-oid'));
+        var ri = parseInt(this.getAttribute('data-ri'));
+        var ox = null;
+        for (var j = 0; j < orders.length; j++) { if (orders[j].id === oid) { ox = orders[j]; break; } }
+        if (!ox) return;
+        var lista = tipo === 'repuesto' ? ox.repuestos : ox.bodega;
+        if (!lista || !lista[ri]) return;
+        var it = lista[ri];
+        // Solo items que siguen esperando Vo.Bo. y no se han despachado
+        // (si otro dispositivo ya lo autorizo, no se quita desde aqui).
+        if (it.vobo || it.despachado) { toast('Ese item ya fue autorizado — no se puede quitar desde aqui'); buildAutorizContent(); return; }
+        var dTxt = (it.cantidad ? it.cantidad + ' ' : '') + (it.desc || '') + (it.especificacion ? ' — ' + it.especificacion : '');
+        if (!confirm('¿Quitar "' + dTxt + '" de la orden #' + ox.ot + ' (' + ox.plate + ')?\nNo se podra deshacer.')) return;
+        lista.splice(ri, 1);
+        var who = ROLES[role] ? ROLES[role].label : role;
+        ox.msgs = ox.msgs || [];
+        ox.msgs.push({who:who, txt:'&#x2715; ' + (tipo === 'repuesto' ? 'Repuesto eliminado' : 'Solicitud de bodega eliminada') + ' (no procede): "' + esc(dTxt) + '"', ts:Date.now(), type:'system'});
+        save();
+        toast('Item quitado');
+        buildAutorizContent();
+        updateNDot();
+      });
+    })(delBtns[di]);
+  }
 
   var btns = body.querySelectorAll('.btn-autoriz-ok');
   for (var bi = 0; bi < btns.length; bi++) {
