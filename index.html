@@ -8753,7 +8753,7 @@ function buildRepContent() {
       '<div class="kpi"><div class="kpi-n" style="color:' + (prodCerPct !== null ? _productividadColor(prodCerPct) : 'var(--tx3)') + '">' + (prodCerPct !== null ? prodCerPct + '%' : '—') + '</div><div class="kpi-l">Productividad cerrados</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:#888888">' + (prodActPct !== null ? prodActPct + '%' : '—') + '</div><div class="kpi-l">Productividad en proceso</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:var(--or)">' + repuestosPendientesCount + '</div><div class="kpi-l">Repuestos pendientes</div></div>' +
-      '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + reprocesosCount + '</div><div class="kpi-l">Reprocesos</div></div>' +
+      '<div class="kpi"' + (role === 'jefe' ? ' onclick="openReprocesosMes()" style="cursor:pointer" title="Ver el detalle de los reprocesos del mes"' : '') + '><div class="kpi-n" style="color:var(--rd)">' + reprocesosCount + '</div><div class="kpi-l">Reprocesos</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:#E67E22">' + (presupPromedioHoras !== null ? presupPromedioHoras.toFixed(1) + 'h' : '—') + '</div><div class="kpi-l">Prom. en Presupuesto (mes)</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:' + (semCerradoData.pctAprobacion !== null ? _productividadColor(Math.round(semCerradoData.pctAprobacion)) : 'var(--tx3)') + '">' + (semCerradoData.pctAprobacion !== null ? semCerradoData.pctAprobacion.toFixed(0) + '%' : '—') + '</div><div class="kpi-l">% de aprobacion (mes)</div></div>' +
       '<div class="kpi"' + (role === 'jefe' ? ' onclick="openQuejasMes()" style="cursor:pointer" title="Ver el detalle de las quejas del mes"' : '') + '><div class="kpi-n" style="color:' + (quejasCount > 0 ? '#D4537E' : 'var(--tx3)') + '">' + quejasCount + '</div><div class="kpi-l">Quejas de clientes (mes)</div></div>' +
@@ -10589,6 +10589,71 @@ function openQuejasMes() {
         '<div style="font-size:10px;color:var(--tx3);line-height:1.6">' +
           'Cliente: ' + esc(o.client || '—') + ' &middot; Tecnico: ' + esc(o.tech || '—') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '<br>' +
           'Orden: ' + esc(fase) + ' &middot; Queja registrada: ' + msgTs(q.ts) + (q.who ? ' &middot; por ' + esc(q.who) : '') +
+        '</div>' +
+      '</div>';
+    });
+  }
+  var body = document.getElementById('quejas-body');
+  body.innerHTML = html;
+  body.querySelectorAll('.queja-item').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var oid = parseInt(this.getAttribute('data-oid'));
+      if (orders.some(function(o) { return o.id === oid; })) { closeQuejasMes(); closeRep(); openDrw(oid); return; }
+      var ar = (archived || []).find(function(o) { return o.id === oid; });
+      if (ar) { closeQuejasMes(); closeRep(); openHistDetail(ar); }
+    });
+  });
+  document.getElementById('m-quejas').classList.add('on');
+}
+
+// Minireporte de reprocesos del mes (17 nov 2026, pedido de Byron, gemelo del de
+// quejas: reutiliza la misma ventana m-quejas). Mismo criterio que el conteo de
+// la tarjeta: cada entrada de o.reprocesoLog[] con fecha en el mes consultado
+// (_repCerradoMonthOffset), en cualquier orden. Solo lectura, solo Jefe.
+function openReprocesosMes() {
+  if (role !== 'jefe') return;
+  var base = new Date(new Date().getFullYear(), new Date().getMonth() - _repCerradoMonthOffset, 1);
+  var y = base.getFullYear(), m = base.getMonth();
+  var lista = [], vistos = {};
+  orders.concat(archived || []).forEach(function(o) {
+    if (vistos[o.id]) return;
+    vistos[o.id] = true;
+    (o.reprocesoLog || []).forEach(function(r) {
+      if (!r.ts) return;
+      var d = new Date(r.ts);
+      if (d.getFullYear() === y && d.getMonth() === m) lista.push({o: o, r: r});
+    });
+  });
+  lista.sort(function(a, b) { return b.r.ts - a.r.ts; });
+  var mesTxt = base.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+  document.getElementById('quejas-modal-title').textContent = '♻ Reprocesos — ' + mesTxt;
+  var html = '';
+  if (!lista.length) {
+    html = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Sin reprocesos registrados en este mes</div>';
+  } else {
+    var porCausa = {};
+    lista.forEach(function(x) { var c = x.r.causa || 'Sin causa'; porCausa[c] = (porCausa[c] || 0) + 1; });
+    html += '<div style="font-size:11px;color:var(--tx3);margin-bottom:6px">' + lista.length + ' reproceso(s), el mas reciente primero. Toca uno para abrir la orden.</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' +
+      Object.keys(porCausa).map(function(c) { return '<span style="font-size:10px;font-weight:700;background:#2a1010;color:#FF9B9B;border:1px solid var(--rd);border-radius:10px;padding:2px 8px">' + esc(c) + ': ' + porCausa[c] + '</span>'; }).join('') +
+      '</div>';
+    lista.forEach(function(x) {
+      var o = x.o, r = x.r;
+      var desde = (PHASE_COLORS[r.from] || {label: r.from || '—'}).label;
+      var haciaTxt = r.destino ? (PHASE_COLORS[r.destino] || {label: r.destino}).label : 'sin cambio de fase (informativo)';
+      var quien = r.byRole ? ((ROLES[r.byRole] && ROLES[r.byRole].label) || r.byRole) : '';
+      html += '<div class="queja-item" data-oid="' + o.id + '" style="background:var(--bg2);border:1px solid var(--rd);border-left:4px solid var(--rd);border-radius:var(--rs);padding:9px 11px;margin-bottom:8px;cursor:pointer">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
+          '<span style="font-size:10px;font-weight:700;background:var(--rd);color:#fff;border-radius:8px;padding:1px 7px">' + esc(r.causa || 'Sin causa') + '</span>' +
+          '<span style="font-size:13px;font-weight:800;font-family:var(--mo)">' + esc(o.plate) + '</span>' +
+          '<span style="font-size:11px;color:var(--tx2)">' + esc(o.model) + '</span>' +
+          '<span style="font-size:13px;color:var(--or);font-family:var(--mo)">&#35;' + esc(o.ot) + '</span>' +
+        '</div>' +
+        (r.nota ? '<div style="font-size:12px;color:var(--tx);margin-bottom:5px">' + r.nota + '</div>' : '') +
+        '<div style="font-size:10px;color:var(--tx3);line-height:1.6">' +
+          'Cliente: ' + esc(o.client || '—') + ' &middot; Tecnico: ' + esc(o.tech || '—') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '<br>' +
+          'Desde: ' + esc(desde) + ' &rarr; ' + esc(haciaTxt) + '<br>' +
+          'Registrado: ' + msgTs(r.ts) + (quien ? ' &middot; por ' + esc(quien) : '') +
         '</div>' +
       '</div>';
     });
