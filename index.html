@@ -8756,7 +8756,7 @@ function buildRepContent() {
       '<div class="kpi"><div class="kpi-n" style="color:var(--rd)">' + reprocesosCount + '</div><div class="kpi-l">Reprocesos</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:#E67E22">' + (presupPromedioHoras !== null ? presupPromedioHoras.toFixed(1) + 'h' : '—') + '</div><div class="kpi-l">Prom. en Presupuesto (mes)</div></div>' +
       '<div class="kpi"><div class="kpi-n" style="color:' + (semCerradoData.pctAprobacion !== null ? _productividadColor(Math.round(semCerradoData.pctAprobacion)) : 'var(--tx3)') + '">' + (semCerradoData.pctAprobacion !== null ? semCerradoData.pctAprobacion.toFixed(0) + '%' : '—') + '</div><div class="kpi-l">% de aprobacion (mes)</div></div>' +
-      '<div class="kpi"><div class="kpi-n" style="color:' + (quejasCount > 0 ? '#D4537E' : 'var(--tx3)') + '">' + quejasCount + '</div><div class="kpi-l">Quejas de clientes (mes)</div></div>' +
+      '<div class="kpi"' + (role === 'jefe' ? ' onclick="openQuejasMes()" style="cursor:pointer" title="Ver el detalle de las quejas del mes"' : '') + '><div class="kpi-n" style="color:' + (quejasCount > 0 ? '#D4537E' : 'var(--tx3)') + '">' + quejasCount + '</div><div class="kpi-l">Quejas de clientes (mes)</div></div>' +
     '</div>';
   } else {
     html = '<div class="kpi-grid" style="margin-bottom:1rem">' +
@@ -10542,6 +10542,70 @@ function updateAutorizBadge() {
 // confirmacion por cada item y el modo se apaga al abrir/cerrar la ventana.
 var _autorizModoQuitar = false;
 
+// Minireporte de quejas del mes (17 nov 2026, pedido de Byron): se abre al tocar
+// la tarjeta "Quejas de clientes (mes)" del Reporte General, solo Jefe. Mismo
+// criterio que el conteo de la tarjeta: todas las quejas (o.quejas[]) cuya
+// fecha de registro cae en el mes consultado (_repCerradoMonthOffset), en
+// cualquier orden (activa, cerrada o archivada). Solo lectura.
+function closeQuejasMes() { document.getElementById('m-quejas').classList.remove('on'); }
+function openQuejasMes() {
+  if (role !== 'jefe') return;
+  var base = new Date(new Date().getFullYear(), new Date().getMonth() - _repCerradoMonthOffset, 1);
+  var y = base.getFullYear(), m = base.getMonth();
+  var lista = [], vistos = {};
+  orders.concat(archived || []).forEach(function(o) {
+    if (vistos[o.id]) return;
+    vistos[o.id] = true;
+    (o.quejas || []).forEach(function(q) {
+      if (!q.ts) return;
+      var d = new Date(q.ts);
+      if (d.getFullYear() === y && d.getMonth() === m) lista.push({o: o, q: q});
+    });
+  });
+  lista.sort(function(a, b) { return b.q.ts - a.q.ts; });
+  var mesTxt = base.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+  document.getElementById('quejas-modal-title').textContent = '📣 Quejas de clientes — ' + mesTxt;
+  var html = '';
+  if (!lista.length) {
+    html = '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">&#10003; Sin quejas registradas en este mes</div>';
+  } else {
+    var porCat = {};
+    lista.forEach(function(x) { porCat[x.q.categoria] = (porCat[x.q.categoria] || 0) + 1; });
+    html += '<div style="font-size:11px;color:var(--tx3);margin-bottom:6px">' + lista.length + ' queja(s), la mas reciente primero. Toca una para abrir la orden.</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' +
+      Object.keys(porCat).map(function(c) { return '<span style="font-size:10px;font-weight:700;background:#2e1626;color:#F4C0D1;border:1px solid #D4537E;border-radius:10px;padding:2px 8px">' + esc(c) + ': ' + porCat[c] + '</span>'; }).join('') +
+      '</div>';
+    lista.forEach(function(x) {
+      var o = x.o, q = x.q;
+      var fase = (PHASE_COLORS[o.phase] || {label: o.phase}).label;
+      html += '<div class="queja-item" data-oid="' + o.id + '" style="background:var(--bg2);border:1px solid #D4537E;border-left:4px solid #D4537E;border-radius:var(--rs);padding:9px 11px;margin-bottom:8px;cursor:pointer">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
+          '<span style="font-size:10px;font-weight:700;background:#D4537E;color:#2e1626;border-radius:8px;padding:1px 7px">' + esc(q.categoria) + '</span>' +
+          '<span style="font-size:13px;font-weight:800;font-family:var(--mo)">' + esc(o.plate) + '</span>' +
+          '<span style="font-size:11px;color:var(--tx2)">' + esc(o.model) + '</span>' +
+          '<span style="font-size:13px;color:var(--or);font-family:var(--mo)">&#35;' + esc(o.ot) + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--tx);margin-bottom:5px">' + q.texto + '</div>' +
+        '<div style="font-size:10px;color:var(--tx3);line-height:1.6">' +
+          'Cliente: ' + esc(o.client || '—') + ' &middot; Tecnico: ' + esc(o.tech || '—') + (o.tech2 ? ' + ' + esc(o.tech2) : '') + '<br>' +
+          'Orden: ' + esc(fase) + ' &middot; Queja registrada: ' + msgTs(q.ts) + (q.who ? ' &middot; por ' + esc(q.who) : '') +
+        '</div>' +
+      '</div>';
+    });
+  }
+  var body = document.getElementById('quejas-body');
+  body.innerHTML = html;
+  body.querySelectorAll('.queja-item').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var oid = parseInt(this.getAttribute('data-oid'));
+      if (orders.some(function(o) { return o.id === oid; })) { closeQuejasMes(); closeRep(); openDrw(oid); return; }
+      var ar = (archived || []).find(function(o) { return o.id === oid; });
+      if (ar) { closeQuejasMes(); closeRep(); openHistDetail(ar); }
+    });
+  });
+  document.getElementById('m-quejas').classList.add('on');
+}
+
 function openAutoriz() {
   _autorizModoQuitar = false;
   if (_AUTORIZ_ROLES_VISIBLES.indexOf(role) === -1) { toast('Solo el Jefe, Partes, Mensajero o Asesor pueden ver estas solicitudes'); return; }
@@ -11517,6 +11581,10 @@ function _isExportableClosedOrder(o) {
   if (o.phase !== 'cer' && o.montoFacturadoTotal && o.bitacoraFacturadoSnapshot && o.cat) return true;
   return false;
 }
+// Los textos de queja se guardan con esc() (entidades HTML); para el CSV se devuelven a texto normal.
+function _quitarEntidadesHtml(s) {
+  return String(s === null || s === undefined ? '' : s).replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
+}
 function _buildOrderSummaryCSV(allOrders) {
   var fmtDate = function(ts) {
     return new Date(ts).toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'});
@@ -11549,8 +11617,13 @@ function _buildOrderSummaryCSV(allOrders) {
     'Monto_Cotizado','Pct_Aprobacion',
     // Km_Recorridos (26 sep 2026, pedido de Byron): mismo criterio que
     // Monto_Cotizado, agregada al final sin correr las columnas de arriba.
-    'Km_Recorridos'];
+    'Km_Recorridos',
+    // Quejas de clientes (17 nov 2026, pedido de Byron): de la ORDEN completa,
+    // se repiten igual en cada fila si hay 2 tecnicos (mismo criterio que
+    // Monto_Cotizado). Detalle: "[Categoria] texto (fecha, quien)" separadas por " | ".
+    'Num_Quejas','Quejas_Detalle'];
   var rows = [header];
+  var sumQuejas = 0;
 
   var sumDias = 0;
   var sumHoras = {};
@@ -11608,6 +11681,11 @@ function _buildOrderSummaryCSV(allOrders) {
     var kmRecorridosRow = (o.kmRecorridos !== undefined && o.kmRecorridos !== null) ? o.kmRecorridos : null;
     if (kmRecorridosRow !== null) sumKmRecorridos += kmRecorridosRow;
     if (montoCotizado) sumMontoTotalConCotizado += montoTotal;
+    var quejasOrden = o.quejas || [];
+    sumQuejas += quejasOrden.length;
+    var quejasDetalleRow = quejasOrden.map(function(q) {
+      return '[' + _quitarEntidadesHtml(q.categoria) + '] ' + _quitarEntidadesHtml(q.texto) + ' (' + fmtDate(q.ts) + (q.who ? ', ' + _quitarEntidadesHtml(q.who) : '') + ')';
+    }).join(' | ');
 
     // Con 2 tecnicos asignados, la orden sale como 2 FILAS (una por
     // tecnico) — las fechas y el resto de fases quedan iguales en ambas,
@@ -11684,7 +11762,8 @@ function _buildOrderSummaryCSV(allOrders) {
         rutaHoras !== null ? _csvNum(rutaHoras.toFixed(2)) : '',
         montoCotizado ? _csvNum(montoCotizado.toFixed(2)) : '',
         pctAprobacionRow !== null ? pctAprobacionRow : '',
-        kmRecorridosRow !== null ? _csvNum(String(kmRecorridosRow)) : ''
+        kmRecorridosRow !== null ? _csvNum(String(kmRecorridosRow)) : '',
+        quejasOrden.length || '', quejasDetalleRow
       ]);
     }
   }
@@ -11719,6 +11798,7 @@ function _buildOrderSummaryCSV(allOrders) {
   // Km_Recorridos: TOTAL del periodo (no promedio), mismo criterio que
   // Monto_Cotizado arriba.
   footer.push(_csvNum(String(sumKmRecorridos)));
+  footer.push(sumQuejas || '', '');
   rows.push(footer);
 
   return rows.map(function(r) { return r.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
@@ -15759,6 +15839,16 @@ window.addEventListener('load', function() {
 </div>
 
 <!-- PENDIENTES DE AUTORIZAR (Jefe) -->
+<!-- QUEJAS DEL MES -->
+<div class="mwrap" id="m-quejas">
+  <div class="rep-modal" style="max-width:520px">
+    <div class="modal-t"><span id="quejas-modal-title">&#128227; Quejas de clientes</span>
+      <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeQuejasMes()">&#x2715;</button>
+    </div>
+    <div id="quejas-body"></div>
+  </div>
+</div>
+
 <div class="mwrap" id="m-autoriz">
   <div class="rep-modal" style="max-width:480px">
     <div class="modal-t"><span id="autoriz-modal-title">&#128275; Esperando tu autorizacion</span>
