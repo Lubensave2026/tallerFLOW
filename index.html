@@ -4170,6 +4170,7 @@ function openDrw(id) {
       var pctProdOrdenColorInfo = _productividadColor(pctProdOrdenRounded);
       productividadOrdenHtml += '<div class="irow"><span class="ik">% Productividad</span><span style="color:' + pctProdOrdenColorInfo + ';font-weight:700">' + pctProdOrdenRounded + '%</span></div>';
     }
+    productividadOrdenHtml += _horasPorTecnicoHtml(o);
   }
   // Enlace a la orden en Clear Mechanic (recepcion, reporte de fallas del
   // tecnico, presupuesto enviado) — pedido de Byron (30 sep 2026): antes
@@ -13363,6 +13364,28 @@ function calcTecHoras(o, tecName) {
   return {real: abHoras, flat: flat, abVeces: abVeces};
 }
 
+// Horas por tecnico en ordenes con mas de un tecnico (17 nov 2026, pedido de
+// Byron): solo se veia el % de la orden entera. Solo el Jefe. Usa calcTecHoras
+// (el mismo reparto que ya usan el Reporte y el CSV), asi que funciona tambien
+// con las ordenes ya archivadas, sin datos nuevos. Devuelve '' si la orden tiene
+// un solo tecnico. Son los TOTALES de la orden (si se reabrio, todas las visitas).
+function _horasPorTecnicoHtml(o) {
+  if (role !== 'jefe') return '';
+  var roster = [];
+  if (o.tech) roster.push(o.tech);
+  if (o.tech2) roster.push(o.tech2);
+  (o.tecnicosApoyo || []).forEach(function(nm) { if (roster.indexOf(nm) === -1) roster.push(nm); });
+  if (roster.length < 2) return '';
+  var f = function(n) { return n.toFixed(2).replace('.', ','); };
+  var filas = roster.map(function(nm) {
+    var th = calcTecHoras(o, nm);
+    var pc = th.real > 0 ? Math.round(th.flat / th.real * 100) : null;
+    return '<div class="irow"><span class="ik">' + esc(nm) + '</span><span style="font-family:var(--mo)">' + f(th.real) + ' h trabajadas &middot; ' + f(th.flat) + ' h pagadas' +
+      (pc !== null ? ' &middot; <b style="color:' + _productividadColor(pc) + '">' + pc + '%</b>' : '') + '</span></div>';
+  }).join('');
+  return '<div class="sec-l" style="margin-top:10px;margin-bottom:4px">&#128119; Horas por tecnico</div>' + filas;
+}
+
 // BUG REAL (Byron, 5 oct 2026, caso real ordenes 5355/5411): decide si una
 // orden cuenta como "cerrada de este tecnico, en este mes" y con que horas
 // mostrarla — centraliza una logica que vivia copiada en 3 lugares
@@ -14556,6 +14579,7 @@ function openHistDetail(o) {
     '<div class="irow"><span class="ik">Fecha de entrega</span><span>' + fechaEntregaDetail + '</span></div>' +
     (esSegundoCierre ? '<div class="irow"><span class="ik" style="font-size:10px;color:var(--tx3)">&#8618; Cierre adicional (informativo)</span><span style="font-size:10px;color:var(--tx3)">' + fechaSegundoCierreDetail + '</span></div>' : '') +
     '<div class="irow"><span class="ik">&#128202; % Productividad</span><span style="color:' + pctProdHistColor + ';font-weight:700">' + (pctProdHistDetail !== null ? pctProdHistDetail + '%' : '—') + '</span></div>' +
+    _horasPorTecnicoHtml(o) +
     '<div class="irow"><span class="ik">Sucursal</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor' || role === 'partes') ?
@@ -14783,15 +14807,26 @@ function openHistDetail(o) {
   // borrar desde su propia ficha en vivo, no hace falta duplicar el boton
   // aqui para ese caso.
   if (role === 'jefe' && o._arch) {
-    html += '<div class="sec">' +
+    // 17 nov 2026 (pedido de Byron, para no borrar una orden por error): el
+    // boton NO se ve hasta tocar un enlace pequeno, y ademas hay que escribir
+    // el No. OT para confirmar.
+    html += '<div class="sec"><div style="text-align:center"><a href="#" id="hist-del-reveal" style="font-size:10px;color:var(--tx3);text-decoration:underline;opacity:.7">Opciones avanzadas…</a></div>' +
+      '<div id="hist-del-box" style="display:none">' +
       '<button id="btn-del-hist" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--rd);background:transparent;color:var(--rd);font-size:12px;font-weight:600;cursor:pointer">&#128465; Eliminar del historial</button>' +
       '<div style="font-size:10px;color:var(--tx3);margin-top:5px">Para corregir errores de captura, como una orden de prueba. Borra la orden por completo, para todo el equipo, y no se puede deshacer.</div>' +
-    '</div>';
+    '</div></div>';
   }
 
   html += '<div style="text-align:center;padding:1rem 0;font-size:11px;color:var(--tx3)">&#128274; Vista de solo lectura — no se pueden realizar cambios</div>';
 
   document.getElementById('hist-detail-body').innerHTML = html;
+  var delHistReveal = document.getElementById('hist-del-reveal');
+  if (delHistReveal) delHistReveal.addEventListener('click', function(ev) {
+    ev.preventDefault();
+    this.style.display = 'none';
+    var bx = document.getElementById('hist-del-box');
+    if (bx) bx.style.display = 'block';
+  });
   var delHistBtn = document.getElementById('btn-del-hist');
   if (delHistBtn) {
     delHistBtn.addEventListener('click', function() {
@@ -14806,6 +14841,8 @@ function openHistDetail(o) {
         'Se borra para TODO el equipo, permanentemente. Esta accion NO se puede deshacer.\n\n' +
         '¿Continuar?'
       )) return;
+      var tecleado = prompt('Para confirmar, escribe el No. OT de la orden (' + o.ot + '):');
+      if (tecleado === null || String(tecleado).trim() !== String(o.ot).trim()) { toast('No coincide el No. OT — no se elimino nada'); return; }
       var idxArch = archived.indexOf(o);
       if (idxArch !== -1) archived.splice(idxArch, 1);
       if (fbReady && db) {
