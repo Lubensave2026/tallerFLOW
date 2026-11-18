@@ -4000,6 +4000,7 @@ function openDrw(id) {
       '</div>' +
     '</div>' +
     '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
+      (_puedeVerHistorialVehiculo(o) ? '<button class="btn-nb" id="drw-hist-veh-btn" title="Historial de este vehiculo" style="width:auto;height:30px;font-size:11px;font-weight:700;padding:0 10px" onclick="openHistorialVehiculo(' + o.id + ')">HISTORIAL</button>' : '') +
       ((role === 'jefe' || role === 'asesor') ? '<button class="btn-nb" id="drw-print-btn" title="Imprimir reporte" style="width:30px;height:30px;font-size:14px" onclick="printOrderReport(' + o.id + ')">&#128424;</button>' : '') +
       '<button class="btn-nb" id="drw-bell-btn" style="width:30px;height:30px;font-size:14px" onclick="toggleSysBell(' + o.id + ')">&#128276;<span class="nb-dot' + (sysUnread ? ' on' : '') + '" id="drw-bell-dot"></span></button>' +
       '<button class="drw-cl" onclick="closeDrw()">&#x2715;</button>' +
@@ -10557,6 +10558,85 @@ var _autorizModoQuitar = false;
 // criterio que el conteo de la tarjeta: todas las quejas (o.quejas[]) cuya
 // fecha de registro cae en el mes consultado (_repCerradoMonthOffset), en
 // cualquier orden (activa, cerrada o archivada). Solo lectura.
+// Historial del vehiculo (18 nov 2026, pedido de Byron): boton HISTORIAL en la ficha.
+// Jefe y Asesor lo ven en cualquier fase; el tecnico solo en Trabajando (ab).
+// Solo lectura, reutiliza la ventana m-quejas. Se busca por placa normalizada
+// (mayusculas, sin espacios ni guiones) en activas + historial archivado.
+// El historial archivado (taller/historial, ~4 MB) NO viaja siempre en memoria:
+// si ya se cargo en esta sesion se usa tal cual; si no, se descarga UNA vez.
+var _histVehArchivadoCargado = false;
+function _puedeVerHistorialVehiculo(o) {
+  if (!o || !role) return false;
+  if (role === 'jefe' || role === 'asesor') return true;
+  return !!(ROLES[role] && ROLES[role].tec) && o.phase === 'ab';
+}
+function _placaNormHist(p) { return String(p || '').toUpperCase().replace(/[\s\-]/g, ''); }
+function _histVehiculoLista(o, activas, arch) {
+  var pn = _placaNormHist(o.plate), vistos = {}, res = [];
+  if (!pn) return res;
+  (activas || []).concat(arch || []).forEach(function(x) {
+    if (!x || x.id === o.id || vistos[x.id]) return;
+    vistos[x.id] = true;
+    if (_placaNormHist(x.plate) === pn) res.push(x);
+  });
+  res.sort(function(a, b) { return (b.cat || 0) - (a.cat || 0); });
+  return res;
+}
+function _histVehiculoHtml(o, lista, completo) {
+  var verMas = (role === 'jefe' || role === 'asesor');
+  var limpio = function(s) { return esc(_quitarEntidadesHtml(s)); };
+  if (!lista.length) return '<div style="text-align:center;padding:2rem;color:var(--tx3);font-size:13px">Este vehiculo no tiene ordenes anteriores registradas</div>';
+  var html = '<div style="font-size:11px;color:var(--tx3);margin-bottom:8px">' + lista.length + ' orden(es) anterior(es), la mas reciente primero.' + (completo ? '' : ' Cargando historial antiguo…') + '</div>';
+  lista.forEach(function(x) {
+    var fecha = x.cat ? new Date(x.cat).toLocaleDateString('es-GT') : '—';
+    var fase = (PHASE_COLORS[x.phase] || {label: x.phase}).label;
+    var trab = (x.trabajos || []).map(function(t) { return limpio(t.desc); }).filter(Boolean);
+    var quejas = (x.quejas || []).length, repro = (x.reprocesoLog || []).length;
+    var monto = Number(x.montoFacturadoTotal || x.montoTotal || 0);
+    html += '<div class="hv-item" data-oid="' + x.id + '" style="background:var(--bg2);border:1px solid var(--bd);border-left:4px solid var(--ac);border-radius:var(--rs);padding:9px 11px;margin-bottom:8px' + (verMas ? ';cursor:pointer' : '') + '">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
+        '<span style="font-size:12px;font-weight:700;font-family:var(--mo)">' + fecha + '</span>' +
+        '<span style="font-size:13px;color:var(--or);font-family:var(--mo)">&#35;' + esc(x.ot) + '</span>' +
+        '<span style="font-size:11px;color:var(--tx2)">' + (x.km != null ? Number(x.km).toLocaleString('es-GT') + ' km' : 'km sin dato') + '</span>' +
+        (verMas ? '<span style="font-size:10px;color:var(--tx3)">' + esc(fase) + '</span>' : '') +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--tx3);margin-bottom:2px">Solicitado por el cliente</div>' +
+      '<div style="font-size:12px;margin-bottom:5px">' + (x.desc ? limpio(x.desc) : '—') + '</div>' +
+      '<div style="font-size:11px;color:var(--tx3);margin-bottom:2px">Trabajos realizados</div>' +
+      '<div style="font-size:12px">' + (trab.length ? trab.join('<br>') : '—') + '</div>' +
+      (verMas ? '<div style="font-size:10px;color:var(--tx3);margin-top:5px;line-height:1.6">Tecnico: ' + esc(x.tech || '—') + (x.tech2 ? ' + ' + esc(x.tech2) : '') +
+        (quejas ? ' &middot; <span style="color:#D4537E">' + quejas + ' queja(s)</span>' : '') + (repro ? ' &middot; <span style="color:var(--rd)">' + repro + ' reproceso(s)</span>' : '') +
+        (_puedeVerMontos() && monto ? ' &middot; Q.' + monto.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '') + '</div>' : '') +
+    '</div>';
+  });
+  return html;
+}
+function openHistorialVehiculo(id) {
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || !_puedeVerHistorialVehiculo(o)) return;
+  document.getElementById('quejas-modal-title').textContent = 'Historial — ' + (o.plate || '');
+  var body = document.getElementById('quejas-body');
+  var pintar = function(completo) {
+    body.innerHTML = _histVehiculoHtml(o, _histVehiculoLista(o, orders, archived), completo);
+    if (role === 'jefe' || role === 'asesor') {
+      body.querySelectorAll('.hv-item').forEach(function(el) {
+        el.addEventListener('click', function() {
+          var oid = parseInt(this.getAttribute('data-oid'));
+          if (orders.some(function(x) { return x.id === oid; })) { closeQuejasMes(); openDrw(oid); return; }
+          var ar = (archived || []).find(function(x) { return x.id === oid; });
+          if (ar) { closeQuejasMes(); openHistDetail(ar); }
+        });
+      });
+    }
+  };
+  var yaCargado = _histVehArchivadoCargado || (archived && archived.length);
+  pintar(!!yaCargado || !(typeof refreshArchived === 'function'));
+  document.getElementById('m-quejas').classList.add('on');
+  if (!yaCargado && typeof refreshArchived === 'function') {
+    refreshArchived(function() { _histVehArchivadoCargado = true; if (document.getElementById('quejas-modal-title').textContent.indexOf('Historial') === 0) pintar(true); });
+  }
+}
 function closeQuejasMes() { document.getElementById('m-quejas').classList.remove('on'); }
 function openQuejasMes() {
   if (role !== 'jefe') return;
