@@ -4161,7 +4161,9 @@ function openDrw(id) {
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
         cajaTiempo('#22c55e', 'Tiempo pagado (flat rate)', hrsComOrdenInfo.toFixed(2).replace('.', ',') + ' h') +
         cajaTiempo('#3b82f6', 'Tiempo real trabajado', hrsRealOrdenInfo.toFixed(2).replace('.', ',') + ' h') +
-        cajaTiempo('#eab308', 'Tiempo calculado', (o.hrsEstimado ? o.hrsEstimado + ' h' : '—'), notaAjuste) +
+        // 18 nov 2026 (pedido de Byron): el tecnico NO ve "Tiempo calculado",
+        // solo pagado y real (+ % Productividad abajo). Los demas roles igual.
+        ((ROLES[role] && ROLES[role].tec) ? '' : cajaTiempo('#eab308', 'Tiempo calculado', (o.hrsEstimado ? o.hrsEstimado + ' h' : '—'), notaAjuste)) +
       '</div>';
     if (hrsRealOrdenInfo > 0) {
       // Color segun el mismo valor REDONDEADO que se muestra (no el crudo) —
@@ -4347,7 +4349,15 @@ function openDrw(id) {
     // Solo lectura: se sobreescribe el borde-acento fuerte de .dta (pensado
     // para marcar "aqui se escribe") por uno neutro, para no sugerirle a
     // quien no puede editar que si puede.
-    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')"' + (canEditDesc ? '' : ' style="border:1px solid var(--bd);background:var(--bg3);opacity:.75;cursor:default" readonly') + '>' + esc(o.desc) + '</textarea>' +
+    // 18 nov 2026 (pedido de Byron): al TECNICO se le resalta (borde amarillo,
+    // fondo de la ficha, letra en negrilla) para que sepa donde leer lo que pidio
+    // el cliente; el resto de roles solo lectura neutro como antes.
+    '<textarea class="dta" id="d-desc" onblur="saveDesc(' + id + ')"' + (canEditDesc ? '' : (ROLES[role] && ROLES[role].tec
+      ? ' style="border:2px solid #eab308;background:var(--bg2);font-weight:700;cursor:default" readonly'
+      : ' style="border:1px solid var(--bd);background:var(--bg3);opacity:.75;cursor:default" readonly')) + '>' + esc(o.desc) + '</textarea>' +
+    ((ROLES[role] && ROLES[role].tec && _hayAdicionalesAutorizados(o))
+      ? '<div style="margin-top:6px;font-size:12px;font-weight:700;color:#eab308;border:1px dashed #eab308;border-radius:var(--rs);padding:6px 10px">&#10133; Trabajos adicionales autorizados: puedes revisar en la seccion TRABAJOS REALIZADOS</div>'
+      : '') +
     // El cliente puede pedir un Servicio DESPUES de que la orden ya se abrio
     // (caso real de Byron, 2 sep 2026: orden abierta por otro motivo — ej.
     // ruido de frenos — y el cliente aprovecha para pedir tambien un
@@ -10669,6 +10679,20 @@ function openReprocesosMes() {
     });
   });
   document.getElementById('m-quejas').classList.add('on');
+}
+
+// Aviso al tecnico de "trabajos adicionales autorizados" (18 nov 2026, pedido de
+// Byron). Se deduce de la bitacora de fases, sin campos nuevos (retroactivo): la
+// orden salio de Esperando autorizacion (ea) y volvio a Espera-asignacion (aa),
+// o esta en aa y lo ultimo que se registro fue ea. Es la senal que describio Byron.
+function _hayAdicionalesAutorizados(o) {
+  var pl = o.phaseLog || [];
+  for (var i = 0; i < pl.length; i++) {
+    if (pl[i].phase !== 'ea') continue;
+    if (i + 1 < pl.length) { if (pl[i + 1].phase === 'aa') return true; }
+    else if (o.phase === 'aa') return true;
+  }
+  return false;
 }
 
 function openAutoriz() {
