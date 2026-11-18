@@ -10593,6 +10593,8 @@ function _histVehiculoHtml(o, lista, completo) {
     var trab = (x.trabajos || []).map(function(t) { return limpio(t.desc); }).filter(Boolean);
     var quejas = (x.quejas || []).length, repro = (x.reprocesoLog || []).length;
     var monto = Number(x.montoFacturadoTotal || x.montoTotal || 0);
+    // Mano de obra facturada: mismo criterio que el total (monto congelado si la orden quedo "Ya facturada").
+    var montoMO = Number(x.montoFacturadoTotal ? (x.montoFacturadoMO || 0) : (x.montoMO || 0));
     html += '<div class="hv-item" data-oid="' + x.id + '" style="background:var(--bg2);border:1px solid var(--bd);border-left:4px solid var(--ac);border-radius:var(--rs);padding:9px 11px;margin-bottom:8px' + (verMas ? ';cursor:pointer' : '') + '">' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
         '<span style="font-size:12px;font-weight:700;font-family:var(--mo)">' + fecha + '</span>' +
@@ -10600,13 +10602,14 @@ function _histVehiculoHtml(o, lista, completo) {
         '<span style="font-size:11px;color:var(--tx2)">' + (x.km != null ? Number(x.km).toLocaleString('es-GT') + ' km' : 'km sin dato') + '</span>' +
         (verMas ? '<span style="font-size:10px;color:var(--tx3)">' + esc(fase) + '</span>' : '') +
       '</div>' +
-      '<div style="font-size:11px;color:var(--tx3);margin-bottom:2px">Solicitado por el cliente</div>' +
+      '<div style="font-size:11px;font-weight:700;color:#eab308;margin-bottom:2px">Solicitado por el cliente</div>' +
       '<div style="font-size:12px;margin-bottom:5px">' + (x.desc ? limpio(x.desc) : '—') + '</div>' +
-      '<div style="font-size:11px;color:var(--tx3);margin-bottom:2px">Trabajos realizados</div>' +
+      '<div style="font-size:11px;font-weight:700;color:var(--gn);margin-bottom:2px">Trabajos realizados</div>' +
       '<div style="font-size:12px">' + (trab.length ? trab.join('<br>') : '—') + '</div>' +
       (verMas ? '<div style="font-size:10px;color:var(--tx3);margin-top:5px;line-height:1.6">Tecnico: ' + esc(x.tech || '—') + (x.tech2 ? ' + ' + esc(x.tech2) : '') +
         (quejas ? ' &middot; <span style="color:#D4537E">' + quejas + ' queja(s)</span>' : '') + (repro ? ' &middot; <span style="color:var(--rd)">' + repro + ' reproceso(s)</span>' : '') +
-        (_puedeVerMontos() && monto ? ' &middot; Q.' + monto.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '') + '</div>' : '') +
+        (_puedeVerMontos() && monto ? ' &middot; Total Q.' + monto.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '') +
+        (_puedeVerMontos() && montoMO ? ' &middot; Mano de obra Q.' + montoMO.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '') + '</div>' : '') +
     '</div>';
   });
   return html;
@@ -10616,6 +10619,7 @@ function openHistorialVehiculo(id) {
   for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o || !_puedeVerHistorialVehiculo(o)) return;
   document.getElementById('quejas-modal-title').textContent = 'Historial — ' + (o.plate || '');
+  var panelHv = document.getElementById('quejas-panel'); if (panelHv) panelHv.style.background = 'var(--rep-panel)';
   var body = document.getElementById('quejas-body');
   var pintar = function(completo) {
     body.innerHTML = _histVehiculoHtml(o, _histVehiculoLista(o, orders, archived), completo);
@@ -10637,7 +10641,7 @@ function openHistorialVehiculo(id) {
     refreshArchived(function() { _histVehArchivadoCargado = true; if (document.getElementById('quejas-modal-title').textContent.indexOf('Historial') === 0) pintar(true); });
   }
 }
-function closeQuejasMes() { document.getElementById('m-quejas').classList.remove('on'); }
+function closeQuejasMes() { document.getElementById('m-quejas').classList.remove('on'); var pq = document.getElementById('quejas-panel'); if (pq) pq.style.background = ''; }
 function openQuejasMes() {
   if (role !== 'jefe') return;
   var base = new Date(new Date().getFullYear(), new Date().getMonth() - _repCerradoMonthOffset, 1);
@@ -16024,7 +16028,7 @@ window.addEventListener('load', function() {
 <!-- PENDIENTES DE AUTORIZAR (Jefe) -->
 <!-- QUEJAS DEL MES -->
 <div class="mwrap" id="m-quejas">
-  <div class="rep-modal" style="max-width:520px">
+  <div class="rep-modal" id="quejas-panel" style="max-width:520px">
     <div class="modal-t"><span id="quejas-modal-title">&#128227; Quejas de clientes</span>
       <button class="btn-s" style="padding:4px 10px;font-size:12px" onclick="closeQuejasMes()">&#x2715;</button>
     </div>
