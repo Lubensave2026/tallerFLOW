@@ -3109,18 +3109,24 @@ var REPUESTOS_CONVERTIBLES_A_BODEGA = [
   ['limpiador'],
   ['penetrante'],
   ['sellador'],
-  ['loctite']
+  ['loctite'],
+  // 18 nov 2026 (pedido de Byron): cualquier aceite (ATF, motor, caja, diferencial...) y abrazaderas
+  // (se compran de varias medidas para stock). Van DESPUES de ['filtro','aceite'] y ['tapon','aceitera']: gana el primero que coincide.
+  ['aceite'],
+  ['abrazadera']
 ];
 // Minusculas y sin tildes: el tecnico escribe "Tapón" o "Químico" y el catalogo dice "TAPON"/"QUIMICOS".
 function _sinTildesCv(s) {
   s = String(s || '').toLowerCase();
   return s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : s;
 }
+// 'aceite' no cuenta dentro de 'aceitera' (ej. empaque de aceitera, que no es un aceite).
+function _grupoCoincideCv(palabras, t) {
+  return palabras.every(function(p) { return p === 'aceite' ? /aceite(?!ra)/.test(t) : t.indexOf(p) !== -1; });
+}
 function _esRepuestoConvertibleABodega(desc) {
   var t = _sinTildesCv(desc);
-  return REPUESTOS_CONVERTIBLES_A_BODEGA.some(function(palabras) {
-    return palabras.every(function(p) { return t.indexOf(p) !== -1; });
-  });
+  return REPUESTOS_CONVERTIBLES_A_BODEGA.some(function(palabras) { return _grupoCoincideCv(palabras, t); });
 }
 // Catalogo de Bodega ACOTADO al mismo tipo de repuesto que se esta
 // convirtiendo (10 oct 2026, pedido de Byron) — a diferencia del buscador
@@ -3132,14 +3138,12 @@ function _esRepuestoConvertibleABodega(desc) {
 // ser vacio) acota mas adentro de ese mismo grupo, nunca lo amplia.
 function _bodCatalogoConvertible(descRepuesto, searchTerm) {
   var t = _sinTildesCv(descRepuesto);
-  var grupo = REPUESTOS_CONVERTIBLES_A_BODEGA.filter(function(palabras) {
-    return palabras.every(function(p) { return t.indexOf(p) !== -1; });
-  })[0];
+  var grupo = REPUESTOS_CONVERTIBLES_A_BODEGA.filter(function(palabras) { return _grupoCoincideCv(palabras, t); })[0];
   if (!grupo) return [];
   var q = (searchTerm || '').trim().toLowerCase();
   return (_catalogoBodega.items || []).filter(function(it) {
     var texto = _sinTildesCv((it.nombre || '') + ' ' + (it.sku || '') + ' ' + (it.categoria || ''));
-    if (!grupo.every(function(p) { return texto.indexOf(p) !== -1; })) return false;
+    if (!_grupoCoincideCv(grupo, texto)) return false;
     return !q || texto.indexOf(q) !== -1;
   });
 }
@@ -8806,6 +8810,7 @@ function buildRepContent() {
       }
     }
     var fmtQ2 = function(n) { return 'Q.' + n.toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+    _repCerradoExport = {ordenes: semCerradoData.ordenes || [], label: monthLabelCerrado};
     // Modo Proyeccion (solo Jefe): la tarjeta suma unicamente las ordenes que el Jefe marco.
     var proyOn = _repProyActivo();
     var proyT = proyOn ? _repProyTotales() : null;
@@ -8823,6 +8828,7 @@ function buildRepContent() {
           '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">' +
             '<button onclick="repCerradoChangeMonth(1)" title="Mes anterior" style="width:20px;height:20px;border-radius:6px;border:1px solid var(--bd);background:var(--bg4);color:var(--tx);cursor:pointer;font-size:9px;line-height:1">&#9664;</button>' +
             '<button onclick="repCerradoChangeMonth(-1)" title="Mes siguiente" ' + (semCerradoData.isCurrentMonth ? 'disabled' : '') + ' style="width:20px;height:20px;border-radius:6px;border:1px solid var(--bd);background:' + (semCerradoData.isCurrentMonth ? 'var(--bg3)' : 'var(--bg4)') + ';color:' + (semCerradoData.isCurrentMonth ? 'var(--tx3)' : 'var(--tx)') + ';cursor:' + (semCerradoData.isCurrentMonth ? 'not-allowed' : 'pointer') + ';font-size:9px;line-height:1">&#9654;</button>' +
+            (semCerradoData.countCerradas ? '<button onclick="exportCerradasMesCSV()" title="Descargar a Excel el listado de ordenes cerradas del mes que estas viendo" style="font-size:9px;padding:3px 8px;border-radius:10px;border:1px solid var(--gnbd);background:var(--gnbg);color:var(--gn);cursor:pointer;white-space:nowrap">&#128196; Excel</button>' : '') +
             (semCerradoData.countCerradas ? '<button onclick="toggleJefeCerradosDetalle()" style="font-size:9px;padding:3px 8px;border-radius:10px;border:1px solid ' + (_jefeShowCerradosDetalle ? '#3D7EFF' : 'var(--bd)') + ';background:' + (_jefeShowCerradosDetalle ? 'rgba(61,126,255,.15)' : 'var(--bg4)') + ';color:' + (_jefeShowCerradosDetalle ? '#3D7EFF' : 'var(--tx3)') + ';cursor:pointer;white-space:nowrap">&#128065; ' + (_jefeShowCerradosDetalle ? 'Ocultar' : 'Ver') + ' detalle</button>' : '') +
           '</div>' +
         '</div>' +
@@ -14220,6 +14226,13 @@ function buildRepsContent() {
         // Se guarda tambien en _repConvertirBodTexto (no solo en el input en
         // vivo) para que sobreviva el refresco automatico de cada 15s.
         _repConvertirBodTexto = oxCv.repuestos[riCv].desc || '';
+        // Aceite / abrazadera: la descripcion suele ser larga ("Aceite de caja automatica atf fz") y como busqueda exacta no
+        // encontraria nada; se prellena solo con la palabra clave y se afina escribiendo (18 nov 2026).
+        if (_esRepuestoConvertibleABodega(_repConvertirBodTexto) && !_bodRespaldoDeRepuesto(_repConvertirBodTexto, '').length) {
+          var _tCv = _sinTildesCv(_repConvertirBodTexto);
+          if (_grupoCoincideCv(['aceite'], _tCv) && !_grupoCoincideCv(['filtro', 'aceite'], _tCv) && !_grupoCoincideCv(['tapon', 'aceitera'], _tCv)) _repConvertirBodTexto = 'aceite';
+          else if (_tCv.indexOf('abrazadera') !== -1) _repConvertirBodTexto = 'abrazadera';
+        }
         if (convertirInp) convertirInp.value = _repConvertirBodTexto;
         // Pasa un callback (10 oct 2026) en vez de llamar renderConvertirSugg
         // justo despues sin esperar: _cargarCatalogoBodega es asincrona, asi
@@ -15741,6 +15754,26 @@ function toggleJefeProdTecnicos() {
   if (role !== 'jefe') return;
   _jefeShowProdTecnicos = !_jefeShowProdTecnicos;
   buildRepContent();
+}
+// Descarga a Excel (CSV con ';' que Excel abre en columnas) el detalle de "Ya cerrado" del mes que se esta viendo
+// con las flechas del Reporte: mismas ordenes y columnas que la tabla de "Ver detalle" (18 nov 2026, pedido de Byron).
+var _repCerradoExport = {ordenes: [], label: ''};
+function exportCerradasMesCSV() {
+  if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) return;
+  var lista = (_repCerradoExport && _repCerradoExport.ordenes) || [];
+  if (!lista.length) { toast('No hay ordenes cerradas en este mes'); return; }
+  var fF = function(ts) { return ts ? new Date(ts).toLocaleDateString('es-GT', {day:'2-digit', month:'2-digit', year:'numeric'}) : ''; };
+  var rows = [['OR #', 'Salida', 'Cliente', 'Vehiculo', 'Tecnico', 'Monto (general)', 'Monto (M.O.)', 'Monto cotizado', '% Aprobacion']];
+  for (var i = 0; i < lista.length; i++) {
+    var x = lista[i];
+    var pct = (x.montoCotizado && x.montoTotalOrden) ? Math.round(x.montoTotalOrden / x.montoCotizado * 100) + '%' : '';
+    rows.push([x.ot || '', fF(x.salida), x.client || '', x.model || '', x.tech || '',
+      _csvNum((Number(x.total) || 0).toFixed(2)), _csvNum((Number(x.mo) || 0).toFixed(2)),
+      x.montoCotizado ? _csvNum(Number(x.montoCotizado).toFixed(2)) : '', pct]);
+  }
+  var csv = rows.map(function(rr) { return rr.map(_csvCell).join(CSV_DELIM); }).join('\r\n');
+  _downloadCSV(csv, 'tallerflow_cerradas_' + String(_repCerradoExport.label || 'mes').replace(/ /g, '_') + '_' + _todayKey() + '.csv');
+  toast('Exportado: ' + lista.length + ' orden(es) — ' + _repCerradoExport.label);
 }
 function toggleJefeCerradosDetalle() {
   if (!(role === 'jefe' || role === 'asesor' || role === 'partes')) return;
