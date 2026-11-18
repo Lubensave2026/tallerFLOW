@@ -5938,7 +5938,7 @@ function openDrw(id) {
           else { toast('Asigna primero el tecnico de la orden: las horas de comision se pagan al tecnico del trabajo'); return; }
         }
         var actualHrs = parseFloat(twx.horas) || 0;
-        var input = prompt('Horas de comision (hrs. com.) para "' + twx.desc + '"' + (!actualHrs && twx.horasSugeridas ? ' (sugerida por la plantilla)' : '') + ':', actualHrs || twx.horasSugeridas || '');
+        var input = prompt('Horas de comision (hrs. com.) para "' + twx.desc + '"' + (!actualHrs && twx.horasSugeridas ? ' (sugerida: tiempo del presupuesto o plantilla)' : '') + ':', actualHrs || twx.horasSugeridas || '');
         if (input === null) return;
         var nuevasHrs = parseFloat(input);
         if (isNaN(nuevasHrs) || nuevasHrs < 0) { toast('Ingresa un numero valido de horas'); return; }
@@ -6038,6 +6038,8 @@ function openDrw(id) {
         if (!ox || !ox.trabajos || !ox.trabajos[tiV] || !ox.trabajos[tiV].pendienteCotizador) return;
         ox.trabajos[tiV].pendienteCotizador = false;
         ox.trabajos[tiV].voboTs = Date.now();
+        // El tiempo del presupuesto queda como hrs. com. sugeridas: al tocar, la ventana ya sale escrita (18 nov 2026)
+        if (!(parseFloat(ox.trabajos[tiV].horas) > 0) && !(parseFloat(ox.trabajos[tiV].horasSugeridas) > 0) && parseFloat(ox.trabajos[tiV].tiempoEstimado) > 0) ox.trabajos[tiV].horasSugeridas = parseFloat(ox.trabajos[tiV].tiempoEstimado);
         ox.msgs = ox.msgs || [];
         ox.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:'&#10003; Vo.Bo. Jefe a mano de obra del Cotizador: "' + esc(ox.trabajos[tiV].desc) + '"', ts:Date.now(), type:'system'});
         save(); toast('Vo.Bo. otorgado'); openDrw(id);
@@ -10591,6 +10593,7 @@ function _histVehiculoHtml(o, lista, completo) {
     var fecha = x.cat ? new Date(x.cat).toLocaleDateString('es-GT') : '—';
     var fase = (PHASE_COLORS[x.phase] || {label: x.phase}).label;
     var trab = (x.trabajos || []).map(function(t) { return limpio(t.desc); }).filter(Boolean);
+    var notasPend = (x.notasEntrega || []).map(function(n) { return limpio(n && n.texto); }).filter(Boolean);
     var quejas = (x.quejas || []).length, repro = (x.reprocesoLog || []).length;
     var monto = Number(x.montoFacturadoTotal || x.montoTotal || 0);
     // Mano de obra facturada: mismo criterio que el total (monto congelado si la orden quedo "Ya facturada").
@@ -10606,6 +10609,11 @@ function _histVehiculoHtml(o, lista, completo) {
       '<div style="font-size:12px;margin-bottom:5px">' + (x.desc ? limpio(x.desc) : '—') + '</div>' +
       '<div style="font-size:11px;font-weight:700;color:var(--gn);margin-bottom:2px">Trabajos realizados</div>' +
       '<div style="font-size:12px">' + (trab.length ? trab.join('<br>') : '—') + '</div>' +
+      // Pendientes de esa visita (18 nov 2026, pedido de Byron): las Notas de entrega (las que genera solo el
+      // Cotizador con los puntos no autorizados y las escritas a mano) para tomarlas en cuenta en la nueva visita.
+      // Las ven todos los roles que pueden abrir este reporte; son texto, nunca llevan montos.
+      (notasPend.length ? '<div style="font-size:11px;font-weight:700;color:var(--or);margin:6px 0 2px">Quedo pendiente (notas de entrega)</div>' +
+        '<div style="font-size:12px">' + notasPend.join('<br>') + '</div>' : '') +
       (verMas ? '<div style="font-size:10px;color:var(--tx3);margin-top:5px;line-height:1.6">Tecnico: ' + esc(x.tech || '—') + (x.tech2 ? ' + ' + esc(x.tech2) : '') +
         (quejas ? ' &middot; <span style="color:#D4537E">' + quejas + ' queja(s)</span>' : '') + (repro ? ' &middot; <span style="color:var(--rd)">' + repro + ' reproceso(s)</span>' : '') +
         (_puedeVerMontos() && monto ? ' &middot; Total Q.' + monto.toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '') +
