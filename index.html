@@ -1805,7 +1805,7 @@ function doLogin(rk) {
   // ni a los tecnicos verla.
   document.getElementById('btn-cap').style.display = (rk === 'jefe' || rk === 'asesor') ? 'inline-flex' : 'none';
   document.getElementById('btn-export').style.display = (rk === 'jefe') ? 'inline-flex' : 'none';
-  document.getElementById('btn-sigs').style.display = (rk !== 'lavador') ? 'inline-flex' : 'none';
+  document.getElementById('btn-sigs').style.display = (rk !== 'lavador' && rk !== 'jefe') ? 'inline-flex' : 'none';
   var srchTecEl = document.getElementById('srch-tec');
   if (srchTecEl) srchTecEl.style.display = (r && r.tec) ? 'none' : '';
   // Deja la "x" de limpiar en el estado que corresponda al texto que haya
