@@ -4178,6 +4178,7 @@ function openDrw(id) {
       productividadOrdenHtml += '<div class="irow"><span class="ik">% Productividad</span><span style="color:' + pctProdOrdenColorInfo + ';font-weight:700">' + pctProdOrdenRounded + '%</span></div>';
     }
     productividadOrdenHtml += _horasPorTecnicoHtml(o);
+    productividadOrdenHtml += _horasMesBtnHtml(o);
   }
   // Enlace a la orden en Clear Mechanic (recepcion, reporte de fallas del
   // tecnico, presupuesto enviado) — pedido de Byron (30 sep 2026): antes
@@ -6031,6 +6032,21 @@ function openDrw(id) {
         save(); openDrw(id);
       });
     })(pagTrabBtns[pgi]);
+  }
+  var horasMesBtns = body.querySelectorAll('.btn-horas-mes');
+  for (var hmi = 0; hmi < horasMesBtns.length; hmi++) {
+    horasMesBtns[hmi].addEventListener('click', function() {
+      if (role !== 'jefe') { toast('Solo el Jefe de taller puede hacer esto'); return; }
+      var ox = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+      if (!ox) return;
+      var nuevo = _pedirHorasTrabMes(ox);
+      if (nuevo === null) return;
+      ox.horasTrabMes = nuevo;
+      ox.msgs = ox.msgs || [];
+      ox.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:'Horas trabajadas por mes ajustadas a mano: ' + esc(JSON.stringify(nuevo)), ts:Date.now(), type:'system'});
+      save(); toast('Horas guardadas'); openDrw(id);
+    });
   }
   var comesTrabBtns = body.querySelectorAll('.btn-trab-comes');
   for (var cmi = 0; cmi < comesTrabBtns.length; cmi++) {
@@ -13722,20 +13738,65 @@ function _comisionMesDifiere(tw) {
 }
 // {entra: horas de comision de este tecnico con comisionTs EN ese mes, sale: las que tienen comisionTs en OTRO mes}
 function _comisionAdelantada(o, tecName, yearTarget, monthTarget) {
-  var entra = 0, sale = 0;
+  var entra = 0, sale = 0, reEntra = 0, reSale = 0;
+  // Horas TRABAJADAS escritas a mano por mes (o.horasTrabMes = {"2026-08": {tecnico: horas}}), 20 nov 2026
+  var hm = o.horasTrabMes || {}, ymT = yearTarget + '-' + (monthTarget < 9 ? '0' : '') + (monthTarget + 1);
+  Object.keys(hm).forEach(function(ym) {
+    var v = parseFloat(hm[ym] && hm[ym][tecName]);
+    if (!(v >= 0) || isNaN(v)) return;
+    if (ym === ymT) reEntra += v; else reSale += v;
+  });
   (o.trabajos || []).forEach(function(tw) {
     if (!tw.comisionTs || tw.tecnico !== tecName) return;
     var h = parseFloat(tw.horas) || 0, d = new Date(tw.comisionTs);
     if (d.getFullYear() === yearTarget && d.getMonth() === monthTarget) entra += h; else sale += h;
   });
-  return {entra: entra, sale: sale};
+  return {entra: entra, sale: sale, reEntra: reEntra, reSale: reSale};
+}
+function _mesLargoYm(ym) {
+  var p = ym.split('-');
+  return new Date(parseInt(p[0]), parseInt(p[1]) - 1, 1).toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+}
+// Boton (solo Jefe) para escribir las horas trabajadas de cada mes en ordenes con comision movida de mes
+function _horasMesBtnHtml(o) {
+  if (role !== 'jefe') return '';
+  var hay = (o.trabajos || []).some(function(tw) { return tw.comisionTs; });
+  if (!hay) return '';
+  var hm = o.horasTrabMes || {}, n = Object.keys(hm).length;
+  return '<div class="irow"><span class="ik">&#9201; Horas trabajadas por mes</span><button class="btn-horas-mes" data-oid="' + o.id + '" style="font-size:10px;padding:2px 9px;border-radius:8px;cursor:pointer;border:1px solid ' + (n ? 'var(--gn)' : 'var(--bd)') + ';background:' + (n ? 'var(--gnbg)' : 'none') + ';color:' + (n ? 'var(--gn)' : 'var(--tx2)') + '">' + (n ? '&#10003; Escritas (editar)' : 'Escribir') + '</button></div>';
+}
+function _pedirHorasTrabMes(o) {
+  var meses = {};
+  (o.trabajos || []).forEach(function(tw) {
+    if (!tw.comisionTs || !tw.tecnico) return;
+    var d = new Date(tw.comisionTs), ym = d.getFullYear() + '-' + (d.getMonth() < 9 ? '0' : '') + (d.getMonth() + 1);
+    meses[ym] = meses[ym] || {}; meses[ym][tw.tecnico] = true;
+  });
+  var nuevo = JSON.parse(JSON.stringify(o.horasTrabMes || {}));
+  var claves = Object.keys(meses).sort();
+  for (var i = 0; i < claves.length; i++) {
+    var tecs = Object.keys(meses[claves[i]]);
+    for (var j = 0; j < tecs.length; j++) {
+      var act = nuevo[claves[i]] && nuevo[claves[i]][tecs[j]] != null ? String(nuevo[claves[i]][tecs[j]]).replace('.', ',') : '';
+      var r = prompt('Horas TRABAJADAS de ' + tecs[j] + ' en ' + _mesLargoYm(claves[i]) + ' (orden ' + o.ot + ')\n\nEs lo que contara como "Hrs. Trabajando" de ese mes; se resta del mes de cierre. Deja vacio para no usar esto en este tecnico.', act);
+      if (r === null) return null;
+      r = r.trim();
+      if (r === '') { if (nuevo[claves[i]]) delete nuevo[claves[i]][tecs[j]]; continue; }
+      var v = parseFloat(r.replace(',', '.'));
+      if (isNaN(v) || v < 0) { toast('Numero no valido: ' + r); return null; }
+      nuevo[claves[i]] = nuevo[claves[i]] || {};
+      nuevo[claves[i]][tecs[j]] = v;
+    }
+  }
+  Object.keys(nuevo).forEach(function(k) { if (!Object.keys(nuevo[k]).length) delete nuevo[k]; });
+  return nuevo;
 }
 function _tecOrdenCuentaEnMes(o, tecName, yearTarget, monthTarget) {
   var r = _tecOrdenCuentaEnMesBase(o, tecName, yearTarget, monthTarget);
   var ca = _comisionAdelantada(o, tecName, yearTarget, monthTarget);
-  if (r === null) return ca.entra > 0 ? {real: 0, flat: ca.entra, abVeces: 0} : null;
-  if (ca.sale <= 0) return r;
-  return {real: r.real, flat: Math.max(0, r.flat - ca.sale), abVeces: r.abVeces};
+  if (r === null) return (ca.entra > 0 || ca.reEntra > 0) ? {real: ca.reEntra, flat: ca.entra, abVeces: 0} : null;
+  if (ca.sale <= 0 && ca.reSale <= 0) return r;
+  return {real: Math.max(0, r.real - ca.reSale), flat: Math.max(0, r.flat - ca.sale), abVeces: r.abVeces};
 }
 function _tecOrdenCuentaEnMesBase(o, tecName, yearTarget, monthTarget) {
   if (o.tech !== tecName && o.tech2 !== tecName && (o.tecnicosApoyo||[]).indexOf(tecName) === -1) return null;
@@ -15941,11 +16002,11 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
     // solo el tramo "en vivo" (closeTs/currentHoras) sigue exigiendo que la
     // orden siga Cerrada ahora mismo.
     var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
-    var eventInMonth = false, flatO = 0;
+    var eventInMonth = false, flatO = 0, realO = 0;
     if (frozenHoras) {
       var fd = new Date(o.horasFacturadoSnapshot.ts);
       if (fd.getFullYear() === yearTarget && fd.getMonth() === monthTarget) {
-        real += frozenHoras.real; flatO += frozenHoras.flat; abVeces += frozenHoras.abVeces;
+        realO += frozenHoras.real; flatO += frozenHoras.flat; abVeces += frozenHoras.abVeces;
         eventInMonth = true;
       }
     }
@@ -15955,7 +16016,7 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
         var currentHoras = calcTecHoras(o, tecName);
         var cd = new Date(closeTs);
         if (cd.getFullYear() === yearTarget && cd.getMonth() === monthTarget) {
-          real += currentHoras.real - (frozenHoras ? frozenHoras.real : 0);
+          realO += currentHoras.real - (frozenHoras ? frozenHoras.real : 0);
           flatO += currentHoras.flat - (frozenHoras ? frozenHoras.flat : 0);
           abVeces += currentHoras.abVeces - (frozenHoras ? frozenHoras.abVeces : 0);
           eventInMonth = true;
@@ -15963,9 +16024,9 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
       }
     }
     var caM = _comisionAdelantada(o, tecName, yearTarget, monthTarget);
-    if (eventInMonth) { flatO = Math.max(0, flatO - caM.sale); }
-    else if (caM.entra > 0) { flatO = caM.entra; eventInMonth = true; }
-    flat += flatO;
+    if (eventInMonth) { flatO = Math.max(0, flatO - caM.sale); realO = Math.max(0, realO - caM.reSale); }
+    else if (caM.entra > 0 || caM.reEntra > 0) { flatO = caM.entra; realO = caM.reEntra; eventInMonth = true; }
+    flat += flatO; real += realO;
     if (eventInMonth) count++;
   }
   return {real: real, flat: flat, count: count, abVeces: abVeces, pct: real > 0 ? Math.round(flat / real * 100) : null};
