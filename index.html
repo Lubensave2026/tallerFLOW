@@ -13840,7 +13840,11 @@ function _tecOrdenCuentaEnMes(o, tecName, yearTarget, monthTarget) {
   var ca = _comisionAdelantada(o, tecName, yearTarget, monthTarget);
   if (r === null) return (ca.entra > 0 || ca.reEntra > 0) ? {real: ca.reEntra, flat: ca.entra, abVeces: 0} : null;
   if (ca.sale <= 0 && ca.reSale <= 0) return r;
-  return {real: Math.max(0, r.real - ca.reSale), flat: Math.max(0, r.flat - ca.sale), abVeces: r.abVeces};
+  // Con "Ya facturada": lo movido de mes sale solo del tramo posterior al congelamiento (lo que se
+  // trabajo/pago DESPUES), nunca de lo ya congelado en su mes (20 nov 2026, orden 5301).
+  if (r.soloCongelado) return r;
+  var dR = r.deltaReal != null ? r.deltaReal : r.real, dF = r.deltaFlat != null ? r.deltaFlat : r.flat;
+  return {real: Math.max(0, r.real - Math.min(ca.reSale, dR)), flat: Math.max(0, r.flat - Math.min(ca.sale, dF)), abVeces: r.abVeces};
 }
 function _tecOrdenCuentaEnMesBase(o, tecName, yearTarget, monthTarget) {
   if (o.tech !== tecName && o.tech2 !== tecName && (o.tecnicosApoyo||[]).indexOf(tecName) === -1) return null;
@@ -13874,9 +13878,9 @@ function _tecOrdenCuentaEnMesBase(o, tecName, yearTarget, monthTarget) {
     abVeces: Math.max(0, (live.abVeces || 0) - (frozenHoras.abVeces || 0))
   };
   if (frozenEnMes && cierreEnMes) {
-    return {real: frozenHoras.real + delta.real, flat: frozenHoras.flat + delta.flat, abVeces: (frozenHoras.abVeces || 0) + delta.abVeces};
+    return {real: frozenHoras.real + delta.real, flat: frozenHoras.flat + delta.flat, abVeces: (frozenHoras.abVeces || 0) + delta.abVeces, deltaReal: delta.real, deltaFlat: delta.flat};
   }
-  if (frozenEnMes) return frozenHoras;
+  if (frozenEnMes) return {real: frozenHoras.real, flat: frozenHoras.flat, abVeces: frozenHoras.abVeces || 0, soloCongelado: true};
   return delta;
 }
 
@@ -16047,11 +16051,11 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
     // solo el tramo "en vivo" (closeTs/currentHoras) sigue exigiendo que la
     // orden siga Cerrada ahora mismo.
     var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
-    var eventInMonth = false, flatO = 0, realO = 0;
+    var eventInMonth = false, flatO = 0, realO = 0, flatF = 0, realF = 0;
     if (frozenHoras) {
       var fd = new Date(o.horasFacturadoSnapshot.ts);
       if (fd.getFullYear() === yearTarget && fd.getMonth() === monthTarget) {
-        realO += frozenHoras.real; flatO += frozenHoras.flat; abVeces += frozenHoras.abVeces;
+        realF += frozenHoras.real; flatF += frozenHoras.flat; abVeces += frozenHoras.abVeces;
         eventInMonth = true;
       }
     }
@@ -16071,7 +16075,7 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
     var caM = _comisionAdelantada(o, tecName, yearTarget, monthTarget);
     if (eventInMonth) { flatO = Math.max(0, flatO - caM.sale); realO = Math.max(0, realO - caM.reSale); }
     else if (caM.entra > 0 || caM.reEntra > 0) { flatO = caM.entra; realO = caM.reEntra; eventInMonth = true; }
-    flat += flatO; real += realO;
+    flat += flatO + flatF; real += realO + realF;
     if (eventInMonth) count++;
   }
   return {real: real, flat: flat, count: count, abVeces: abVeces, pct: real > 0 ? Math.round(flat / real * 100) : null};
