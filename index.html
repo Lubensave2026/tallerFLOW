@@ -5289,6 +5289,7 @@ function openDrw(id) {
         ' · ' + msgTs(tw.ts) + (tw.verificado ? ' · <span style="color:var(--gn)">&#10003; Realizado</span>' : '') +
         ((parseFloat(tw.tiempoEstimado) || 0) > 0 ? ' · Tiempo estimado ' + parseFloat(tw.tiempoEstimado).toFixed(2).replace('.', ',') + ' hrs' : '') +
         (verPagado && tw.pagadoTs ? ' · <span style="color:var(--gn);font-weight:700">&#128176; Pagado ' + _fmtPagadoFecha(tw.pagadoTs) + '</span>' : '') +
+        (role === 'jefe' && tw.pagadoTs && _comisionMesDifiere(tw) ? ' <button class="btn-trab-comes" data-ti="' + twi2 + '" title="La comision de esta linea cuenta en el mes de su fecha de pago, no en el mes en que cierra la orden" style="font-size:10px;padding:1px 7px;border-radius:8px;cursor:pointer;border:1px solid ' + (tw.comisionTs ? 'var(--gn)' : 'var(--bd)') + ';background:' + (tw.comisionTs ? 'var(--gnbg)' : 'none') + ';color:' + (tw.comisionTs ? 'var(--gn)' : 'var(--tx3)') + '">' + (tw.comisionTs ? '&#10003; Comision en ' : 'Contar comision en ') + _mesCortoTs(tw.pagadoTs) + '</button>' : '') +
       '</div>' +
     '</div>';
   }
@@ -6016,7 +6017,7 @@ function openDrw(id) {
         var whoP = ROLES[role] ? ROLES[role].label : role;
         ox.msgs = ox.msgs || [];
         if (twp.pagadoTs) {
-          delete twp.pagadoTs;
+          delete twp.pagadoTs; delete twp.comisionTs;
           ox.msgs.push({who:whoP, txt:'&#128176; Se quito la marca de pagado: "' + esc(twp.desc) + '"', ts:Date.now(), type:'system'});
         } else {
           var hoyTxt = new Date().toLocaleDateString('es-GT', {day:'2-digit',month:'2-digit',year:'numeric'});
@@ -6030,6 +6031,29 @@ function openDrw(id) {
         save(); openDrw(id);
       });
     })(pagTrabBtns[pgi]);
+  }
+  var comesTrabBtns = body.querySelectorAll('.btn-trab-comes');
+  for (var cmi = 0; cmi < comesTrabBtns.length; cmi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        if (role !== 'jefe') { toast('Solo el Jefe de taller puede hacer esto'); return; }
+        var tic = parseInt(this.getAttribute('data-ti'));
+        var ox = null;
+        for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { ox = orders[i]; break; } }
+        if (!ox || !ox.trabajos || !ox.trabajos[tic] || !ox.trabajos[tic].pagadoTs) return;
+        var twc = ox.trabajos[tic];
+        ox.msgs = ox.msgs || [];
+        var whoC = ROLES[role] ? ROLES[role].label : role;
+        if (twc.comisionTs) {
+          delete twc.comisionTs;
+          ox.msgs.push({who:whoC, txt:'La comision de "' + esc(twc.desc) + '" vuelve a contar en el mes de cierre de la orden', ts:Date.now(), type:'system'});
+        } else {
+          twc.comisionTs = twc.pagadoTs;
+          ox.msgs.push({who:whoC, txt:'La comision de "' + esc(twc.desc) + '" (' + (parseFloat(twc.horas) || 0).toFixed(2).replace('.', ',') + ' hrs com.) cuenta en ' + _mesCortoTs(twc.pagadoTs) + ', el mes de su pago', ts:Date.now(), type:'system'});
+        }
+        save(); openDrw(id);
+      });
+    })(comesTrabBtns[cmi]);
   }
   var voboTrabBtns = body.querySelectorAll('.btn-trab-vobo');
   for (var vti = 0; vti < voboTrabBtns.length; vti++) {
@@ -13684,7 +13708,36 @@ function _horasPorTecnicoHtml(o) {
 // mes, o {real,flat,abVeces} con las horas que SI le corresponden a ese
 // mes (congeladas si hay snapshot para ese mes, o las de calcTecHoras si
 // la orden sigue cerrada ahora mismo con su cierre en ese mes).
+// Comision pagada en otro mes (20 nov 2026, pedido de Byron, orden 5149): una linea de
+// Trabajos realizados con tw.comisionTs (se activa con el boton de la linea, solo Jefe)
+// cuenta sus horas de comision en el mes de esa fecha y NO en el mes de cierre/facturacion
+// de la orden. Las horas trabajadas reales y el monto no se mueven. Sin tw.comisionTs todo
+// queda exactamente igual que antes.
+function _mesCortoTs(ts) {
+  return new Date(ts).toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+}
+function _comisionMesDifiere(tw) {
+  var d = new Date(tw.pagadoTs), n = new Date();
+  return !(d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth());
+}
+// {entra: horas de comision de este tecnico con comisionTs EN ese mes, sale: las que tienen comisionTs en OTRO mes}
+function _comisionAdelantada(o, tecName, yearTarget, monthTarget) {
+  var entra = 0, sale = 0;
+  (o.trabajos || []).forEach(function(tw) {
+    if (!tw.comisionTs || tw.tecnico !== tecName) return;
+    var h = parseFloat(tw.horas) || 0, d = new Date(tw.comisionTs);
+    if (d.getFullYear() === yearTarget && d.getMonth() === monthTarget) entra += h; else sale += h;
+  });
+  return {entra: entra, sale: sale};
+}
 function _tecOrdenCuentaEnMes(o, tecName, yearTarget, monthTarget) {
+  var r = _tecOrdenCuentaEnMesBase(o, tecName, yearTarget, monthTarget);
+  var ca = _comisionAdelantada(o, tecName, yearTarget, monthTarget);
+  if (r === null) return ca.entra > 0 ? {real: 0, flat: ca.entra, abVeces: 0} : null;
+  if (ca.sale <= 0) return r;
+  return {real: r.real, flat: Math.max(0, r.flat - ca.sale), abVeces: r.abVeces};
+}
+function _tecOrdenCuentaEnMesBase(o, tecName, yearTarget, monthTarget) {
   if (o.tech !== tecName && o.tech2 !== tecName && (o.tecnicosApoyo||[]).indexOf(tecName) === -1) return null;
   var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
   var frozenEnMes = false;
@@ -15888,11 +15941,11 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
     // solo el tramo "en vivo" (closeTs/currentHoras) sigue exigiendo que la
     // orden siga Cerrada ahora mismo.
     var frozenHoras = o.horasFacturadoSnapshot && o.horasFacturadoSnapshot.porTecnico && o.horasFacturadoSnapshot.porTecnico[tecName];
-    var eventInMonth = false;
+    var eventInMonth = false, flatO = 0;
     if (frozenHoras) {
       var fd = new Date(o.horasFacturadoSnapshot.ts);
       if (fd.getFullYear() === yearTarget && fd.getMonth() === monthTarget) {
-        real += frozenHoras.real; flat += frozenHoras.flat; abVeces += frozenHoras.abVeces;
+        real += frozenHoras.real; flatO += frozenHoras.flat; abVeces += frozenHoras.abVeces;
         eventInMonth = true;
       }
     }
@@ -15903,12 +15956,16 @@ function _calcTecHorasCerradasEnMes(tecName, yearTarget, monthTarget) {
         var cd = new Date(closeTs);
         if (cd.getFullYear() === yearTarget && cd.getMonth() === monthTarget) {
           real += currentHoras.real - (frozenHoras ? frozenHoras.real : 0);
-          flat += currentHoras.flat - (frozenHoras ? frozenHoras.flat : 0);
+          flatO += currentHoras.flat - (frozenHoras ? frozenHoras.flat : 0);
           abVeces += currentHoras.abVeces - (frozenHoras ? frozenHoras.abVeces : 0);
           eventInMonth = true;
         }
       }
     }
+    var caM = _comisionAdelantada(o, tecName, yearTarget, monthTarget);
+    if (eventInMonth) { flatO = Math.max(0, flatO - caM.sale); }
+    else if (caM.entra > 0) { flatO = caM.entra; eventInMonth = true; }
+    flat += flatO;
     if (eventInMonth) count++;
   }
   return {real: real, flat: flat, count: count, abVeces: abVeces, pct: real > 0 ? Math.round(flat / real * 100) : null};
