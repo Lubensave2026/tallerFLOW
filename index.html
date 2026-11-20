@@ -4179,6 +4179,7 @@ function openDrw(id) {
     }
     productividadOrdenHtml += _horasPorTecnicoHtml(o);
     productividadOrdenHtml += _horasMesBtnHtml(o);
+    productividadOrdenHtml += _pagoPorMesHtml(o);
   }
   // Enlace a la orden en Clear Mechanic (recepcion, reporte de fallas del
   // tecnico, presupuesto enviado) — pedido de Byron (30 sep 2026): antes
@@ -13765,6 +13766,49 @@ function _horasMesBtnHtml(o) {
   var hm = o.horasTrabMes || {}, n = Object.keys(hm).length;
   return '<div class="irow"><span class="ik">&#9201; Horas trabajadas por mes</span><button class="btn-horas-mes" data-oid="' + o.id + '" style="font-size:10px;padding:2px 9px;border-radius:8px;cursor:pointer;border:1px solid ' + (n ? 'var(--gn)' : 'var(--bd)') + ';background:' + (n ? 'var(--gnbg)' : 'none') + ';color:' + (n ? 'var(--gn)' : 'var(--tx2)') + '">' + (n ? '&#10003; Escritas (editar)' : 'Escribir') + '</button></div>';
 }
+// Registro de lo pagado en cada mes (20 nov 2026, pedido de Byron): por mes, horas trabajadas vs
+// pagadas y % de productividad, con el desglose por tecnico. Solo Jefe. Reusa _tecOrdenCuentaEnMes
+// (la misma regla del Reporte: congelado "Ya facturada", cierre y comision movida de mes), asi que
+// coincide con lo que ve el Reporte. Solo se muestra si la orden tiene 2+ meses o algun ajuste.
+function _pagoPorMesHtml(o) {
+  if (role !== 'jefe') return '';
+  var roster = [];
+  if (o.tech) roster.push(o.tech);
+  if (o.tech2) roster.push(o.tech2);
+  (o.tecnicosApoyo || []).forEach(function(nm) { if (roster.indexOf(nm) === -1) roster.push(nm); });
+  roster = roster.filter(function(nm) { return nm && nm !== TEC_EXTERNO; });
+  if (!roster.length) return '';
+  var f = function(n) { return n.toFixed(2).replace('.', ','); };
+  var pct = function(real, flat) { return real > 0 ? Math.round(flat / real * 100) : null; };
+  var ahora = new Date(), filas = [];
+  for (var back = 36; back >= 0; back--) {
+    var d = new Date(ahora.getFullYear(), ahora.getMonth() - back, 1);
+    var tr = 0, tf = 0, hay = false, det = [];
+    roster.forEach(function(nm) {
+      var r = _tecOrdenCuentaEnMes(o, nm, d.getFullYear(), d.getMonth());
+      if (!r) return;
+      hay = true; tr += r.real; tf += r.flat; det.push({n: nm, real: r.real, flat: r.flat});
+    });
+    if (hay) filas.push({d: d, real: tr, flat: tf, det: det});
+  }
+  var conAjuste = !!(o.horasFacturadoSnapshot || o.horasTrabMes || (o.trabajos || []).some(function(tw) { return tw.comisionTs; }));
+  if (!filas.length || (filas.length < 2 && !conAjuste)) return '';
+  var html = '<div class="sec-l" style="margin-top:10px;margin-bottom:4px">&#128197; Pagado por mes</div>';
+  filas.forEach(function(x) {
+    var p = pct(x.real, x.flat);
+    html += '<div class="irow"><span class="ik" style="text-transform:capitalize">' + _mesLargoYm(x.d.getFullYear() + '-' + (x.d.getMonth() < 9 ? '0' : '') + (x.d.getMonth() + 1)) + '</span>' +
+      '<span style="font-family:var(--mo)">' + f(x.real) + ' trabajadas vs ' + f(x.flat) + ' pagadas' +
+      (p !== null ? ' = <b style="color:' + _productividadColor(p) + '">' + p + '%</b>' : '') + '</span></div>';
+    if (x.det.length > 1) {
+      x.det.forEach(function(t) {
+        var pt = pct(t.real, t.flat);
+        html += '<div class="irow" style="padding-left:14px"><span class="ik" style="font-size:10px">' + esc(t.n) + '</span>' +
+          '<span style="font-family:var(--mo);font-size:11px;color:var(--tx2)">' + f(t.real) + ' vs ' + f(t.flat) + (pt !== null ? ' = ' + pt + '%' : '') + '</span></div>';
+      });
+    }
+  });
+  return html;
+}
 function _pedirHorasTrabMes(o) {
   var meses = {};
   (o.trabajos || []).forEach(function(tw) {
@@ -14982,6 +15026,7 @@ function openHistDetail(o) {
     (esSegundoCierre ? '<div class="irow"><span class="ik" style="font-size:10px;color:var(--tx3)">&#8618; Cierre adicional (informativo)</span><span style="font-size:10px;color:var(--tx3)">' + fechaSegundoCierreDetail + '</span></div>' : '') +
     '<div class="irow"><span class="ik">&#128202; % Productividad</span><span style="color:' + pctProdHistColor + ';font-weight:700">' + (pctProdHistDetail !== null ? pctProdHistDetail + '%' : '—') + '</span></div>' +
     _horasPorTecnicoHtml(o) +
+    _pagoPorMesHtml(o) +
     '<div class="irow"><span class="ik">Sucursal</span><span>' + esc(o.loc||'—') + '</span></div>' +
     (o.reprocesos ? '<div class="irow"><span class="ik" style="color:#FF6B6B">&#9851; Reprocesos</span><span style="color:#FF6B6B;font-weight:600">' + o.reprocesos + '</span></div>' : '') +
     ((role === 'jefe' || role === 'asesor' || role === 'partes') ?
