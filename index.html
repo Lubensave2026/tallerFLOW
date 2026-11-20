@@ -3999,7 +3999,7 @@ function openDrw(id) {
       '<div class="drw-mo">' + esc(o.model) + ' · ' + esc(o.client) + '</div>' +
       '<div class="drw-bg">' +
         '<span class="dbg tag ' + tc + '">' + (lane ? lane.label : o.phase) + '</span>' +
-        '<span class="dbg tag ' + tc + '">' + esc(o.ot) + '</span>' +
+        '<span class="dbg tag ' + tc + '" id="drw-ot-chip" style="font-size:15px;font-weight:800;padding:2px 12px;letter-spacing:.5px">' + esc(o.ot) + '</span>' +
         prio + confirmBadge +
       '</div>' +
     '</div>' +
