@@ -3546,6 +3546,44 @@ function quitarPlantillaServicio(id) {
 // SUGERIDAS segun el tipo de vehiculo. Las sugeridas NO cuentan (tw.horas queda en 0) hasta que el Jefe las
 // confirma o las modifica. Valores: plantilla llenada por Byron (est = tiempo estimado, com = comision sugerida).
 var TIPO_VEHICULO_LABELS = {liviano:'Liviano (sedan/hatchback)', camioneta:'Camioneta/SUV/Pickup', pesado:'Pesado/Microbus'};
+
+// ---- Tarifas de comision por hora (21 nov 2026, pedido de Byron) ----------------------------
+// Precio por hora pagada segun la productividad del MES de cada tecnico (escalon INFERIOR de 5 en 5)
+// y el tipo de vehiculo: a = Asiatico/Americano, e = Europeo. Debajo de 40 % se paga parejo
+// (TARIFA_COMISION_MINIMA). Para cambiar precios, se edita SOLO esta tabla.
+var TARIFAS_COMISION = {
+  40:{a:14.73,e:14.73}, 45:{a:16,e:19}, 50:{a:17,e:20}, 55:{a:18,e:21},
+  60:{a:19,e:22}, 65:{a:20,e:23}, 70:{a:21,e:24}, 75:{a:22,e:25},
+  80:{a:23,e:26}, 85:{a:24,e:27}, 90:{a:25,e:28}, 95:{a:26,e:29}, 100:{a:27,e:30}
+};
+var TARIFA_COMISION_MINIMA = 14.73;
+var TARIFA_TIPO_LABELS = {AMY:'Asiatico / Americano', EUR:'Europeo'};
+// Marcas que se pagan como Europeo por defecto (se mira la primera palabra o el inicio de "model").
+// Es solo una sugerencia: el Jefe puede fijar el tipo de cada orden (o.tarifaTipo).
+var MARCAS_TARIFA_EUROPEA = ['ALFA ROMEO','AUDI','BMW','CITROEN','FIAT','JAGUAR','LAND ROVER','LANCIA','M. BENZ','M.BENZ','M BENZ',
+  'MERCEDES','MERCEDES-BENZ','MINI','OPEL','PEUGEOT','PORSCHE','RENAULT','SEAT','SKODA','SMART','VOLKSWAGEN','VW','VOLVO','AUSTIN-HEALEY',
+  'GOLF','JETTA','BORA','POLO','TIGUAN','PASSAT'];
+function _tarifaTipoAuto(model) {
+  var m = String(model || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  try { m = m.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+  for (var i = 0; i < MARCAS_TARIFA_EUROPEA.length; i++) {
+    var b = MARCAS_TARIFA_EUROPEA[i];
+    if (m === b || m.indexOf(b + ' ') === 0) return 'EUR';
+  }
+  return 'AMY';
+}
+// {tipo:'EUR'|'AMY', manual:true si el Jefe lo fijo en la ficha}
+function _tarifaTipoOrden(o) {
+  if (o && (o.tarifaTipo === 'EUR' || o.tarifaTipo === 'AMY')) return {tipo: o.tarifaTipo, manual: true};
+  return {tipo: _tarifaTipoAuto(o && o.model), manual: false};
+}
+// Escalon (40..100, de 5 en 5, hacia abajo) y precio por hora; menos de 40 % -> tarifa minima
+function _tarifaPorProductividad(pct, tipo) {
+  if (!(pct >= 40)) return {escalon: null, valor: TARIFA_COMISION_MINIMA};
+  var esc = Math.min(100, Math.floor(pct / 5 + 1e-9) * 5);
+  var t = TARIFAS_COMISION[esc];
+  return {escalon: esc, valor: tipo === 'EUR' ? t.e : t.a};
+}
 var PLANTILLA_OPERACION_SERVICIO = {
   servicioMenor:      {label:'05 SERVICIO MENOR',      liviano:{est:2.25,com:1.5}, camioneta:{est:2.25,com:1.5}, pesado:{est:2.5,com:1.75}},
   servicioIntermedio: {label:'06 SERVICIO INTERMEDIO', liviano:{est:4,com:3.5},    camioneta:{est:4,com:3.5},    pesado:{est:5,com:3.75}},
@@ -4273,6 +4311,12 @@ function openDrw(id) {
     ((role === 'jefe' || role === 'asesor')
       ? '<div class="irow"><span class="ik">Tipo de vehiculo</span><select id="sel-tipo-veh" class="fi" style="width:auto;padding:3px 6px;font-size:12px">' +
           Object.keys(TIPO_VEHICULO_LABELS).map(function(k) { return '<option value="' + k + '"' + ((o.tipoVehiculo || 'liviano') === k ? ' selected' : '') + '>' + TIPO_VEHICULO_LABELS[k] + '</option>'; }).join('') +
+        '</select></div>'
+      : '') +
+    (role === 'jefe'
+      ? '<div class="irow"><span class="ik" title="Define la tarifa por hora de la comision de los tecnicos en esta orden">&#128176; Tarifa de comision</span><select id="sel-tarifa-tipo" class="fi" style="width:auto;padding:3px 6px;font-size:12px">' +
+          '<option value=""' + (_tarifaTipoOrden(o).manual ? '' : ' selected') + '>Automatico (' + TARIFA_TIPO_LABELS[_tarifaTipoAuto(o.model)] + ')</option>' +
+          Object.keys(TARIFA_TIPO_LABELS).map(function(k) { return '<option value="' + k + '"' + (o.tarifaTipo === k ? ' selected' : '') + '>' + TARIFA_TIPO_LABELS[k] + '</option>'; }).join('') +
         '</select></div>'
       : '') +
     '<div class="irow"><span class="ik">&#128663; Kilometraje</span><span style="font-family:var(--mo)">' + (o.km!=null ? o.km.toLocaleString('es-GT') + ' km' : '—') + '</span></div>' +
@@ -6361,6 +6405,21 @@ function openDrw(id) {
     });
   }
 
+  var selTarifaTipo = document.getElementById('sel-tarifa-tipo');
+  if (selTarifaTipo) {
+    selTarifaTipo.addEventListener('change', function() {
+      if (role !== 'jefe') return;
+      var oT = null;
+      for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { oT = orders[i]; break; } }
+      if (!oT) return;
+      var v = this.value;
+      if (v !== '' && !TARIFA_TIPO_LABELS[v]) return;
+      if (v === '') delete oT.tarifaTipo; else oT.tarifaTipo = v;
+      oT.msgs = oT.msgs || [];
+      oT.msgs.push({who:(ROLES[role] ? ROLES[role].label : role), txt:'Tarifa de comision: ' + (v === '' ? 'automatica (' + TARIFA_TIPO_LABELS[_tarifaTipoAuto(oT.model)] + ')' : TARIFA_TIPO_LABELS[v]), ts:Date.now(), type:'system'});
+      save(); toast('Tarifa de comision actualizada'); openDrw(id);
+    });
+  }
   var selTipoVeh = document.getElementById('sel-tipo-veh');
   if (selTipoVeh) {
     selTipoVeh.addEventListener('change', function() {
@@ -8997,7 +9056,7 @@ function buildRepContent() {
       '<button onclick="volverDeVerCerradasDeTec()" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#9664; Volver a ordenes activas</button>' +
       '<button onclick="window.print()" title="Imprime esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button>' +
       '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
-      '<button onclick="exportTodosTecnicosCerradosCSV()" title="Un solo archivo con las cerradas de TODOS los tecnicos de este mes (2 filas si la orden tuvo 2 tecnicos), para filtrar despues en Excel en vez de exportar uno por uno" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar TODOS los tecnicos</button>' +
+      '<button onclick="exportTodosTecnicosCerradosCSV()" title="Un solo archivo con las cerradas de TODOS los tecnicos de este mes (2 filas si la orden tuvo 2 tecnicos), para filtrar despues en Excel en vez de exportar uno por uno" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar TODOS los tecnicos</button>' + _btnComisionesMesHtml() +
       '<span id="rep-count" style="font-size:11px;color:var(--tx3);padding:6px 0;margin-left:4px"></span>' +
     '</div>';
   } else {
@@ -9053,7 +9112,7 @@ function buildRepContent() {
       // confirmado por Byron 30 ago 2026. Asesor y Partes no ven este boton.
       : (role === 'jefe'
         ? '<button onclick="verCerradasDeTecnico()" title="Elige un tecnico en el filtro de arriba y toca aqui" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx3);cursor:pointer">&#128193; Ver cerradas de un tecnico</button>' +
-          '<button onclick="exportTodosTecnicosCerradosCSV()" title="Un solo archivo con las cerradas de TODOS los tecnicos de este mes (2 filas si la orden tuvo 2 tecnicos), para filtrar despues en Excel en vez de exportar uno por uno" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar TODOS los tecnicos</button>'
+          '<button onclick="exportTodosTecnicosCerradosCSV()" title="Un solo archivo con las cerradas de TODOS los tecnicos de este mes (2 filas si la orden tuvo 2 tecnicos), para filtrar despues en Excel en vez de exportar uno por uno" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar TODOS los tecnicos</button>' + _btnComisionesMesHtml()
         : '')) +
     '<button onclick="window.print()" title="Imprime esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg3);color:var(--tx2);cursor:pointer">&#128424; Imprimir</button>' +
     '<button onclick="exportRepGeneralCSV()" title="Descarga esta misma tabla, con los filtros que tengas puestos" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #1D6F42;background:rgba(29,111,66,.15);color:#3FBF7F;cursor:pointer;font-weight:600">&#11015; Exportar a Excel</button>' +
@@ -15822,6 +15881,132 @@ function _montosBaseOrden(o) {
     mo: Number(o.montoFacturadoTotal ? (o.montoFacturadoMO || 0) : (o.montoMO || 0))
   };
 }
+// ---- Comisiones del mes (21 nov 2026, pedido de Byron) --------------------------------------
+// Reporte de SOLO LECTURA, solo Jefe: por tecnico y orden, las horas del mes (las MISMAS que ve el
+// Reporte: _tecOrdenCuentaEnMes -> incluye Ya facturada, comision movida de mes y horas escritas a
+// mano), el tipo de tarifa de la orden, el valor por hora segun la productividad DEL MES de ese
+// tecnico y la comision (horas pagadas x valor). No descarga nada nuevo: usa orders y archived que
+// ya estan en memoria. Las tarifas salen de TARIFAS_COMISION.
+function _comisionesMesCalc(yearTarget, monthTarget) {
+  var tecs = TEC_NAMES.concat(TEC_NAMES_HISTORICOS || []);
+  var seen = {}, resultado = [];
+  var todas = orders.concat(archived || []).filter(function(o) { if (seen[o.id]) return false; seen[o.id] = true; return true; });
+  tecs.forEach(function(tecName) {
+    if (resultado.some(function(r) { return r.tec === tecName; })) return;
+    var filas = [], real = 0, flat = 0;
+    todas.forEach(function(o) {
+      var h = _tecOrdenCuentaEnMes(o, tecName, yearTarget, monthTarget);
+      if (!h) return;
+      real += h.real; flat += h.flat;
+      filas.push({o: o, real: h.real, flat: h.flat, tarifa: _tarifaTipoOrden(o)});
+    });
+    if (!filas.length) return;
+    filas.sort(function(a, b) { return (parseInt(b.o.ot || 0) || 0) - (parseInt(a.o.ot || 0) || 0); });
+    var pctMes = real > 0 ? (flat / real * 100) : NaN;
+    var tot = 0;
+    filas.forEach(function(f) {
+      var t = _tarifaPorProductividad(pctMes, f.tarifa.tipo);
+      f.valor = t.valor; f.escalon = t.escalon;
+      f.comision = Math.round(f.flat * t.valor * 100) / 100;
+      tot += f.comision;
+    });
+    resultado.push({tec: tecName, filas: filas, real: real, flat: flat, pctMes: pctMes, escalon: filas[0].escalon, comision: Math.round(tot * 100) / 100});
+  });
+  return resultado;
+}
+function _btnComisionesMesHtml() {
+  if (role !== 'jefe') return '';
+  return '<button onclick="openComisionesMes()" title="Ver en pantalla las comisiones del mes, sin descargar nada (solo lectura)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #B8860B;background:rgba(234,179,8,.15);color:#eab308;cursor:pointer;font-weight:600">&#128065; Ver comisiones</button>' +
+    '<button onclick="exportComisionesMesCSV()" title="Excel con las horas, la tarifa por hora segun la productividad del mes de cada tecnico y su comision, orden por orden (solo lectura)" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid #B8860B;background:rgba(234,179,8,.15);color:#eab308;cursor:pointer;font-weight:600">&#128178; Comisiones del mes</button>';
+}
+// Vista en pantalla (sin descargar): misma data que el Excel, reusa la ventana m-quejas. Solo Jefe.
+var _comVerOffset = 0;
+function openComisionesMes() {
+  if (role !== 'jefe') return;
+  _comVerOffset = _jefeVerCerradasDeTec ? _repProdMonthOffset : _repCerradoMonthOffset;
+  var pq = document.getElementById('quejas-panel'); if (pq) pq.style.background = 'var(--rep-panel)';
+  _pintarComisionesMes();
+  document.getElementById('m-quejas').classList.add('on');
+}
+function comisionesCambiarMes(delta) {
+  if (role !== 'jefe') return;
+  _comVerOffset = Math.max(0, _comVerOffset + delta);
+  _pintarComisionesMes();
+}
+function _pintarComisionesMes() {
+  var d = new Date(new Date().getFullYear(), new Date().getMonth() - _comVerOffset, 1);
+  var yc = d.getFullYear(), mc = d.getMonth();
+  var label = d.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+  var fq = function(n) { return 'Q.' + Number(n).toLocaleString('es-GT', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+  var f2 = function(n) { return n.toFixed(2).replace('.', ','); };
+  var res = _comisionesMesCalc(yc, mc), gran = 0;
+  document.getElementById('quejas-modal-title').textContent = '💲 Comisiones — ' + label;
+  var html = '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px">' +
+    '<button class="btn-s" style="padding:4px 12px" onclick="comisionesCambiarMes(1)">&#9664;</button>' +
+    '<b style="text-transform:capitalize">' + esc(label) + '</b>' +
+    '<button class="btn-s" style="padding:4px 12px" onclick="comisionesCambiarMes(-1)"' + (_comVerOffset === 0 ? ' disabled style="opacity:.4;padding:4px 12px"' : '') + '>&#9654;</button></div>';
+  if (!res.length) {
+    html += '<div style="text-align:center;color:var(--tx3);padding:18px">Ningun tecnico tiene ordenes en este mes.</div>';
+  }
+  res.forEach(function(r) {
+    gran += r.comision;
+    var pctTxt = isNaN(r.pctMes) ? '—' : r.pctMes.toFixed(1).replace('.', ',') + '%';
+    html += '<details style="border:1px solid var(--bd);border-radius:8px;margin-bottom:8px;background:var(--bg3)"><summary style="cursor:pointer;padding:8px 10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+      '<span><b>' + esc(r.tec) + '</b> <span style="font-size:11px;color:var(--tx3)">' + f2(r.flat) + ' pag. / ' + f2(r.real) + ' trab. = ' + pctTxt + ' &middot; escalon ' + (r.escalon === null ? 'menos de 40%' : r.escalon + '%') + '</span></span>' +
+      '<b style="font-family:var(--mo);color:var(--gn)">' + fq(r.comision) + '</b></summary><div style="padding:4px 8px 8px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">' +
+      '<tr style="color:var(--tx3);text-align:right"><th style="text-align:left">OR</th><th style="text-align:left">Vehiculo</th><th>Tarifa</th><th>Pag.</th><th>Q/h</th><th>Comision</th></tr>' +
+      r.filas.map(function(fl) {
+        return '<tr style="border-top:1px solid var(--bd);text-align:right"><td style="text-align:left">' + esc(fl.o.ot || '') + '</td><td style="text-align:left">' + esc(fl.o.model || '') + ' <span style="color:var(--tx3)">' + esc(fl.o.plate || '') + '</span></td>' +
+          '<td>' + (fl.tarifa.tipo === 'EUR' ? 'EUR' : 'AMY') + (fl.tarifa.manual ? ' &#9998;' : '') + '</td><td style="font-family:var(--mo)">' + f2(fl.flat) + '</td><td style="font-family:var(--mo)">' + f2(fl.valor) + '</td><td style="font-family:var(--mo)">' + f2(fl.comision) + '</td></tr>';
+      }).join('') + '</table></div></details>';
+  });
+  if (res.length) {
+    html += '<div style="display:flex;justify-content:space-between;padding:8px 10px;font-weight:700;border-top:2px solid var(--bd)"><span>TOTAL</span><span style="font-family:var(--mo);color:var(--gn)">' + fq(Math.round(gran * 100) / 100) + '</span></div>' +
+      '<div style="text-align:center;margin-top:8px"><button class="btn-s" style="padding:6px 14px;font-size:12px" onclick="_exportComisionesCSV(' + yc + ',' + mc + ')">&#11015; Descargar Excel de este mes</button></div>';
+  }
+  html += '<div style="font-size:10px;color:var(--tx3);margin-top:10px;line-height:1.4">Vista de consulta: se recalcula al abrirla y cambia si se agregan horas o se cambia el tipo de tarifa (&#9998; = fijado a mano en la ficha). Para el dato oficial, descarga el Excel al cierre del mes.</div>';
+  document.getElementById('quejas-body').innerHTML = html;
+}
+function exportComisionesMesCSV() {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar esto'); return; }
+  var monthOffsetAUsar = _jefeVerCerradasDeTec ? _repProdMonthOffset : _repCerradoMonthOffset;
+  var d = new Date(new Date().getFullYear(), new Date().getMonth() - monthOffsetAUsar, 1);
+  _exportComisionesCSV(d.getFullYear(), d.getMonth());
+}
+function _exportComisionesCSV(yc, mc) {
+  if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar esto'); return; }
+  var monthLabel = new Date(yc, mc, 1).toLocaleDateString('es-GT', {month:'long', year:'numeric'});
+  var res = _comisionesMesCalc(yc, mc);
+  if (!res.length) { toast('Ningun tecnico tiene ordenes en ' + monthLabel); return; }
+  var pct1 = function(n) { return isNaN(n) ? '' : n.toFixed(1).replace('.', ',') + '%'; };
+  var rows = [['Tecnico','OR #','Ingreso','Estatus','Cliente','Vehiculo','Placa','Tipo de tarifa','Tipo fijado','Hrs. En Proceso','Hrs. Pagadas','% Productividad orden','% Productividad del mes','Escalon','Valor hora','Comision']];
+  var nFilas = 0;
+  res.forEach(function(r) {
+    r.filas.forEach(function(f) {
+      var o = f.o, pc = PHASE_COLORS[o.phase] || {label: o.phase};
+      var fecha = o.cat ? new Date(o.cat).toLocaleDateString('es-GT', {day:'2-digit', month:'2-digit', year:'numeric'}) : '';
+      rows.push([r.tec, o.ot || '', fecha, pc.label || o.phase, o.client || '', o.model || '', o.plate || '',
+        TARIFA_TIPO_LABELS[f.tarifa.tipo], f.tarifa.manual ? 'Manual' : 'Automatico',
+        _csvNum(f.real.toFixed(2)), _csvNum(f.flat.toFixed(2)),
+        f.real > 0 ? Math.round(f.flat / f.real * 100) + '%' : '', pct1(r.pctMes),
+        f.escalon === null ? 'Menos de 40%' : f.escalon + '%', _csvNum(f.valor.toFixed(2)), _csvNum(f.comision.toFixed(2))]);
+      nFilas++;
+    });
+  });
+  // Resumen aparte (bloque con su propio encabezado, para no mezclar totales con las filas de ordenes)
+  rows.push([]);
+  rows.push(['RESUMEN DEL MES','Hrs. En Proceso','Hrs. Pagadas','% Productividad','Escalon','Total comision']);
+  var granTotal = 0;
+  res.forEach(function(r) {
+    granTotal += r.comision;
+    rows.push([r.tec, _csvNum(r.real.toFixed(2)), _csvNum(r.flat.toFixed(2)), pct1(r.pctMes), r.escalon === null ? 'Menos de 40%' : r.escalon + '%', _csvNum(r.comision.toFixed(2))]);
+  });
+  rows.push(['TOTAL','','','','', _csvNum((Math.round(granTotal * 100) / 100).toFixed(2))]);
+  var csv = rows.map(function(rr) { return rr.map(_csvCell).join(CSV_DELIM); }).join(String.fromCharCode(13, 10));
+  _downloadCSV(csv, 'tallerflow_comisiones_' + monthLabel.replace(/ /g, '_') + '_' + _todayKey() + '.csv');
+  toast('Comisiones de ' + monthLabel + ': ' + nFilas + ' fila(s), ' + res.length + ' tecnico(s)');
+}
+
 function exportTodosTecnicosCerradosCSV() {
   if (role !== 'jefe') { toast('Solo el Jefe de taller puede exportar esto'); return; }
   // Dentro de "Cerradas de un tecnico" (_jefeVerCerradasDeTec activo) las
